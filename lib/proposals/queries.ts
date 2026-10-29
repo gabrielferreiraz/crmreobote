@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
-import { scopeWhere, type DealScope } from "@/lib/team-scope";
+import { type DealScope } from "@/lib/team-scope";
+import { dealScopeWhere } from "@/lib/deals/split";
 import { PROPOSAL_INCLUDE, serializeProposal } from "./serialize";
 import type { ProposalDTO, ProposalPrintData } from "./types";
 
@@ -36,10 +37,12 @@ export async function getProposalPrintData(
   id: string,
 ): Promise<ProposalPrintData | null> {
   const row = await prisma.proposal.findFirst({
-    where: { id, organizationId, deal: { organizationId, ...scopeWhere(scope) } },
+    where: { id, organizationId, deal: { organizationId, ...dealScopeWhere(scope) } },
     include: {
       createdBy: { select: { name: true, email: true } },
       sentBy: { select: { name: true, email: true } },
+      // A tabela de cotas é impressa no documento — ver ProposalQuota no schema.
+      quotas: { orderBy: { position: "asc" } },
       organization: { select: { name: true } },
       deal: {
         select: {

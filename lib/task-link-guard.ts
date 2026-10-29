@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
-import { getDealScope, scopeWhere } from "@/lib/team-scope";
+import { getDealScope } from "@/lib/team-scope";
+import { dealScopeWhere } from "@/lib/deals/split";
 import { getSharedScope } from "@/lib/share-groups";
 
 /**
@@ -42,7 +43,7 @@ export async function validateTaskLinks(input: TaskLinkInput): Promise<TaskLinkR
   if (input.dealId) {
     const scope = await getSharedScope(organizationId, userId, role, "shareDeals");
     deal = await prisma.deal.findFirst({
-      where: { id: input.dealId, organizationId, ...scopeWhere(scope) },
+      where: { id: input.dealId, organizationId, ...dealScopeWhere(scope) },
       select: { id: true, ownerId: true, contactId: true },
     });
     if (!deal) return { ok: false, error: "Negócio inválido" };

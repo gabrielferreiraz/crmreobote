@@ -11,6 +11,7 @@
  */
 
 import { getBrazilParts } from "@/lib/timezone";
+import { splitCentsByPercent } from "@/lib/deals/split-shares";
 
 export type Modality = "FULL" | "REDUCED";
 export type BeneficiaryRole = "SELLER" | "SUPERVISOR" | "MANAGER";
@@ -236,7 +237,28 @@ export type SaleLike = {
   grossValue: number | null;
   /** Parcela (mensalidade) que o cliente paga — só pra administradora em "% da parcela do cliente". */
   clientInstallment: number | null;
+  /**
+   * Divisão do vendedor entre co-responsáveis (soma 100, inclui o vendedor
+   * principal) — ver DealParticipant/CommissionSaleShare. Ausente/vazio = 100%
+   * pro sellerId, que é o caso de toda venda que não foi dividida.
+   */
+  sellerShares?: { userId: string; percent: number }[] | null;
 };
+
+/** Quem divide a parte do vendedor e quanto cada um leva; sem divisão válida, só o vendedor principal com 100%. */
+export function sellerSharesOf(sale: Pick<SaleLike, "sellerId" | "sellerShares">): { userId: string; percent: number }[] {
+  const shares = sale.sellerShares;
+  if (!shares || shares.length < 2) return [{ userId: sale.sellerId, percent: 100 }];
+  const total = shares.reduce((sum, s) => sum + s.percent, 0);
+  const valid =
+    total === 100 &&
+    shares.every((s) => Number.isInteger(s.percent) && s.percent >= 1) &&
+    new Set(shares.map((s) => s.userId)).size === shares.length &&
+    shares.some((s) => s.userId === sale.sellerId);
+  if (!valid) return [{ userId: sale.sellerId, percent: 100 }];
+  // Vendedor principal primeiro (desempata o centavo que sobra).
+  return [...shares].sort((a, b) => Number(b.userId === sale.sellerId) - Number(a.userId === sale.sellerId));
+}
 
 /** Uma parcela do que a CORRETORA recebe da administradora. */
 export type RevenueInstallment = {
@@ -380,10 +402,14 @@ export function buildSaleSchedule(
   const revenueByNumber = new Map(revenue.map((r) => [r.installmentNumber, r.amountCents]));
   const weights = revenueTotal > 0 ? mask.map((m, i) => (m ? (revenueByNumber.get(i + 1) ?? 0) : 0)) : mask;
 
+  const sellerShares = sellerSharesOf(sale);
+  const sellerIds = new Set(sellerShares.map((x) => x.userId));
+
   for (const role of BENEFICIARY_ROLES) {
     const beneficiaryId = beneficiaryFor(sale, role);
     if (!beneficiaryId) continue;
-    if (role !== "SELLER" && beneficiaryId === sale.sellerId) continue;
+    // Quem já vendeu (qualquer um dos vendedores) não recebe de novo como líder.
+    if (role !== "SELLER" && sellerIds.has(beneficiaryId)) continue;
 
     const rule = pickRule(rules, {
       role,
@@ -417,23 +443,33 @@ export function buildSaleSchedule(
       const baseCents = Math.round(baseValue * 100);
       parts = splitByWeights(Math.round((baseCents * rule.percent) / 100), weights);
     }
-    parts.forEach((amountCents, index) => {
-      // Parcela sem comissão (peso 0) não vira linha nenhuma — o consultor
-      // não vê um "R$ 0,00" naquele mês, só o mês sem nada.
-      if (amountCents <= 0) return;
-      installments.push({
-        role,
-        beneficiaryId,
-        installmentNumber: index + 1,
-        installmentCount: count,
-        paymentMonth: addMonths(first, index),
-        amountCents,
-        percent: rule.percent,
-        ruleId: rule.id,
-        // Só a parte do VENDEDOR: é ele que a administradora paga direto
-        // (pedido original: "a Servopa paga diretamente eles"); comissão de
-        // liderança continua saindo da corretora.
-        paidByAdministrator: role === "SELLER" && administrator.paysSellerDirectly,
+    // Só o vendedor pode ser dividido; supervisor/gerente recebem sozinhos (100%).
+    const recipients = role === "SELLER" ? sellerShares : [{ userId: beneficiaryId, percent: 100 }];
+    const splitParts = parts.map((cents) => splitCentsByPercent(cents, recipients));
+    recipients.forEach((recipient, recipientIndex) => {
+      // Dividido: o % que vale pra ESSA pessoa é a parte dela do % da regra
+      // (1,5% da regra, 50% dela = 0,75% do valor da venda).
+      const effectivePercent =
+        recipients.length > 1 ? Math.round(rule.percent * recipient.percent * 100) / 10000 : rule.percent;
+      splitParts.forEach((byRecipient, index) => {
+        const amountCents = byRecipient[recipientIndex];
+        // Parcela sem comissão (peso 0) não vira linha nenhuma — o consultor
+        // não vê um "R$ 0,00" naquele mês, só o mês sem nada.
+        if (amountCents <= 0) return;
+        installments.push({
+          role,
+          beneficiaryId: recipient.userId,
+          installmentNumber: index + 1,
+          installmentCount: count,
+          paymentMonth: addMonths(first, index),
+          amountCents,
+          percent: effectivePercent,
+          ruleId: rule.id,
+          // Só a parte do VENDEDOR: é ele que a administradora paga direto
+          // (pedido original: "a Servopa paga diretamente eles"); comissão de
+          // liderança continua saindo da corretora.
+          paidByAdministrator: role === "SELLER" && administrator.paysSellerDirectly,
+        });
       });
     });
   }

@@ -15,6 +15,7 @@ import { recordUserChange } from "@/lib/user-activity";
 import { recordUndoableAction } from "@/lib/undo/record";
 import type { DeleteSnapshotPayload, FieldUpdatePayload } from "@/lib/undo/types";
 import { enqueueWebhookEvent } from "@/lib/webhooks/enqueue";
+import { isCoOwnerOfContact } from "@/lib/deals/split";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +30,11 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     // detalhe de um contato de outro consultor mesmo conhecendo o ID.
     const membership = await getCurrentMembership();
     const isMember = membership?.role === "MEMBER";
-    const ownerFilter = isMember ? { responsavelId: userId } : {};
+    // Co-responsável de um negócio deste cliente também abre o cliente (ver
+    // lib/deals/split.ts) — AND (nunca OR solto), pra não colidir com outro filtro.
+    const ownerFilter: Prisma.ContactWhereInput = !isMember
+      ? {}
+      : { AND: [{ OR: [{ responsavelId: userId }, { deals: { some: { participants: { some: { userId } } } } }] }] };
 
     const contact = await prisma.contact.findFirst({
       where: { id, organizationId, ...ownerFilter },
@@ -122,9 +127,21 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 
     // Se o usuário for MEMBER e o contato pertence a OUTRO consultor, continua
     // bloqueado — legitimamente não pode mexer no lead de outra pessoa.
+    // Co-responsável de um negócio deste cliente edita o cliente, mas não troca
+    // quem é o responsável por ele (isso continua do responsável principal).
+    let editingAsCoOwner = false;
     if (isMember && rawExisting.responsavelId && rawExisting.responsavelId !== userId) {
+      if (!(await isCoOwnerOfContact(organizationId, userId, id))) {
+        return NextResponse.json(
+          { error: "Sem permissão para editar", details: "Contato pertence a outro consultor.", type: "PERMISSION" },
+          { status: 403 }
+        );
+      }
+      editingAsCoOwner = true;
+    }
+    if (editingAsCoOwner && "responsavelId" in body && (responsavelId || null) !== rawExisting.responsavelId) {
       return NextResponse.json(
-        { error: "Sem permissão para editar", details: "Contato pertence a outro consultor.", type: "PERMISSION" },
+        { error: "Sem permissão para editar", details: "Só o responsável principal troca o responsável do cliente.", type: "PERMISSION" },
         { status: 403 }
       );
     }

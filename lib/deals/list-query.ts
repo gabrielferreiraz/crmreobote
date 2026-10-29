@@ -1,7 +1,8 @@
 import { Prisma } from "@/app/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { resolveAvatarUrlMap } from "@/lib/r2";
-import { scopeWhere, type DealScope } from "@/lib/team-scope";
+import { type DealScope } from "@/lib/team-scope";
+import { dealScopeWhere } from "@/lib/deals/split";
 import { classifyTaskUrgency, TASK_URGENCY_RANK } from "@/lib/task-urgency";
 
 export type EnrichedDeal = {
@@ -126,7 +127,7 @@ export function buildDealsWhere(params: DealsFilterParams): Prisma.DealWhereInpu
   // sobrescreveria o primeiro em silêncio, exatamente o mesmo bug).
   const andConditions: Prisma.DealWhereInput[] = [];
 
-  const scopeFilter = scopeWhere(scope);
+  const scopeFilter = dealScopeWhere(scope);
   const ownerFilter = ownerIds && ownerIds.length > 0 ? { ownerId: { in: ownerIds } } : null;
   if (Object.keys(scopeFilter).length > 0) andConditions.push(scopeFilter);
   if (ownerFilter) andConditions.push(ownerFilter);
@@ -333,6 +334,23 @@ const DEAL_LIST_SELECT = {
 const URGENCY_SORT_CANDIDATE_CAP = 3000;
 
 /**
+ * Desempate obrigatório de TODA listagem paginada de negócios.
+ *
+ * Nenhuma das colunas de ordenação é única: dois negócios criados no mesmo
+ * segundo, movidos de etapa na mesma importação, ou com o mesmo valor, ficam
+ * empatados — e o Postgres não promete ordem nenhuma entre linhas empatadas.
+ * Com `skip`/`take`, o mesmo negócio podia então vir na página 1 E na página
+ * 2 (e outro não vir em nenhuma): ao carregar mais no Kanban a lista ganhava
+ * duas cópias do mesmo card, e o React reclamava de chave repetida
+ * ("Encountered two children with the same key").
+ *
+ * `id` é chave primária, então basta ele no fim pra ordem virar total e a
+ * paginação parar de escorregar. Não é mudança de banco: o campo já é único,
+ * o que faltava era usá-lo na ordenação.
+ */
+const DEAL_ORDER_TIEBREAK = { id: "desc" } as const;
+
+/**
  * Sort "Urgência" (atrasada→hoje→agendada→sem-tarefa, ver lib/task-urgency.ts)
  * — Prisma não ordena por agregado de relação to-many direto, então em vez
  * de SQL cru (mesmo motivo de countDealsWithTaskByStage acima: RLS só
@@ -345,7 +363,10 @@ async function fetchDealsRawByUrgency(params: DealsFilterParams, skip: number, t
   const candidates = await prisma.deal.findMany({
     where: buildDealsWhere(params),
     select: { id: true },
-    orderBy: { stageEnteredAt: "desc" },
+    // Mesmo desempate da listagem comum: este corte de 3000 candidatos é
+    // refeito a cada página, e sem ordem total duas chamadas seguidas podiam
+    // cortar conjuntos diferentes entre os empatados em stageEnteredAt.
+    orderBy: [{ stageEnteredAt: "desc" }, DEAL_ORDER_TIEBREAK],
     take: URGENCY_SORT_CANDIDATE_CAP,
   });
   const candidateIds = candidates.map((d) => d.id);
@@ -367,7 +388,11 @@ async function fetchDealsRawByUrgency(params: DealsFilterParams, skip: number, t
       if (a.rank !== b.rank) return a.rank - b.rank;
       const at = a.dueAt ? a.dueAt.getTime() : Infinity;
       const bt = b.dueAt ? b.dueAt.getTime() : Infinity;
-      return at - bt;
+      if (at !== bt) return at - bt;
+      // Mesmo motivo do DEAL_ORDER_TIEBREAK: "sem tarefa" empata TODO mundo
+      // em rank e em dueAt (Infinity), e aí a ordem dependeria só da ordem de
+      // chegada dos candidatos — que muda entre uma página e a seguinte.
+      return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
     });
 
   const pageIds = ranked.slice(skip, skip + take).map((r) => r.id);
@@ -401,7 +426,9 @@ export async function fetchDealsList(
       : await prisma.deal.findMany({
           where: buildDealsWhere(params),
           select: DEAL_LIST_SELECT,
-          orderBy:
+          // Sempre com `id` como critério de desempate no fim (ver
+          // DEAL_ORDER_TIEBREAK).
+          orderBy: [
             // nulls: "last" nos dois sentidos — Deal.value é opcional (negócio sem valor
             // ainda definido), e sem isso o Postgres manda NULL pro topo em ORDER BY DESC
             // (padrão dele), então "maior valor primeiro" mostrava puro "—" antes de
@@ -413,6 +440,8 @@ export async function fetchDealsList(
                 : sort === "stale"
                   ? { stageEnteredAt: "asc" } // mais tempo parado primeiro
                   : { stageEnteredAt: sortDir }, // padrão de sempre — sortDir chegava até aqui mas nunca era aplicado (bug pré-existente, corrigido de passagem)
+            DEAL_ORDER_TIEBREAK,
+          ],
           skip,
           take,
         });

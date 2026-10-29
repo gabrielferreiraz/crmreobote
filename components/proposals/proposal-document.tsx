@@ -6,7 +6,13 @@ import Image from "next/image";
 import { ReoboteLogo } from "@/components/reobote-logo";
 import { formatCurrency } from "@/lib/format";
 import { proposalApi, type ProposalTemplateDTO } from "@/lib/proposals/client";
-import { creditPerQuota, formatPercent, isProposalEditable, type ProposalPrintData } from "@/lib/proposals/types";
+import {
+  creditPerQuota,
+  formatPercent,
+  isProposalEditable,
+  type ProposalPrintData,
+  type ProposalQuotaDTO,
+} from "@/lib/proposals/types";
 
 type CreditCategory = "IMOVEL" | "AUTOMOVEL" | "OUTRO";
 
@@ -19,6 +25,11 @@ type CreditCategory = "IMOVEL" | "AUTOMOVEL" | "OUTRO";
  * empilhadas na tela com sombra leve; no print quebram em páginas separadas
  * via page-break-after, ver style abaixo).
  */
+const DEFAULT_COVER_INTRO =
+  "Preparamos uma proposta personalizada para ajudar no planejamento do seu objetivo com clareza, segurança e uma leitura simples.";
+const DEFAULT_COVER_DETAILS =
+  "Na próxima página estão os valores, prazos, taxa e demais condições calculadas para esta simulação.";
+
 export function ProposalDocument({ data }: { data: ProposalPrintData }) {
   const { proposal: p } = data;
   const editable = isProposalEditable(p.status);
@@ -26,9 +37,12 @@ export function ProposalDocument({ data }: { data: ProposalPrintData }) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [displayName, setDisplayName] = useState(p.displayName ?? data.clientName);
-  const [coverIntro, setCoverIntro] = useState(p.coverIntro ?? "Preparamos uma proposta personalizada para ajudar no planejamento do seu objetivo com clareza, segurança e uma leitura simples.");
-  const [coverDetails, setCoverDetails] = useState(p.coverDetails ?? "Na próxima página estão os valores, prazos, taxa e demais condições calculadas para esta simulação.");
+  // `||` (e não `??`): propostas antigas foram gravadas com "" nestes campos, e
+  // string vazia tem que cair no padrão igual a null — senão a capa sai com
+  // "Olá, ." e sem os textos de apresentação.
+  const [displayName, setDisplayName] = useState(p.displayName || data.clientName);
+  const [coverIntro, setCoverIntro] = useState(p.coverIntro || DEFAULT_COVER_INTRO);
+  const [coverDetails, setCoverDetails] = useState(p.coverDetails || DEFAULT_COVER_DETAILS);
   const [coverImagePosition, setCoverImagePosition] = useState(p.coverImagePosition);
   const [description, setDescription] = useState(p.description);
   const [templates, setTemplates] = useState<ProposalTemplateDTO[]>([]);
@@ -59,15 +73,20 @@ export function ProposalDocument({ data }: { data: ProposalPrintData }) {
       coverIntro,
       coverDetails,
       coverImagePosition,
+      // Editar o texto do documento não mexe na composição de cotas: reenvia
+      // a mesma, senão a regravação do update apagaria a tabela da folha.
+      quotas: p.quotas.map((q) => ({ ...q, cotas: q.quotaCount })),
     });
     setSaving(false);
     if (!result.ok) {
       setError(result.error);
       return;
     }
-    setDisplayName(result.data.displayName ?? "");
-    setCoverIntro(result.data.coverIntro ?? "");
-    setCoverDetails(result.data.coverDetails ?? "");
+    // O servidor grava null quando o campo fica vazio; a tela volta ao padrão,
+    // nunca para um texto em branco.
+    setDisplayName(result.data.displayName || data.clientName);
+    setCoverIntro(result.data.coverIntro || DEFAULT_COVER_INTRO);
+    setCoverDetails(result.data.coverDetails || DEFAULT_COVER_DETAILS);
     setCoverImagePosition(result.data.coverImagePosition);
     setDescription(result.data.description);
     setSaved(true);
@@ -96,9 +115,9 @@ export function ProposalDocument({ data }: { data: ProposalPrintData }) {
   }
 
   function cancelEditing() {
-    setDisplayName(p.displayName ?? data.clientName);
-    setCoverIntro(p.coverIntro ?? "Preparamos uma proposta personalizada para ajudar no planejamento do seu objetivo com clareza, segurança e uma leitura simples.");
-    setCoverDetails(p.coverDetails ?? "Na próxima página estão os valores, prazos, taxa e demais condições calculadas para esta simulação.");
+    setDisplayName(p.displayName || data.clientName);
+    setCoverIntro(p.coverIntro || DEFAULT_COVER_INTRO);
+    setCoverDetails(p.coverDetails || DEFAULT_COVER_DETAILS);
     setCoverImagePosition(p.coverImagePosition);
     setDescription(p.description);
     setShowTemplateTools(false);
@@ -443,27 +462,46 @@ export function ProposalDocument({ data }: { data: ProposalPrintData }) {
               {/* Tabela de condições */}
               <section className="w-full">
                 <div className="mb-4 flex items-baseline justify-between">
-                  <h2 className="text-sm font-bold uppercase tracking-wider text-slate-900">Condições Planejadas</h2>
+                  <h2 className="text-sm font-bold uppercase tracking-wider text-slate-900">
+                    {p.quotas.length > 0 ? "Cotas de Bens — Servopa" : "Condições Planejadas"}
+                  </h2>
                   {data.creditType && (
                     <span className="text-[11px] font-medium uppercase tracking-wider text-slate-400">{data.creditType}</span>
                   )}
                 </div>
 
-                {/* O último filho é a parcela, que já tem fundo e barra
-                    próprios — o traço do divide-y por cima dele brigaria com
-                    a moldura do bloco. */}
-                <dl className="w-full divide-y divide-slate-100 text-sm [&>*:last-child]:border-t-0">
-                  <DetailRow label="Valor do crédito" value={formatCurrency(p.credit)} strong />
-                  <DetailRow label="Prazo total" value={`${p.termMonths} ${p.termMonths === 1 ? "mês" : "meses"}`} />
-                  <DetailRow label="Taxa" value={formatPercent(p.feePercent)} />
-                  <DetailRow label="Cotas" value={p.quotaCount > 1 ? `${p.quotaCount} de ${formatCurrency(perQuota)}` : "1 cota"} />
-                  <DetailRow
-                    label="Valor da parcela"
-                    value={formatCurrency(p.installment)}
-                    hint="Condição mensal estimada"
-                    highlight
-                  />
-                </dl>
+                {/* Proposta montada pelas tabelas mostra a composição grupo a
+                    grupo; a digitada à mão não tem cotas e segue na lista de
+                    sempre. A parcela em destaque fecha os dois casos. */}
+                {p.quotas.length > 0 ? (
+                  <>
+                    <QuotasTable quotas={p.quotas} />
+                    <dl className="mt-5 w-full text-sm">
+                      <DetailRow
+                        label="Valor da parcela"
+                        value={formatCurrency(p.installment)}
+                        hint="Soma das parcelas iniciais"
+                        highlight
+                      />
+                    </dl>
+                  </>
+                ) : (
+                  /* O último filho é a parcela, que já tem fundo e barra
+                     próprios — o traço do divide-y por cima dele brigaria com
+                     a moldura do bloco. */
+                  <dl className="w-full divide-y divide-slate-100 text-sm [&>*:last-child]:border-t-0">
+                    <DetailRow label="Valor do crédito" value={formatCurrency(p.credit)} strong />
+                    <DetailRow label="Prazo total" value={`${p.termMonths} ${p.termMonths === 1 ? "mês" : "meses"}`} />
+                    <DetailRow label="Taxa" value={formatPercent(p.feePercent)} />
+                    <DetailRow label="Cotas" value={p.quotaCount > 1 ? `${p.quotaCount} de ${formatCurrency(perQuota)}` : "1 cota"} />
+                    <DetailRow
+                      label="Valor da parcela"
+                      value={formatCurrency(p.installment)}
+                      hint="Condição mensal estimada"
+                      highlight
+                    />
+                  </dl>
+                )}
               </section>
 
               {/* Observações */}
@@ -605,6 +643,84 @@ function YoutubeIcon({ className }: { className?: string }) {
  *   o número que o cliente leva da proposta; ganha bloco próprio com a
  *   barra e o degradê em ciano
  */
+/** Dinheiro em centavos inteiros: multiplicar reais em float sobra centavo na soma. */
+function money(value: number, times = 1): number {
+  return Math.round(value * 100) * times / 100;
+}
+
+/**
+ * Taxa impressa: ADM + fundo de reserva, arredondada em 4 casas. O
+ * arredondamento não é cosmético — sem ele, 18,5 + 0,1 vira 18,600000000000001
+ * e duas cotas de taxa idêntica contariam como taxas diferentes na linha de
+ * totais.
+ */
+function taxaTotal(q: ProposalQuotaDTO): number {
+  return Math.round((q.admPercent + (q.reserveFundPercent ?? 0)) * 10_000) / 10_000;
+}
+
+/**
+ * A composição de cotas impressa — uma linha por grupo/categoria e a linha de
+ * totais, no mesmo desenho da planilha que a Reobote já usava.
+ *
+ * A "Taxa Adm." é ADM + fundo de reserva (ver ProposalQuota no schema), e a
+ * "Parcela Inicial" é a parcela da cota vezes a quantidade — nunca derivada
+ * de fórmula, porque seguro e fundo variam por grupo.
+ */
+function QuotasTable({ quotas }: { quotas: ProposalQuotaDTO[] }) {
+  const totalCredito = quotas.reduce((sum, q) => sum + money(q.creditValue, q.quotaCount), 0);
+  const totalParcela = quotas.reduce((sum, q) => sum + money(q.installment, q.quotaCount), 0);
+  const totalCotas = quotas.reduce((sum, q) => sum + q.quotaCount, 0);
+  // Prazo e taxa do TOTAIS saem da primeira cota: cada linha acima já mostra o
+  // do seu próprio grupo, então aqui é referência, não uma média de nada.
+  const first = quotas[0];
+
+  return (
+    <table className="w-full table-fixed border-collapse text-[9.5px] tabular-nums">
+      <thead>
+        <tr className="bg-[#1f3864] text-white">
+          <Th className="w-[11%]">Grupo</Th>
+          <Th className="w-[10%]">Prazo</Th>
+          <Th className="w-[13%]">Taxa Adm.</Th>
+          <Th className="w-[17%] text-right">Valor da Cota</Th>
+          <Th className="w-[19%] text-right">Soma por grupo</Th>
+          <Th className="w-[18%] text-right">Parcelas Iniciais</Th>
+          <Th className="w-[12%] text-center">qnt de cotas</Th>
+        </tr>
+      </thead>
+      <tbody>
+        {quotas.map((q, index) => (
+          <tr key={`${q.servopaTableId}-${q.category}`} className={index % 2 === 1 ? "bg-slate-50" : undefined}>
+            <Td className="font-semibold text-slate-900">{q.groupNumber}</Td>
+            <Td>{q.termMonths}</Td>
+            <Td>{formatPercent(taxaTotal(q))}</Td>
+            <Td className="text-right">{formatCurrency(q.creditValue)}</Td>
+            <Td className="text-right">{formatCurrency(money(q.creditValue, q.quotaCount))}</Td>
+            <Td className="text-right">{formatCurrency(money(q.installment, q.quotaCount))}</Td>
+            <Td className="text-center">{q.quotaCount}</Td>
+          </tr>
+        ))}
+        <tr className="bg-slate-200 font-bold text-slate-900">
+          <Td className="font-bold">TOTAIS</Td>
+          <Td className="font-bold">{first ? first.termMonths : "—"}</Td>
+          <Td className="font-bold">{first ? formatPercent(taxaTotal(first)) : "—"}</Td>
+          <Td />
+          <Td className="text-right font-bold">{formatCurrency(totalCredito)}</Td>
+          <Td className="text-right font-bold">{formatCurrency(totalParcela)}</Td>
+          <Td className="text-center font-bold">{totalCotas}</Td>
+        </tr>
+      </tbody>
+    </table>
+  );
+}
+
+function Th({ children, className = "" }: { children?: React.ReactNode; className?: string }) {
+  return <th className={`border border-slate-300 px-1.5 py-1.5 text-[9px] font-bold uppercase tracking-wide ${className}`}>{children}</th>;
+}
+
+function Td({ children, className = "" }: { children?: React.ReactNode; className?: string }) {
+  return <td className={`border border-slate-300 px-1.5 py-1.5 text-slate-700 ${className}`}>{children}</td>;
+}
+
 function DetailRow({
   label,
   value,

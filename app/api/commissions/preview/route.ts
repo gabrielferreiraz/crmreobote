@@ -3,7 +3,7 @@ import { prisma, prismaRaw } from "@/lib/prisma";
 import { runWithTenant, setTenantOnTx } from "@/lib/tenant-context";
 import { requireRole } from "@/lib/require-role";
 import { getSharedScope } from "@/lib/share-groups";
-import { scopeWhere } from "@/lib/team-scope";
+import { dealScopeWhere } from "@/lib/deals/split";
 import { buildSaleSchedule, resolveAdministrator } from "@/lib/commissions/engine";
 import { LATEST_PROPOSAL_INSTALLMENT, loadEngineContext } from "@/lib/commissions/sync";
 import { brazilDateStringWithNowTimeToUTC } from "@/lib/timezone";
@@ -41,7 +41,7 @@ export const GET = commissionRoute(async function GET(req: Request) {
     const scope = await getSharedScope(organizationId, userId, access.role, "shareDeals");
     const [deal, org, administrator] = await Promise.all([
       prisma.deal.findFirst({
-        where: { id: dealId, organizationId, ...scopeWhere(scope) },
+        where: { id: dealId, organizationId, ...dealScopeWhere(scope) },
         select: {
           ownerId: true,
           value: true,

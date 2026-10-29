@@ -10,6 +10,7 @@ type TenantStore = {
   tvLinkTokenHash?: string;
   cardSlug?: string;
   academyCredentialHash?: string;
+  servopaWorkerKeyHash?: string;
 };
 
 // Guardado em globalThis pelo mesmo motivo do client do Prisma em lib/prisma.ts:
@@ -53,6 +54,10 @@ export function getCurrentCardSlug(): string | undefined {
 
 export function getCurrentAcademyCredentialHash(): string | undefined {
   return storage.getStore()?.academyCredentialHash;
+}
+
+export function getCurrentServopaWorkerKeyHash(): string | undefined {
+  return storage.getStore()?.servopaWorkerKeyHash;
 }
 
 /**
@@ -159,6 +164,11 @@ export function runWithCardSlugLookup<T>(slug: string, fn: () => Promise<T>): Pr
  */
 export function runWithAcademyCredentialLookup<T>(hash: string, fn: () => Promise<T>): Promise<T> {
   return storage.run({ academyCredentialHash: hash }, async () => await fn());
+}
+
+/** Bootstrap RLS do notebook do robô: somente o hash da chave é conhecido. */
+export function runWithServopaWorkerLookup<T>(keyHash: string, fn: () => Promise<T>): Promise<T> {
+  return storage.run({ servopaWorkerKeyHash: keyHash }, async () => await fn());
 }
 
 /**

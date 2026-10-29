@@ -11,6 +11,9 @@ import type { ProposalDTO } from "./types";
 export const PROPOSAL_INCLUDE = {
   createdBy: { select: { name: true } },
   sentBy: { select: { name: true } },
+  // A tabela de cotas do documento é parte da proposta: carregar junto evita
+  // uma segunda ida ao banco em toda tela que já mostra a proposta.
+  quotas: { orderBy: { position: "asc" } },
 } satisfies Prisma.ProposalInclude;
 
 export type ProposalWithUsers = Prisma.ProposalGetPayload<{ include: typeof PROPOSAL_INCLUDE }>;
@@ -44,5 +47,16 @@ export function serializeProposal(p: ProposalWithUsers): ProposalDTO {
     sentAt: p.sentAt?.toISOString() ?? null,
     resolvedAt: p.resolvedAt?.toISOString() ?? null,
     createdAt: p.createdAt.toISOString(),
+    quotas: p.quotas.map((q) => ({
+      servopaTableId: q.servopaTableId,
+      groupNumber: q.groupNumber,
+      category: q.category,
+      termMonths: q.termMonths,
+      admPercent: Number(q.admPercent),
+      reserveFundPercent: q.reserveFundPercent === null ? null : Number(q.reserveFundPercent),
+      creditValue: Number(q.creditValue),
+      installment: Number(q.installment),
+      quotaCount: q.quotaCount,
+    })),
   };
 }

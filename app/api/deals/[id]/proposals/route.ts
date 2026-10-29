@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { scopeWhere } from "@/lib/team-scope";
+import { dealScopeWhere } from "@/lib/deals/split";
 import { listProposalsForDeal } from "@/lib/proposals/queries";
 import { createProposal } from "@/lib/proposals/service";
 import { parseProposalFields } from "@/lib/proposals/validate";
@@ -14,7 +14,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
   return withProposalActor(async (actor) => {
     const deal = await prisma.deal.findFirst({
-      where: { id, organizationId: actor.organizationId, ...scopeWhere(actor.scope) },
+      where: { id, organizationId: actor.organizationId, ...dealScopeWhere(actor.scope) },
       select: { id: true },
     });
     if (!deal) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });

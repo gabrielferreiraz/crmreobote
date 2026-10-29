@@ -44,11 +44,15 @@ export const POST = commissionRoute(async function POST(req: Request) {
   });
 
   if (result.newlyUnpaid.length > 0) {
-    const toNotify = result.newlyUnpaid.flatMap((s) =>
-      s.administrator && s.administrator.unpaidPolicy !== "IGNORE"
-        ? [{ userId: s.sellerId, clientName: s.clientName, policy: s.administrator.unpaidPolicy }]
-        : [],
-    );
+    const toNotify = result.newlyUnpaid.flatMap((sale) => {
+      const policy = sale.administrator?.unpaidPolicy;
+      if (!policy || policy === "IGNORE") return [];
+      return (result.sellersBySale.get(sale.id) ?? [sale.sellerId]).map((userId) => ({
+        userId,
+        clientName: sale.clientName,
+        policy,
+      }));
+    });
     after(() => notifyClientsUnpaid(toNotify, month));
   }
   return NextResponse.json({ updated: result.sales.length });

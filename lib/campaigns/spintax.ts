@@ -39,7 +39,7 @@ export type CampaignVariables = {
  */
 export function renderTemplate(template: string, vars: CampaignVariables, greeting: string): string {
   const expanded = expandSpintax(template);
-  return expanded
+  const rendered = expanded
     .replaceAll("{nome}", vars.nome)
     .replaceAll("{primeiro_nome}", firstName(vars.nome))
     .replaceAll("{cargo}", vars.cargo ?? "")
@@ -47,6 +47,8 @@ export function renderTemplate(template: string, vars: CampaignVariables, greeti
     .replaceAll("{cidade}", vars.cidade ?? "")
     .replaceAll("{consultor}", vars.consultor ?? "")
     .replaceAll("{saudacao}", greeting);
+  // Lead sem cargo/empresa/cidade deixa "dois espaços" no meio da frase; só junta espaço NO MEIO (recuo no começo da linha fica).
+  return rendered.replace(/(\S)[ \t]{2,}(?=\S)/g, "$1 ");
 }
 
 /**

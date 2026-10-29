@@ -1,6 +1,7 @@
 import { after, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/require-role";
+import { dealScopeWhere } from "@/lib/deals/split";
 import { scopeWhere } from "@/lib/team-scope";
 import { getSharedScope } from "@/lib/share-groups";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -137,7 +138,7 @@ export async function POST(req: Request) {
     // Colaborativo (mesmo escopo do PATCH/PUT individual): quem compartilha
     // o negócio via grupo também age como coautor.
     const scope = await getSharedScope(organizationId, userId, role, "shareDeals");
-    const scopedWhere = { id: { in: uniqueIds }, organizationId, ...scopeWhere(scope) };
+    const scopedWhere = { id: { in: uniqueIds }, organizationId, ...dealScopeWhere(scope) };
 
     switch (action) {
       case "move":
@@ -145,7 +146,15 @@ export async function POST(req: Request) {
       case "status":
         return bulkStatus({ body, scopedWhere, organizationId, userId });
       case "owner":
-        return bulkOwner({ body, scopedWhere, organizationId, userId });
+        // Passar o negócio pra outra pessoa é do responsável principal (e da
+        // hierarquia), nunca do co-responsável: senão ele se tornaria o
+        // principal e passaria a mexer na divisão. Aqui vale só ownerId no escopo.
+        return bulkOwner({
+          body,
+          scopedWhere: { id: { in: uniqueIds }, organizationId, ...scopeWhere(scope) },
+          organizationId,
+          userId,
+        });
       case "source":
         return bulkSource({ body, scopedWhere, organizationId, userId });
     }
@@ -453,6 +462,8 @@ async function bulkOwner({ body, scopedWhere, organizationId, userId }: Ctx) {
   }
 
   await prisma.deal.updateMany({ where: { id: { in: changed.map((d) => d.id) } }, data: { ownerId } });
+  // Quem vira responsável principal deixa de ser co-responsável (a parte dele passa a ser o "resto").
+  await prisma.dealParticipant.deleteMany({ where: { dealId: { in: changed.map((d) => d.id) }, userId: ownerId } });
 
   // Mesma sincronização (e mesmo efeito colateral já documentado) do PUT
   // individual: o responsável do CONTATO acompanha o dono do negócio.

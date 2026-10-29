@@ -27,10 +27,11 @@ export function MessageVariationEditor({
   const inputRefs = useRef<(HTMLTextAreaElement | null)[]>([]);
 
   function updateOption(i: number, value: string) {
-    // "|" quebraria a separação das opções por trás — nunca deixa digitar.
-    // Chaves continuam liberadas: é assim que uma variável ({cargo}) entra
-    // dentro de uma opção.
-    const clean = value.replace(/\|/g, "");
+    // "|" quebraria a separação das opções por trás, e "[" ou "]" fariam o
+    // bloco inteiro não ser reconhecido no envio (o lead receberia o código
+    // cru) — nunca deixa digitar. Chaves continuam liberadas: é assim que uma
+    // variável ({cargo}) entra dentro de uma opção.
+    const clean = value.replace(/[|[\]]/g, "");
     setOptions((prev) => prev.map((o, idx) => (idx === i ? clean : o)));
   }
 

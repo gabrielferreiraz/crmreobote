@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { scopeWhere } from "@/lib/team-scope";
+import { dealScopeWhere } from "@/lib/deals/split";
 import { getSharedScope } from "@/lib/share-groups";
 import { fetchDealsList, aggregateDealValues, countDealsByStage, countDealsWithTaskByStage } from "@/lib/deals/list-query";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -145,7 +145,7 @@ export default async function PipelinePage({
         : Promise.resolve([]),
       initialListaLoaded
         ? prisma.deal.count({
-            where: { organizationId, pipelineId: activePipeline.id, status: "OPEN", ...scopeWhere(scope) },
+            where: { organizationId, pipelineId: activePipeline.id, status: "OPEN", ...dealScopeWhere(scope) },
           })
         : Promise.resolve(0),
       initialListaLoaded

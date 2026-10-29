@@ -2,8 +2,10 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Calculator, FileText, Info, Loader2, Save, X } from "lucide-react";
+import { AlertTriangle, Calculator, FileText, Info, Loader2, Save, Table2, X } from "lucide-react";
 import { Modal } from "@/components/modal";
+import { TablesLookupPanel } from "@/components/proposals/tables-lookup-dialog";
+import { calcularTaxaTotal, totalizarQuotas, type AdheredQuota } from "@/lib/proposals/quotas";
 import { CurrencyInput } from "@/components/currency-input";
 import { LoadingDots } from "@/components/loading-dots";
 import { formatCurrency } from "@/lib/format";
@@ -46,6 +48,21 @@ export function ProposalFormDialog({
   const [totalBeforeSwitch, setTotalBeforeSwitch] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState<"save" | "generate" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [tablesOpen, setTablesOpen] = useState(false);
+  /** Cotas aderidas no "Ver" das tabelas — viram a tabela do documento. */
+  const [quotas, setQuotas] = useState<AdheredQuota[]>(() =>
+    (proposal?.quotas ?? []).map((q) => ({
+      tableId: q.servopaTableId,
+      groupNumber: q.groupNumber,
+      category: q.category,
+      termMonths: q.termMonths,
+      admEffective: q.admPercent.toFixed(4),
+      reserveFundPercent: q.reserveFundPercent === null ? null : q.reserveFundPercent.toFixed(4),
+      creditValue: q.creditValue.toFixed(2),
+      installment: q.installment.toFixed(2),
+      cotas: q.quotaCount,
+    })),
+  );
 
   const quota = Number(quotaStr) || 0;
   const creditNum = Number(creditInput) || 0;
@@ -74,6 +91,31 @@ export function ProposalFormDialog({
     setMode(next);
   }
 
+  /**
+   * "Salvar cotas": fecha a montagem e leva os totais para os campos da
+   * proposta. Crédito, cotas e parcela são a soma das linhas aderidas; prazo e
+   * taxa vêm da primeira cota — a proposta tem uma coluna de cada, e cada
+   * linha da tabela impressa continua mostrando o prazo e a taxa do SEU grupo.
+   */
+  function applyQuotas() {
+    const totals = totalizarQuotas(quotas);
+    const first = quotas[0];
+
+    setMode("TOTAL");
+    setTotalBeforeSwitch(null);
+    setCreditInput(totals.credito);
+    setQuotaStr(String(totals.cotas));
+    setInstallment(totals.parcela);
+    if (first) {
+      setTermStr(String(first.termMonths));
+      // ADM + fundo de reserva: a mesma taxa que a tabela do documento mostra.
+      setFeePercent(String(Number(calcularTaxaTotal(first.admEffective, first.reserveFundPercent))));
+    }
+
+    setError(null);
+    setTablesOpen(false);
+  }
+
   async function submit(thenGenerate: boolean) {
     const parsed = parseProposalFields({
       credit: total,
@@ -86,6 +128,8 @@ export function ProposalFormDialog({
       coverIntro: proposal?.coverIntro ?? "",
       coverDetails: proposal?.coverDetails ?? "",
       coverImagePosition: proposal?.coverImagePosition ?? "before-copy",
+      // O servidor revalida tudo (ver parseQuotas): aqui só vai o que a tela montou.
+      quotas,
     });
     if (!parsed.ok) {
       setError(parsed.error);
@@ -151,6 +195,18 @@ export function ProposalFormDialog({
 
   return (
     <Modal onClose={onClose} maxWidth="max-w-4xl !max-h-[calc(100vh-1rem)] !overflow-hidden">
+      {/* A consulta às tabelas troca o conteúdo deste painel; o formulário fica
+          montado, então nada do que já foi digitado se perde. */}
+      {tablesOpen ? (
+        <TablesLookupPanel
+          onBack={() => setTablesOpen(false)}
+          onClose={onClose}
+          quotas={quotas}
+          onQuotasChange={setQuotas}
+          onSaveQuotas={applyQuotas}
+        />
+      ) : (
+      <>
       <div className="-m-5 mb-0 border-b border-neutral-200 bg-white/80 px-5 py-3 dark:border-neutral-800 dark:bg-neutral-950/40">
         <div className="flex items-start justify-between gap-4">
           <div className="flex min-w-0 items-start gap-3">
@@ -167,9 +223,23 @@ export function ProposalFormDialog({
               </p>
             </div>
           </div>
-          <button type="button" onClick={onClose} disabled={busy} className="icon-btn h-8 w-8 shrink-0" aria-label="Fechar">
-            <X className="h-4 w-4" strokeWidth={2} />
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            {/* Form próprio: o modal de tabelas abre pelo submit, sem sair da proposta. */}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                setTablesOpen(true);
+              }}
+            >
+              <button type="submit" className="btn-secondary btn-sm shrink-0" title="Consultar as tabelas sem sair da proposta">
+                <Table2 className="h-3.5 w-3.5" strokeWidth={2} />
+                Tabelas
+              </button>
+            </form>
+            <button type="button" onClick={onClose} disabled={busy} className="icon-btn h-8 w-8 shrink-0" aria-label="Fechar">
+              <X className="h-4 w-4" strokeWidth={2} />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -345,6 +415,8 @@ export function ProposalFormDialog({
           {editing ? "Salvar e abrir documento" : "Salvar e gerar documento"}
         </button>
       </div>
+      </>
+      )}
     </Modal>
   );
 }

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma, prismaRaw } from "@/lib/prisma";
 import { USER_PUBLIC_SELECT } from "@/lib/user-public";
 import { requireRole } from "@/lib/require-role";
-import { scopeWhere } from "@/lib/team-scope";
+import { taskScopeWhere } from "@/lib/deals/split";
 import { getSharedScope } from "@/lib/share-groups";
 import { runWithTenant, setTenantOnTx } from "@/lib/tenant-context";
 import { recordUserChange } from "@/lib/user-activity";
@@ -61,7 +61,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     // detalhe do negócio (ver lib/share-groups.ts).
     const scope = await getSharedScope(organizationId, accessUserId, access.role, ["shareAgenda", "shareDeals"]);
     const existing = await prisma.task.findFirst({
-      where: { id, organizationId, ...scopeWhere(scope) },
+      where: { id, organizationId, ...taskScopeWhere(scope) },
       include: { activity: true },
     });
     if (!existing) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
@@ -300,7 +300,7 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   return runWithTenant(access.organizationId, async () => {
     const scope = await getSharedScope(access.organizationId, access.userId, access.role, ["shareAgenda", "shareDeals"]);
     const existing = await prisma.task.findFirst({
-      where: { id, organizationId: access.organizationId, ...scopeWhere(scope) },
+      where: { id, organizationId: access.organizationId, ...taskScopeWhere(scope) },
     });
     if (!existing) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
 

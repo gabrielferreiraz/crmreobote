@@ -49,6 +49,22 @@ export type ProposalDTO = {
   sentAt: string | null;
   resolvedAt: string | null;
   createdAt: string;
+  /** Cotas que formam a tabela do documento — vazio em proposta feita à mão. */
+  quotas: ProposalQuotaDTO[];
+};
+
+/** Uma linha da tabela "Cotas de Bens" — ver o model ProposalQuota no schema. */
+export type ProposalQuotaDTO = {
+  servopaTableId: string;
+  groupNumber: string;
+  category: string;
+  termMonths: number;
+  admPercent: number;
+  /** Fundo de reserva do grupo; a taxa impressa é admPercent + este valor. */
+  reserveFundPercent: number | null;
+  creditValue: number;
+  installment: number;
+  quotaCount: number;
 };
 
 /**

@@ -684,7 +684,19 @@ export function KanbanBoard({
       const res = await fetch(`/api/deals?${params.toString()}`);
       if (!res.ok) return;
       const more: Deal[] = await res.json();
-      setDealsByStage((prev) => ({ ...prev, [stageId]: [...(prev[stageId] ?? []), ...more] }));
+      setDealsByStage((prev) => {
+        const current = prev[stageId] ?? [];
+        // Descarta o que já está na coluna. A ordenação no servidor agora tem
+        // desempate por id (ver DEAL_ORDER_TIEBREAK em lib/deals/list-query.ts),
+        // o que resolve o empate; o que ISTO cobre é outra coisa: paginação
+        // por `skip` escorrega quando alguém cria um negócio enquanto a
+        // pessoa rola a coluna — a linha nova entra antes do offset e empurra
+        // uma já carregada pra página seguinte. Sem o filtro, essa repetida
+        // viraria um segundo card com a mesma key.
+        const seen = new Set(current.map((d) => d.id));
+        const fresh = more.filter((d) => !seen.has(d.id));
+        return { ...prev, [stageId]: [...current, ...fresh] };
+      });
     } finally {
       setLoadingMoreStages((prev) => {
         const next = new Set(prev);

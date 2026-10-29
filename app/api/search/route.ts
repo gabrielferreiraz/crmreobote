@@ -5,7 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
 import { getCurrentMembership } from "@/lib/current-membership";
 import { normalizePhoneNumber } from "@/lib/phone-normalize";
-import { getDealScope, scopeWhere } from "@/lib/team-scope";
+import { getDealScope } from "@/lib/team-scope";
+import { coOwnedDealIds, dealScopeWhere } from "@/lib/deals/split";
 import { runWithTenant } from "@/lib/tenant-context";
 
 export const dynamic = "force-dynamic";
@@ -44,10 +45,17 @@ export async function GET(req: Request) {
     : Prisma.empty;
 
   const scope = await getDealScope(organizationId, userId, session!.user.role);
+  // Negócios em que alguém do escopo é co-responsável (divisão do negócio,
+  // ver lib/deals/split.ts) — a role de busca só lê 3 tabelas, então a lista
+  // vem pronta daqui (Prisma, com isolamento por organização) em vez de um
+  // EXISTS na tabela de co-responsáveis dentro do SQL cru.
+  const coOwnedIds = await runWithTenant(organizationId, () => coOwnedDealIds(organizationId, scope));
   const dealOwnerFilterSql =
     scope.type === "owners"
       ? scope.ownerIds.length > 0
-        ? Prisma.sql`AND d."ownerId" IN (${Prisma.join(scope.ownerIds)})`
+        ? coOwnedIds.length > 0
+          ? Prisma.sql`AND (d."ownerId" IN (${Prisma.join(scope.ownerIds)}) OR d."id" IN (${Prisma.join(coOwnedIds)}))`
+          : Prisma.sql`AND d."ownerId" IN (${Prisma.join(scope.ownerIds)})`
         : Prisma.sql`AND false`
       : Prisma.empty;
 
@@ -228,7 +236,7 @@ export async function GET(req: Request) {
         prisma.deal.findMany({
           where: {
             organizationId,
-            ...scopeWhere(scope),
+            ...dealScopeWhere(scope),
             OR: [
               { name: { contains: q, mode: "insensitive" } },
               { contact: { name: { contains: q, mode: "insensitive" } } },

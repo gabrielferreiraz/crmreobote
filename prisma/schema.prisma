@@ -108,6 +108,11 @@ model Organization {
   webhookDeliveries      WebhookDelivery[]
   leadSources            LeadSource[]
   creditTypes            CreditType[]
+  servopaGroups          ServopaGroup[]
+  servopaTableRows       ServopaTableRow[]
+  servopaSyncRuns        ServopaSyncRun[]
+  servopaWorkers         ServopaWorker[]
+  servopaWorkerPairings  ServopaWorkerPairing[]
   jobTitles              JobTitle[]
   customFieldDefinitions CustomFieldDefinition[]
   userDailyActivities    UserDailyActivity[]
@@ -127,12 +132,15 @@ model Organization {
   digitalCards           DigitalCard[]
   digitalCardEvents      DigitalCardEvent[]
   digitalCardPresentations DigitalCardPresentation[]
+  dealParticipants       DealParticipant[]
+  commissionSaleShares   CommissionSaleShare[]
   importBatches          ImportBatch[]
   shareGroups            ShareGroup[]
   processTemplates       ProcessTemplate[]
   processTemplateUsages  ProcessTemplateUsage[]
   leadRequests           LeadRequest[]
   proposals              Proposal[]
+  proposalQuotas         ProposalQuota[]
   proposalTemplates      ProposalTemplate[]
   userCompanies          UserCompany[]
   academyProgresso       Progresso[]
@@ -182,9 +190,14 @@ model User {
   messageScripts              MessageScript[]
   googleCalendarConnection    GoogleCalendarConnection?
   apiKeysCreated              ApiKey[]
+  servopaWorkersCreated       ServopaWorker[]
+  servopaWorkerPairings       ServopaWorkerPairing[]
   tvDisplayLinksCreated       TvDisplayLink[]
   digitalCard                 DigitalCard?
   digitalCardPresentations    DigitalCardPresentation[]
+  dealParticipations          DealParticipant[]         @relation("DealParticipantUser")
+  dealParticipantsAdded       DealParticipant[]         @relation("DealParticipantAddedBy")
+  commissionShares            CommissionSaleShare[]
   webhookSubscriptionsCreated WebhookSubscription[]
   contactsResponsible         Contact[]                 @relation("ContactResponsavel")
   contactsLeadQualified       Contact[]                 @relation("ContactLeadQualifiedBy")
@@ -1539,6 +1552,223 @@ model CreditType {
   @@index([organizationId])
 }
 
+// ─── Tabelas Servopa (tabelas de crédito por grupo, coletadas do painel) ──
+// ──────────────────────────────────────────────────────────────────────────
+//
+// O robô (worker/) lê o painel de vendas da Servopa e manda para cá; o CRM
+// só guarda e mostra — NUNCA corrige o que a Servopa publica (os valores do
+// site são a verdade). A única coisa editável é `ServopaTable.adjustmentPoints`
+// (desconto/acréscimo na taxa de ADM, em pontos percentuais), numa camada à
+// parte: o robô atualiza os dados do site e jamais toca no ajuste.
+// Regras de cálculo do ajuste: lib/servopa-tables/adjust.ts.
+
+enum ServopaSegment {
+  REAL_ESTATE // "I" no painel — imóveis
+  MOVABLE // "M" no painel — móveis (automóvel, moto, pesados…)
+}
+
+enum ServopaSyncTrigger {
+  SCHEDULED // agendado (dia 1 de cada mês, com retentativas)
+  MANUAL // botão "Rodar robô agora"
+  IMPORT // carga a partir de arquivos já coletados (scripts/import-servopa-tables.ts)
+}
+
+enum ServopaSyncStatus {
+  PENDING // pedido criado, o robô ainda não pegou
+  RUNNING
+  SUCCESS
+  FAILED
+  CANCELLED // interrompido manualmente pelo CRM; nunca entra em retentativa
+}
+
+// Um grupo de consórcio (ex.: 1568). Os dados vêm da página do grupo
+// (/vendas/grupos/{número}/S) — a média de lances (sem/com embutido) não muda
+// nada, então só a versão "S" é guardada.
+model ServopaGroup {
+  id                    String         @id @default(cuid())
+  organizationId        String
+  // Número como a Servopa mostra ("1568") — String pra preservar zeros.
+  number                String
+  segment               ServopaSegment
+  // Coluna "Meses" da lista = prazo TOTAL do grupo. O PDF usa o prazo
+  // RESTANTE (ServopaTable.termMonths), não este.
+  totalMonths           Int?
+  vacancies             Int?
+  // "Vencimento dia" da página do grupo.
+  dueDay                Int?
+  // "Próxima assembleia": "012 - 23/11/2026 - 16:00 HORAS" → número + instante.
+  nextAssemblyNumber    String?
+  nextAssemblyAt        DateTime?
+  reserveFundPercent    Decimal?       @db.Decimal(7, 4)
+  insuranceRatePercent  Decimal?       @db.Decimal(7, 4)
+  insuranceType         String?
+  groupType             String?
+  drawType              String?
+  embeddedBidMaxPercent Decimal?       @db.Decimal(7, 4)
+  membersCount          Int?
+  // Texto da "ordem de contemplação"/regras do grupo, como a Servopa publica.
+  contemplationText     String         @default("") @db.Text
+  // Tabela de informações inteira, como veio (rótulo → valor) — campos novos
+  // do site não se perdem mesmo sem coluna própria.
+  rawInfo               Json
+  // Hash do conteúdo normalizado (sem ajuste) — mudou = a Servopa mudou algo.
+  contentHash           String
+  // false = o grupo sumiu da lista na última coleta (encerrado/fechado).
+  active                Boolean        @default(true)
+  firstSeenAt           DateTime       @default(now())
+  lastSeenAt            DateTime       @default(now())
+  lastChangedAt         DateTime       @default(now())
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  tables       ServopaTable[]
+
+  @@unique([organizationId, number])
+  @@index([organizationId, active])
+}
+
+// Uma aba "Taxa de Adm - x,xx%" de um grupo = uma tabela = um PDF.
+model ServopaTable {
+  id               String    @id @default(cuid())
+  organizationId   String
+  groupId          String
+  // Taxa de ADM ORIGINAL publicada pela Servopa (ex.: 13.0000 = 13%).
+  admRatePercent   Decimal   @db.Decimal(7, 4)
+  // Desconto (negativo) / acréscimo (positivo) em PONTOS PERCENTUAIS sobre a
+  // taxa de ADM, definido por donos, gerentes e Administrativo. Vale até
+  // alguém mudar; o robô nunca altera. 0 = valores do site exatamente.
+  adjustmentPoints Decimal   @default(0) @db.Decimal(7, 4)
+  adjustedById     String?
+  adjustedAt       DateTime?
+  // Prazo RESTANTE em meses (é o que o PDF mostra), igual em todas as linhas.
+  termMonths       Int
+  contentHash      String
+  active           Boolean   @default(true)
+  firstSeenAt      DateTime  @default(now())
+  lastSeenAt       DateTime  @default(now())
+  lastChangedAt    DateTime  @default(now())
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  group ServopaGroup      @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  rows  ServopaTableRow[]
+
+  @@unique([groupId, admRatePercent])
+  @@index([organizationId, active])
+  @@index([organizationId, termMonths])
+}
+
+// Uma categoria (A1, B1…) da tabela — valores exatamente como a Servopa publica.
+model ServopaTableRow {
+  id             String  @id @default(cuid())
+  organizationId String
+  tableId        String
+  // Ordem em que a Servopa lista (A1, B1, C1…).
+  position       Int
+  category       String
+  description    String
+  creditValue    Decimal @db.Decimal(14, 2)
+  termMonths     Int
+  // "% Mensal" (contribuição mensal) com as 4 casas que o site mostra.
+  monthlyPercent Decimal @db.Decimal(8, 4)
+  // Parcela SEM seguro.
+  installment    Decimal @db.Decimal(14, 2)
+  insurance      Decimal @db.Decimal(14, 2)
+  observation    String?
+  // Parcela + seguro.
+  total          Decimal @db.Decimal(14, 2)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  table        ServopaTable @relation(fields: [tableId], references: [id], onDelete: Cascade)
+
+  @@unique([tableId, category])
+  @@index([organizationId])
+}
+
+// Cada execução do robô (ou importação): pedido → andamento → resultado.
+model ServopaSyncRun {
+  id              String             @id @default(cuid())
+  organizationId  String
+  trigger         ServopaSyncTrigger
+  status          ServopaSyncStatus  @default(PENDING)
+  requestedById   String?
+  // Fila do worker: tentativa só aumenta quando um notebook reivindica o job.
+  attempts         Int                @default(0)
+  nextAttemptAt    DateTime           @default(now())
+  claimedAt        DateTime?
+  // Qual computador reivindicou esta execução (null = ainda na fila ou computador removido).
+  claimedByWorkerId String?
+  // "Rodar robô agora": computador de quem clicou; só ele reivindica. null = qualquer um (agendamento).
+  targetWorkerId    String?
+  lastHeartbeatAt  DateTime?
+  leaseExpiresAt   DateTime?
+  // O token puro é devolvido uma única vez ao worker; no banco fica só SHA-256.
+  leaseTokenHash   String?
+  // Progresso pequeno e estruturado, ex.: { phase, completed, total }.
+  progress         Json?
+  startedAt        DateTime?
+  finishedAt       DateTime?
+  // { groups: {created, updated, unchanged, deleted}, tables: {...}, … }
+  summary          Json?
+  // Código estável para a interface/retentativa; `error` é a mensagem legível.
+  errorCode        String?
+  error            String?            @db.Text
+  createdAt        DateTime           @default(now())
+
+  organization    Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  claimedByWorker ServopaWorker? @relation("ServopaRunClaimedBy", fields: [claimedByWorkerId], references: [id], onDelete: SetNull)
+  targetWorker    ServopaWorker? @relation("ServopaRunTarget", fields: [targetWorkerId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@index([status, nextAttemptAt])
+  @@index([organizationId, status, createdAt])
+}
+
+// Identidade machine-to-machine exclusiva do notebook que executa o robô.
+// A chave em texto puro é exibida uma única vez; somente SHA-256 fica salvo.
+model ServopaWorker {
+  id             String    @id @default(cuid())
+  organizationId String
+  name           String
+  keyPrefix      String
+  keyHash        String    @unique
+  createdById    String
+  active         Boolean   @default(true)
+  lastSeenAt     DateTime?
+  version        String?
+  revokedAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User         @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  claimedRuns  ServopaSyncRun[] @relation("ServopaRunClaimedBy")
+  targetedRuns ServopaSyncRun[] @relation("ServopaRunTarget")
+
+  @@index([organizationId, active])
+}
+
+/// Instalador de uso único: o CRM embute um código curto no arquivo baixado e
+/// o computador troca esse código pela chave própria (`ServopaWorker`). Só o
+/// SHA-256 do código é salvo; expira em 1 hora e vale para um computador.
+model ServopaWorkerPairing {
+  id             String    @id @default(cuid())
+  organizationId String
+  codeHash       String    @unique
+  createdById    String
+  expiresAt      DateTime
+  usedAt         DateTime?
+  workerId       String?
+  createdAt      DateTime  @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User         @relation(fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, expiresAt])
+}
+
+
 // ─── Cargos (lista editável, alimenta o Select de "Cargo" do contato)
 // ──────────────────────────────────────────────────────────────────
 //
@@ -1665,6 +1895,8 @@ model Deal {
   importBatch        ImportBatch?        @relation(fields: [importBatchId], references: [id])
   administrator      ConsortiumAdministrator? @relation(fields: [administratorId], references: [id], onDelete: SetNull)
   commissionSale     CommissionSale?
+  // Co-responsáveis (divisão do negócio e da comissão) — ver DealParticipant.
+  participants       DealParticipant[]
   tasks              Task[]
   activities         Activity[]
   campaignRecipients CampaignRecipient[]
@@ -1709,6 +1941,53 @@ enum DealStatus {
   OPEN
   WON
   LOST
+}
+
+// Co-responsável pelo negócio (ex.: dois consultores visitaram o cliente
+// juntos). Vê e edita o negócio como o responsável (Deal.ownerId), exceto
+// apagar, e divide a comissão do vendedor. A parte do responsável PRINCIPAL
+// não é guardada: é o que sobra (100 − soma dos co-responsáveis), então a
+// divisão nunca sai de 100%. Só vale com DEAL_SPLIT_ENABLED=true (ver
+// lib/deals/split.ts).
+model DealParticipant {
+  id             String   @id @default(cuid())
+  organizationId String
+  dealId         String
+  userId         String
+  // 1–99 (CHECK no banco).
+  sharePercent   Int
+  addedById      String?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  deal         Deal         @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  user         User         @relation("DealParticipantUser", fields: [userId], references: [id], onDelete: Cascade)
+  addedBy      User?        @relation("DealParticipantAddedBy", fields: [addedById], references: [id], onDelete: SetNull)
+
+  @@unique([dealId, userId])
+  @@index([organizationId, userId])
+}
+
+// Parte de cada VENDEDOR numa venda de comissão dividida (fotografia do dia do
+// Ganho, ver DealParticipant). Inclui o vendedor principal; as porcentagens
+// somam 100. Venda sem linhas aqui = 100% pro CommissionSale.sellerId (é o caso
+// de toda venda que não foi dividida). Tabela à parte (não coluna em
+// CommissionSale) pra o módulo de Comissões não depender da migração.
+model CommissionSaleShare {
+  id             String   @id @default(cuid())
+  organizationId String
+  saleId         String
+  userId         String
+  // 1–100 (CHECK no banco).
+  percent        Int
+  createdAt      DateTime @default(now())
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sale         CommissionSale @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([saleId, userId])
+  @@index([organizationId, userId])
 }
 
 // ─── Comissões ──────────────────────────────────────────────────────
@@ -1950,6 +2229,8 @@ model CommissionSale {
   entries       CommissionEntry[]
   revenues      CommissionRevenue[]
   clientPayments CommissionClientPayment[]
+  // Divisão do vendedor entre co-responsáveis (vazio = 100% pro sellerId).
+  sellerShares   CommissionSaleShare[]
 
   @@index([organizationId, status])
   @@index([organizationId, sellerId])
@@ -2194,6 +2475,7 @@ model Proposal {
   sentBy       User?        @relation("ProposalSentBy", fields: [sentById], references: [id])
   parent       Proposal?    @relation("ProposalRevisions", fields: [parentId], references: [id], onDelete: SetNull)
   children     Proposal[]   @relation("ProposalRevisions")
+  quotas       ProposalQuota[]
 
   @@unique([dealId, revision])
   @@index([organizationId])
@@ -2201,6 +2483,64 @@ model Proposal {
   // Relatório de "quem enviou quanto no período" (ver lib/reports/
   // commercial-data.ts) — filtra por sentById + intervalo de sentAt.
   @@index([sentById, sentAt])
+}
+
+/**
+ * Uma cota aderida a uma proposta — cada linha da tabela "Cotas de Bens" que
+ * vai impressa no documento (grupo, categoria, valor da cota, parcela e
+ * quantidade). Existe porque `Proposal` guarda UM crédito, UM prazo e UMA
+ * parcela: a soma de 5 grupos cabe lá, mas os 5 grupos não — e é deles que a
+ * tabela do documento é feita.
+ *
+ * Os valores são COPIADOS da linha da Servopa no momento da adesão, não lidos
+ * dela na hora de imprimir: o robô recoleta as tabelas e a parcela do grupo
+ * muda: uma proposta já enviada ao cliente tem que continuar mostrando os
+ * números do dia em que foi feita.
+ *
+ * Por isso `servopaTableId` é uma coluna solta, SEM chave estrangeira: a
+ * coleta desativa e recria tabelas, e nem a cota pode sumir junto nem a
+ * coleta pode travar por causa de uma proposta antiga. Serve para rastrear a
+ * origem ("esta cota veio do grupo 1572"), não para ler dados de lá.
+ */
+model ProposalQuota {
+  id             String @id @default(cuid())
+  organizationId String
+  proposalId     String
+
+  /// Ordem em que a linha aparece na tabela do documento.
+  position Int
+
+  /// Tabela/linha de origem na Servopa — ver o comentário acima sobre a ausência de FK.
+  servopaTableId String
+  groupNumber    String
+  /// Categoria da linha ("A1", "B1"...).
+  category       String
+
+  termMonths Int
+  /// Taxa de ADM já com o ajuste da organização aplicado.
+  admPercent  Decimal @db.Decimal(7, 4)
+  /// Fundo de reserva do grupo. A "Taxa Adm." impressa é admPercent + este
+  /// campo: são duas colunas na Servopa, mas uma só na tabela do documento
+  /// (e é a soma que entra no cálculo mensal — ver lib/servopa-tables/adjust).
+  /// Nulo quando a Servopa não publicou o fundo do grupo.
+  reserveFundPercent Decimal? @db.Decimal(7, 4)
+  /// "Valor da Cota" — crédito de UMA cota.
+  creditValue Decimal @db.Decimal(12, 2)
+  /// Parcela de UMA cota; a "Parcela Inicial" da linha é esta vezes quotaCount.
+  installment Decimal @db.Decimal(12, 2)
+  /// Quantas cotas deste grupo/categoria — a única coisa digitada.
+  quotaCount Int
+
+  createdAt DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  proposal     Proposal     @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+
+  /// A mesma categoria do mesmo grupo não entra duas vezes: quantidade é quotaCount.
+  @@unique([proposalId, servopaTableId, category])
+  @@index([organizationId])
+  @@index([proposalId])
+  @@index([servopaTableId])
 }
 
 model ProposalTemplate {

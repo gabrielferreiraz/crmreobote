@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { scopeWhere } from "@/lib/team-scope";
+import { dealScopeWhere } from "@/lib/deals/split";
 import { getSharedScope } from "@/lib/share-groups";
 import { resolveAvatarUrlMap } from "@/lib/r2";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -89,7 +90,7 @@ export default async function AgendaPage({
       // seletor já tem busca (ver components/select.tsx), não precisa do
       // negócio inteiro carregado de antemão pra ser útil.
       prisma.deal.findMany({
-        where: { organizationId, status: "OPEN", ...scopeWhere(scope) },
+        where: { organizationId, status: "OPEN", ...dealScopeWhere(scope) },
         orderBy: { name: "asc" },
         select: { id: true, name: true },
         take: 1000,

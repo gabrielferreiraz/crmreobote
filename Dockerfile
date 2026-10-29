@@ -68,6 +68,11 @@ RUN chmod +x /app/docker-entrypoint.sh
 # ExcelJS 4.4.0, sem correção oficial ainda).
 COPY --from=builder --chown=nextjs:nodejs /app/lib ./lib
 
+# Fontes mínimos para a rota autenticada que monta o ZIP do instalador.
+# Segredos, perfil do Firefox, logs e node_modules locais são excluídos pelo
+# .dockerignore e, além disso, a rota usa uma lista fixa de arquivos.
+COPY --from=builder --chown=nextjs:nodejs /app/worker ./worker
+
 # Carimbo de quando esta imagem foi montada — exposto em /api/health. Serve só
 # pra diagnosticar deploy: dá pra confirmar de fora (curl) se o container que
 # está respondendo em produção é mesmo o da build mais recente, ou se o
