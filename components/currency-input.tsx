@@ -8,6 +8,7 @@ export function CurrencyInput({
   bare,
   prefixClassName,
   autoFocus,
+  onFocus,
   onBlur,
   onKeyDown,
 }: {
@@ -38,6 +39,10 @@ export function CurrencyInput({
    * (`text-sm`), ignorado. */
   prefixClassName?: string;
   autoFocus?: boolean;
+  /** Pra quem precisa saber que a edição começou — ex.: o card de proposta
+   * esconde os botões de ação enquanto um campo está em foco, pra ninguém
+   * gerar o documento com alteração ainda não salva. */
+  onFocus?: (e: React.FocusEvent<HTMLInputElement>) => void;
   onBlur?: (e: React.FocusEvent<HTMLInputElement>) => void;
   onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
 }) {
@@ -62,6 +67,7 @@ export function CurrencyInput({
       </span>
       <input
         autoFocus={autoFocus}
+        onFocus={onFocus}
         onBlur={onBlur}
         onKeyDown={onKeyDown}
         inputMode="decimal"

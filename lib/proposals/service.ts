@@ -6,7 +6,7 @@ import { dealScopeWhere } from "@/lib/deals/split";
 import { formatCurrency } from "@/lib/format";
 import { PROPOSAL_INCLUDE, serializeProposal, type ProposalWithUsers } from "./serialize";
 import { formatProposalNumber, isProposalEditable, PROPOSAL_STATUS_LABEL, type ProposalDTO, type ProposalStatus } from "./types";
-import type { ProposalFields } from "./validate";
+import type { ProposalFields, ProposalQuotaInput } from "./validate";
 
 /**
  * Toda mutação de Proposta passa por aqui — nunca direto de uma rota. Três
@@ -133,6 +133,38 @@ async function reload(tx: Prisma.TransactionClient, id: string): Promise<Proposa
   return serializeProposal(fresh);
 }
 
+/**
+ * Troca as cotas da proposta pelas que vieram da tela — apaga e regrava, não
+ * tenta casar linha a linha: a tabela do documento é o conjunto todo, e um
+ * diff aqui só abriria espaço pra sobrar cota de uma composição anterior.
+ * Dentro da transação da proposta, então ou as duas coisas entram ou nenhuma.
+ */
+async function replaceQuotas(
+  tx: Prisma.TransactionClient,
+  actor: ProposalActor,
+  proposalId: string,
+  quotas: ProposalQuotaInput[],
+): Promise<void> {
+  await tx.proposalQuota.deleteMany({ where: { proposalId, organizationId: actor.organizationId } });
+  if (quotas.length === 0) return;
+  await tx.proposalQuota.createMany({
+    data: quotas.map((q, index) => ({
+      organizationId: actor.organizationId,
+      proposalId,
+      position: index,
+      servopaTableId: q.servopaTableId,
+      groupNumber: q.groupNumber,
+      category: q.category,
+      termMonths: q.termMonths,
+      admPercent: q.admPercent,
+      reserveFundPercent: q.reserveFundPercent,
+      creditValue: q.creditValue,
+      installment: q.installment,
+      quotaCount: q.quotaCount,
+    })),
+  });
+}
+
 async function nextRevision(tx: Prisma.TransactionClient, dealId: string): Promise<number> {
   const agg = await tx.proposal.aggregate({ where: { dealId }, _max: { revision: true } });
   return (agg._max.revision ?? 0) + 1;
@@ -172,6 +204,9 @@ export async function createProposal(actor: ProposalActor, input: CreateProposal
           coverImagePosition?: string;
       };
       let parentId: string | null = null;
+      // A composição de cotas acompanha a proposta: refazer uma recusada parte
+      // da MESMA tabela, senão a revisão nova nasceria sem o documento montado.
+      let quotas: ProposalQuotaInput[];
 
       if ("fromProposalId" in input) {
         const source = await loadInScope(tx, actor, input.fromProposalId);
@@ -181,8 +216,20 @@ export async function createProposal(actor: ProposalActor, input: CreateProposal
         }
         base = source;
         parentId = source.id;
+        quotas = source.quotas.map((q) => ({
+          servopaTableId: q.servopaTableId,
+          groupNumber: q.groupNumber,
+          category: q.category,
+          termMonths: q.termMonths,
+          admPercent: Number(q.admPercent),
+          reserveFundPercent: q.reserveFundPercent === null ? null : Number(q.reserveFundPercent),
+          creditValue: Number(q.creditValue),
+          installment: Number(q.installment),
+          quotaCount: q.quotaCount,
+        }));
       } else {
         base = input.fields;
+        quotas = input.fields.quotas;
       }
 
       const revision = await nextRevision(tx, input.dealId);
@@ -199,13 +246,17 @@ export async function createProposal(actor: ProposalActor, input: CreateProposal
           feePercent: base.feePercent,
           quotaCount: base.quotaCount,
           description: base.description,
-          displayName: "displayName" in base ? base.displayName : null,
-          coverIntro: "coverIntro" in base ? base.coverIntro : null,
-          coverDetails: "coverDetails" in base ? base.coverDetails : null,
-          coverImagePosition: base.coverImagePosition === "before-copy" ? "before-copy" : "after-title",
+          // `|| null` (e não só o valor): o formulário manda "" quando o campo
+          // não foi preenchido, e "" gravado passa batido pelo `??` de quem lê
+          // — a capa saía com "Olá, ." e sem os textos padrão. Vazio é ausente.
+          displayName: ("displayName" in base ? base.displayName : null) || null,
+          coverIntro: ("coverIntro" in base ? base.coverIntro : null) || null,
+          coverDetails: ("coverDetails" in base ? base.coverDetails : null) || null,
+          coverImagePosition: base.coverImagePosition === "after-title" ? "after-title" : "before-copy",
         },
         select: { id: true },
       });
+      await replaceQuotas(tx, actor, created.id, quotas);
       // Rascunho não gera linha na timeline (nem edição/exclusão dele) — só
       // entra a partir de "gerou": rascunho abandonado/apagado deixaria uma
       // linha "criou a proposta Nº X" apontando pra algo que não existe mais.
@@ -236,6 +287,7 @@ export async function updateProposal(actor: ProposalActor, id: string, fields: P
       coverDetails: fields.coverDetails || null,
       coverImagePosition: fields.coverImagePosition,
     });
+    await replaceQuotas(tx, actor, id, fields.quotas);
     return reload(tx, id);
   });
 }

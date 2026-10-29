@@ -146,6 +146,7 @@ model Organization {
   processTemplateUsages  ProcessTemplateUsage[]
   leadRequests           LeadRequest[]
   proposals              Proposal[]
+  proposalQuotas         ProposalQuota[]
   proposalTemplates      ProposalTemplate[]
   userCompanies          UserCompany[]
   academyProgresso       Progresso[]
@@ -2484,7 +2485,11 @@ model Proposal {
   displayName  String?
   coverIntro   String?
   coverDetails String?
-  coverImagePosition String @default("after-title")
+  // Onde a foto entra na capa: "before-copy" (logo abaixo do logotipo, antes
+  // do texto — o padrão) ou "after-title" (depois do título). Continua
+  // editável proposta a proposta pelo botão "Mover foto" na própria capa; o
+  // default só decide com qual das duas ela nasce.
+  coverImagePosition String @default("before-copy")
 
   status ProposalStatus @default(DRAFT)
   // GENERATED = documento (PDF) existe — NUNCA implica que foi enviado de
@@ -2511,6 +2516,7 @@ model Proposal {
   sentBy       User?        @relation("ProposalSentBy", fields: [sentById], references: [id])
   parent       Proposal?    @relation("ProposalRevisions", fields: [parentId], references: [id], onDelete: SetNull)
   children     Proposal[]   @relation("ProposalRevisions")
+  quotas       ProposalQuota[]
 
   @@unique([dealId, revision])
   @@index([organizationId])
@@ -2518,6 +2524,64 @@ model Proposal {
   // Relatório de "quem enviou quanto no período" (ver lib/reports/
   // commercial-data.ts) — filtra por sentById + intervalo de sentAt.
   @@index([sentById, sentAt])
+}
+
+/**
+ * Uma cota aderida a uma proposta — cada linha da tabela "Cotas de Bens" que
+ * vai impressa no documento (grupo, categoria, valor da cota, parcela e
+ * quantidade). Existe porque `Proposal` guarda UM crédito, UM prazo e UMA
+ * parcela: a soma de 5 grupos cabe lá, mas os 5 grupos não — e é deles que a
+ * tabela do documento é feita.
+ *
+ * Os valores são COPIADOS da linha da Servopa no momento da adesão, não lidos
+ * dela na hora de imprimir: o robô recoleta as tabelas e a parcela do grupo
+ * muda: uma proposta já enviada ao cliente tem que continuar mostrando os
+ * números do dia em que foi feita.
+ *
+ * Por isso `servopaTableId` é uma coluna solta, SEM chave estrangeira: a
+ * coleta desativa e recria tabelas, e nem a cota pode sumir junto nem a
+ * coleta pode travar por causa de uma proposta antiga. Serve para rastrear a
+ * origem ("esta cota veio do grupo 1572"), não para ler dados de lá.
+ */
+model ProposalQuota {
+  id             String @id @default(cuid())
+  organizationId String
+  proposalId     String
+
+  /// Ordem em que a linha aparece na tabela do documento.
+  position Int
+
+  /// Tabela/linha de origem na Servopa — ver o comentário acima sobre a ausência de FK.
+  servopaTableId String
+  groupNumber    String
+  /// Categoria da linha ("A1", "B1"...).
+  category       String
+
+  termMonths Int
+  /// Taxa de ADM já com o ajuste da organização aplicado.
+  admPercent  Decimal @db.Decimal(7, 4)
+  /// Fundo de reserva do grupo. A "Taxa Adm." impressa é admPercent + este
+  /// campo: são duas colunas na Servopa, mas uma só na tabela do documento
+  /// (e é a soma que entra no cálculo mensal — ver lib/servopa-tables/adjust).
+  /// Nulo quando a Servopa não publicou o fundo do grupo.
+  reserveFundPercent Decimal? @db.Decimal(7, 4)
+  /// "Valor da Cota" — crédito de UMA cota.
+  creditValue Decimal @db.Decimal(12, 2)
+  /// Parcela de UMA cota; a "Parcela Inicial" da linha é esta vezes quotaCount.
+  installment Decimal @db.Decimal(12, 2)
+  /// Quantas cotas deste grupo/categoria — a única coisa digitada.
+  quotaCount Int
+
+  createdAt DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  proposal     Proposal     @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+
+  /// A mesma categoria do mesmo grupo não entra duas vezes: quantidade é quotaCount.
+  @@unique([proposalId, servopaTableId, category])
+  @@index([organizationId])
+  @@index([proposalId])
+  @@index([servopaTableId])
 }
 
 model ProposalTemplate {
@@ -2691,8 +2755,24 @@ model Process {
   organizationId String
   pipelineId     String
   stageId        String
-  dealId         String @unique
-  contactId      String
+  // Opcional desde que o acompanhamento passou a aceitar cliente que já é
+  // ganho/contemplado mas cuja venda nunca virou Deal neste CRM (contrato
+  // antigo, migração de planilha do administrativo). Continua @unique: um
+  // negócio nunca gera dois processos. O que o processo exige de verdade é
+  // contactId/ownerId logo abaixo — `deal` só carrega nome e valor pra
+  // exibição no card e pra busca (ver lib/processes/list-query.ts).
+  dealId         String? @unique
+  // Opcional junto com `clientName` abaixo: o administrativo acompanha
+  // contemplado que não é (nem precisa virar) contato deste CRM — pedido
+  // explícito de que esse dado fique só na seção Processos. Vale a regra "um
+  // ou outro": com contactId, o nome vem do contato e o processo tem
+  // telefone/WhatsApp; com clientName, é só um rótulo e as ações que dependem
+  // de telefone não se aplicam.
+  contactId      String?
+  /** Nome digitado à mão quando não há contactId. Nunca ler direto: use
+   * `process.contact?.name ?? process.clientName` (é o que a lista e o Kanban
+   * fazem). */
+  clientName     String?
   // Herdado do Deal.ownerId no momento em que o processo nasce (negócio
   // marcado como Ganho) — nunca reflete mudança de responsável do negócio
   // depois disso; é o "dono" fixo pro escopo de leitura do consultor.
@@ -2707,6 +2787,13 @@ model Process {
   // qualquer um dos dois depois).
   quotaNumber    String?
   groupNumber    String?
+  // Valor do processo quando ele não tem negócio de onde herdar (ver dealId
+  // acima): contemplado que entrou pela lista do administrativo não passou
+  // por Deal nenhum, então sem este campo ficaria sem valor em toda soma.
+  // Mesmo tipo/precisão de Deal.value, pra Kanban e relatório somarem os dois
+  // sem conversão. Quem lê usa `deal?.value ?? value` — o negócio continua
+  // mandando quando existe, este campo é o complemento.
+  value          Decimal? @db.Decimal(12, 2)
 
   stageEnteredAt DateTime @default(now())
   createdAt      DateTime @default(now())
@@ -2715,8 +2802,8 @@ model Process {
   organization   Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   pipeline       ProcessPipeline        @relation(fields: [pipelineId], references: [id])
   stage          ProcessStage           @relation(fields: [stageId], references: [id])
-  deal           Deal                   @relation(fields: [dealId], references: [id], onDelete: Cascade)
-  contact        Contact                @relation(fields: [contactId], references: [id])
+  deal           Deal?                  @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  contact        Contact?               @relation(fields: [contactId], references: [id])
   owner          User                   @relation("ProcessOwner", fields: [ownerId], references: [id])
   stageHistory   ProcessStageHistory[]
   requests       ProcessRequest[]

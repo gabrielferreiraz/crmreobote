@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Search, Plus, Loader2, UserRound } from "lucide-react";
+import { Search, Plus, Loader2, UserRound, UserPlus } from "lucide-react";
 import { Modal } from "@/components/modal";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
@@ -18,11 +18,21 @@ type DealResult = {
 type CategoryOption = { id: string; name: string; pipelines: { id: string; name: string }[] };
 
 /**
- * "Adicionar ao processo" — busca negócios Ganhos que ainda não têm
- * processo (por nome do cliente OU do responsável, ver withoutProcess em
- * lib/deals/list-query.ts), escolhe um, e escolhe a Categoria/Subcategoria
- * de destino. Quem decide isso é o setor de contemplações, não é mais
- * automático quando o negócio é marcado como Ganho.
+ * "Adicionar ao processo" — uma busca só resolve os dois casos.
+ *
+ * Digitando, procura negócios Ganhos ainda sem processo (por nome do cliente
+ * OU do responsável, ver withoutProcess em lib/deals/list-query.ts). Achou,
+ * escolhe o negócio e segue. Não achou, o texto digitado vira um cliente novo,
+ * cadastrado junto com o processo na mesma transação (ver
+ * createProcessWithNewContact) — é o caso do contemplado que o administrativo
+ * acompanha e que ainda não existe no CRM.
+ *
+ * O que nenhum dos dois caminhos faz é criar NEGÓCIO: inventar um "ganho" só
+ * pra destravar o processo entraria em Vendas do mês, ranking da TV e
+ * relatórios como venda que não aconteceu.
+ *
+ * Em ambos, a Categoria/Subcategoria de destino é escolhida à mão — quem
+ * decide isso é o setor de contemplações, não é automático ao ganhar.
  */
 export function AddToProcessDialog({
   categories,
@@ -35,6 +45,10 @@ export function AddToProcessDialog({
   onClose: () => void;
   onCreated: () => void;
 }) {
+  /** A busca não achou negócio e a pessoa optou por cadastrar com o texto
+   * digitado — daí em diante `query` é o nome do cliente novo, não mais um
+   * termo de busca. */
+  const [useTypedName, setUseTypedName] = useState(false);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<DealResult[]>([]);
   const [loading, setLoading] = useState(false);
@@ -90,14 +104,21 @@ export function AddToProcessDialog({
   }
 
   async function handleAdd() {
-    if (!selectedDeal || !pipelineId) return;
+    if (!pipelineId) return;
+    // Uma chamada só, pro próprio endpoint de processos. Com negócio
+    // escolhido vai `dealId`; sem negócio vai `clientName`, e o servidor
+    // cadastra cliente e processo na mesma transação (ver POST /api/processes).
+    const typed = query.trim();
+    const payload = selectedDeal ? { dealId: selectedDeal.id, pipelineId } : { clientName: typed, pipelineId };
+    if (!selectedDeal && !typed) return;
+
     setCreating(true);
     setError(null);
 
     const res = await fetch("/api/processes", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ dealId: selectedDeal.id, pipelineId }),
+      body: JSON.stringify(payload),
     });
 
     setCreating(false);
@@ -114,11 +135,15 @@ export function AddToProcessDialog({
   return (
     <Modal onClose={onClose} maxWidth="max-w-md">
       <h2 className="mb-1 text-lg font-semibold text-neutral-900 dark:text-neutral-100">Adicionar ao processo</h2>
-      <p className="mb-4 text-sm text-neutral-500 dark:text-neutral-400">
-        Busque um negócio já Ganho pelo nome do cliente ou do responsável.
+      <p className="mb-3 text-sm text-neutral-500 dark:text-neutral-400">
+        Busque pelo nome do cliente ou do responsável. Se ninguém aparecer, dá pra cadastrar na hora com o nome que
+        você digitou.
       </p>
 
-      {!selectedDeal ? (
+      {/* Um caminho só: a mesma busca resolve os dois casos. Achou negócio
+          Ganho, usa ele; não achou, o próprio texto digitado vira o cliente
+          novo (ver o bloco de "nenhum resultado" logo abaixo). */}
+      {!selectedDeal && !useTypedName ? (
         <div className="space-y-2">
           <div className="relative">
             <Search
@@ -138,9 +163,27 @@ export function AddToProcessDialog({
             {loading ? (
               <p className="px-2 py-3 text-sm text-neutral-400 dark:text-neutral-500">Buscando...</p>
             ) : query.trim() && results.length === 0 ? (
-              <p className="px-2 py-3 text-sm text-neutral-400 dark:text-neutral-500">
-                Nenhum negócio Ganho sem processo encontrado.
-              </p>
+              // Nenhum negócio bateu: em vez de um beco sem saída, o texto
+              // digitado vira o cliente novo. É o mesmo caminho de antes, só
+              // que oferecido aqui, no momento em que a pessoa descobre que
+              // aquele cliente não existe.
+              <div className="px-2 py-3">
+                <p className="text-sm text-neutral-500 dark:text-neutral-400">
+                  Nenhum negócio Ganho encontrado para <span className="font-medium">{query.trim()}</span>.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setUseTypedName(true)}
+                  className="btn-secondary mt-2.5 w-full text-xs"
+                >
+                  <UserPlus className="h-3.5 w-3.5" strokeWidth={2} />
+                  Cadastrar &quot;{query.trim()}&quot; como novo cliente
+                </button>
+                <p className="mt-1.5 text-xs text-neutral-400 dark:text-neutral-500">
+                  Entra no CRM só com o nome — telefone e origem ficam pra depois. Se já existir alguém com esse nome
+                  exato, ele é reaproveitado em vez de duplicado.
+                </p>
+              </div>
             ) : (
               results.map((deal) => (
                 <button
@@ -170,18 +213,24 @@ export function AddToProcessDialog({
         </div>
       ) : (
         <div className="space-y-3">
+          {/* Mesmo cartão de confirmação nos dois casos — muda só a legenda:
+              com negócio mostra responsável e nome do negócio; sem negócio
+              avisa que o cliente será cadastrado. "Trocar" devolve à busca. */}
           <div className="card flex items-center justify-between p-3">
             <div className="min-w-0">
               <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">
-                {selectedDeal.contact.name}
+                {selectedDeal ? selectedDeal.contact.name : query.trim()}
               </p>
               <p className="truncate text-xs text-neutral-400 dark:text-neutral-500">
-                {selectedDeal.owner.name} · {selectedDeal.name}
+                {selectedDeal ? `${selectedDeal.owner.name} · ${selectedDeal.name}` : "Cliente novo · sem negócio"}
               </p>
             </div>
             <button
               type="button"
-              onClick={() => setSelectedDeal(null)}
+              onClick={() => {
+                setSelectedDeal(null);
+                setUseTypedName(false);
+              }}
               className="shrink-0 text-xs font-medium text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
             >
               Trocar
@@ -214,7 +263,12 @@ export function AddToProcessDialog({
             <button type="button" onClick={onClose} className="btn-ghost">
               Cancelar
             </button>
-            <button type="button" onClick={handleAdd} disabled={creating || !pipelineId} className="btn-primary">
+            <button
+              type="button"
+              onClick={handleAdd}
+              disabled={creating || !pipelineId || (!selectedDeal && !query.trim())}
+              className="btn-primary"
+            >
               {creating ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />

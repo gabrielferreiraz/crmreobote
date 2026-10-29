@@ -63,7 +63,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (targetStage.isFinal) {
       notifyProcessReachedFinalStage(access.organizationId, {
         id: process.id,
-        contactName: process.contact.name,
+        // Processo avulso não tem contato — o nome vem do rótulo digitado
+        // (ver contactId/clientName no model Process).
+        contactName: process.contact?.name ?? process.clientName ?? "Cliente",
         stageName: targetStage.name,
         ownerId: process.ownerId,
       }).catch((err) => console.error("[processes] falha ao notificar etapa final", err));

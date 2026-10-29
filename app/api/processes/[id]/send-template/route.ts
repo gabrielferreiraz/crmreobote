@@ -55,6 +55,19 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (!process) return NextResponse.json({ error: "Processo não encontrado" }, { status: 404 });
     if (!template) return NextResponse.json({ error: "Modelo não encontrado" }, { status: 404 });
 
+    // Enviar ao CLIENTE exige contato: a mensagem vai pro WhatsApp dele, e
+    // processo avulso (ver contactId/clientName no model Process) não tem
+    // número nenhum. Barrado aqui, com recado claro, em vez de estourar lá
+    // dentro no meio do envio. A constante separada é o que deixa o
+    // estreitamento de tipo valer dentro do `else` lá embaixo.
+    const contact = process.contact;
+    if (target !== "CONSULTANT" && !contact) {
+      return NextResponse.json(
+        { error: "Este processo não tem cliente vinculado — não há WhatsApp para onde enviar." },
+        { status: 400 },
+      );
+    }
+
     const finalMessage = message.trim();
     let processRequest = null;
 
@@ -71,14 +84,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       });
 
       notifyProcessTemplateToConsultant(
-        { id: process.id, contactName: process.contact.name, ownerId: process.ownerId },
+        { id: process.id, contactName: contact?.name ?? process.clientName ?? "Cliente", ownerId: process.ownerId },
         template.name,
       ).catch((err) => console.error("[processes] falha ao notificar modelo pro consultor", err));
     } else {
       try {
         await sendWhatsAppMessageToContact({
           organizationId: access.organizationId,
-          contactId: process.contact.id,
+          contactId: contact!.id,
           ownerId: process.ownerId,
           text: finalMessage,
         });
@@ -97,7 +110,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         data: {
           organizationId: access.organizationId,
           processId: process.id,
-          contactId: process.contact.id,
+          contactId: contact!.id,
           userId: access.userId,
           type: "NOTE",
           body: `Modelo "${template.name}" enviado ao cliente via WhatsApp.`,

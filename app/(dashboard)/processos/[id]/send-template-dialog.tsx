@@ -37,9 +37,13 @@ type RankedTemplate = {
 
 type ProcessInfo = {
   id: string;
-  contact: { id: string; name: string; whatsapp: string | null; phone: string | null };
+  /** null em processo avulso (ver contactId/clientName no model Process) —
+   * sem contato não há número, então o envio ao cliente fica indisponível. */
+  contact: { id: string; name: string; whatsapp: string | null; phone: string | null } | null;
+  displayName: string;
   owner: { id: string; name: string };
-  deal: { name: string };
+  /** null em processo sem negócio neste CRM (ver dealId no model Process). */
+  deal: { name: string } | null;
 };
 
 type Target = "CONSULTANT" | "LEAD";
@@ -78,7 +82,8 @@ export function SendTemplateDialog({
   const [busy, setBusy] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
 
-  const canUseLead = !!(process.contact.whatsapp || process.contact.phone);
+  // Sem contato não existe número — o envio ao cliente nem é oferecido.
+  const canUseLead = !!(process.contact?.whatsapp || process.contact?.phone);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -100,9 +105,11 @@ export function SendTemplateDialog({
 
   function interpolate(text: string): string {
     return interpolateAutomationTemplate(text, {
-      "cliente.nome": process.contact.name,
+      "cliente.nome": process.displayName,
       "responsavel.nome": process.owner.name,
-      "negocio.nome": process.deal.name,
+      // Vazio quando não há negócio: a variável some do texto em vez de
+      // estampar "undefined" numa mensagem que vai pro cliente.
+      "negocio.nome": process.deal?.name ?? "",
     });
   }
 
@@ -365,7 +372,7 @@ export function SendTemplateDialog({
                   }`}
                 >
                   <MessageCircle className="h-4 w-4 shrink-0" strokeWidth={2} />
-                  <span className="min-w-0 truncate">Cliente ({process.contact.name}, WhatsApp)</span>
+                  <span className="min-w-0 truncate">Cliente ({process.displayName}, WhatsApp)</span>
                   {target === "LEAD" && <Check className="ml-auto h-3.5 w-3.5 shrink-0" strokeWidth={2.5} />}
                 </button>
               </div>

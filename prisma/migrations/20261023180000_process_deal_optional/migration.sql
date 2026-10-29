@@ -1,0 +1,22 @@
+-- Process.dealId vira opcional — ver comentário no model Process (schema).
+--
+-- Motivo: o acompanhamento de pós-venda precisa aceitar cliente que já é
+-- ganho/contemplado mas cuja venda nunca virou Deal neste CRM (contrato
+-- antigo, lista que o administrativo mantinha em planilha). Antes, criar o
+-- processo desses clientes obrigaria a inventar um negócio "ganho" pra cada
+-- um — e negócio ganho entra em Vendas do mês, ranking da TV, churrascômetro
+-- e relatórios, ou seja, inflaria a venda da empresa com número que não
+-- existiu.
+--
+-- DROP NOT NULL é aditivo: não apaga nem reescreve linha nenhuma, só passa a
+-- aceitar nulo daqui pra frente. A unicidade continua valendo (um negócio
+-- nunca gera dois processos); no Postgres, UNIQUE deixa passar vários NULL,
+-- que é exatamente o comportamento desejado pros processos sem negócio.
+--
+-- Escrita à mão (não gerada por `prisma migrate dev`): a shadow database do
+-- migrate dev falha numa migração ANTERIOR e não relacionada
+-- (20260812090000_tv_dashboard_config_rls, ver comentário lá), então toda
+-- migração nova neste repo é escrita e aplicada manualmente — mesma
+-- observação de 20260921210000_feature_usage_daily.
+
+ALTER TABLE "Process" ALTER COLUMN "dealId" DROP NOT NULL;

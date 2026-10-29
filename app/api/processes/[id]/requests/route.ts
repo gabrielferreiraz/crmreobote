@@ -72,7 +72,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     notifyProcessRequestCreated(access.organizationId, {
       id: request.id,
       processId: id,
-      contactName: process.contact.name,
+      // Processo avulso não tem contato — o nome vem do rótulo digitado
+      // (ver contactId/clientName no model Process).
+      contactName: process.contact?.name ?? process.clientName ?? "Cliente",
       requesterName: requester?.name ?? "Consultor",
     }).catch((err) => console.error("[processes] falha ao notificar solicitação", err));
 

@@ -60,7 +60,9 @@ export function ProcessesListMobile({ stages, processes }: { stages: Stage[]; pr
           {stages.map((stage) => {
             const stageProcesses = filtered.filter((p) => p.stageId === stage.id);
             if (stageProcesses.length === 0) return null;
-            const total = stageProcesses.reduce((sum, p) => sum + (p.deal.value ?? 0), 0);
+            // Processo sem negócio entra como 0 — conta na quantidade, mas não
+            // tem valor conhecido (ver dealId no model Process).
+            const total = stageProcesses.reduce((sum, p) => sum + (p.displayValue ?? 0), 0);
 
             return (
               <div key={stage.id}>

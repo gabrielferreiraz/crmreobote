@@ -19,9 +19,16 @@ export type ProcessListItem = {
   quotaNumber: string | null;
   groupNumber: string | null;
   stageEnteredAt: string | Date;
-  contact: { id: string; name: string };
+  /** null em processo avulso (ver contactId/clientName no model Process).
+   * Para o nome, use `displayName`. */
+  contact: { id: string; name: string } | null;
+  displayName: string;
   owner: { id: string; name: string };
-  deal: { id: string; name: string; value: number | null };
+  /** null em processo sem negócio neste CRM (ver dealId no model Process).
+   * Para o valor, use `displayValue`, que já cai no valor próprio do
+   * processo quando não há negócio. */
+  deal: { id: string; name: string; value: number | null } | null;
+  displayValue: number | null;
   openRequestCount: number;
   hasUnreadNote: boolean;
 };
@@ -158,7 +165,7 @@ export function ProcessList({ categories }: { categories: CategoryTreeItem[] }) 
               <div className="flex min-w-0 items-center gap-2.5">
                 <Avatar name={p.owner.name} size="xs" />
                 <div className="min-w-0">
-                  <p className="truncate font-medium text-neutral-900 dark:text-neutral-100">{p.contact.name}</p>
+                  <p className="truncate font-medium text-neutral-900 dark:text-neutral-100">{p.displayName}</p>
                   <p className="truncate text-xs text-neutral-400 dark:text-neutral-500">
                     {p.categoryName} · {p.pipelineName} · {p.owner.name}
                   </p>
@@ -187,9 +194,9 @@ export function ProcessList({ categories }: { categories: CategoryTreeItem[] }) 
                     {p.openRequestCount}
                   </span>
                 )}
-                {p.deal.value != null && (
+                {p.displayValue != null && (
                   <span className="tabular-nums text-neutral-500 dark:text-neutral-400">
-                    {formatCurrency(p.deal.value)}
+                    {formatCurrency(p.displayValue)}
                   </span>
                 )}
                 <span

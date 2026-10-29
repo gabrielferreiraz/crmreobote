@@ -41,6 +41,8 @@ export async function getProposalPrintData(
     include: {
       createdBy: { select: { name: true, email: true } },
       sentBy: { select: { name: true, email: true } },
+      // A tabela de cotas é impressa no documento — ver ProposalQuota no schema.
+      quotas: { orderBy: { position: "asc" } },
       organization: { select: { name: true } },
       deal: {
         select: {

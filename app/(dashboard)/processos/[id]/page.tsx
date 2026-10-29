@@ -11,17 +11,30 @@ export default async function ProcessDetailPage({ params }: { params: Promise<{ 
   if (!access.ok) notFound();
 
   return runWithTenant(access.organizationId, async () => {
-    const processRaw = await prisma.process.findFirst({
-      where: { id, organizationId: access.organizationId, ...processScopeWhere(access) },
-      include: {
-        contact: true,
-        owner: { select: { id: true, name: true, image: true } },
-        stage: true,
-        pipeline: { include: { stages: { orderBy: { order: "asc" } } } },
-        deal: { select: { id: true, name: true, value: true, creditType: true, closedAt: true } },
-      },
-    });
+    // Membros carregados junto com o processo (não por fetch no cliente): o
+    // campo "Responsável" precisa deles já na primeira pintura pra resolver o
+    // nome digitado em um usuário existente. São poucas linhas e a mesma
+    // consulta que Clientes faz pra montar o seletor de responsável.
+    const [processRaw, membersRaw] = await Promise.all([
+      prisma.process.findFirst({
+        where: { id, organizationId: access.organizationId, ...processScopeWhere(access) },
+        include: {
+          contact: true,
+          owner: { select: { id: true, name: true, image: true } },
+          stage: true,
+          pipeline: { include: { stages: { orderBy: { order: "asc" } } } },
+          deal: { select: { id: true, name: true, value: true, creditType: true, closedAt: true } },
+        },
+      }),
+      prisma.organizationUser.findMany({
+        where: { organizationId: access.organizationId, active: true },
+        orderBy: { createdAt: "asc" },
+        include: { user: { select: { id: true, name: true } } },
+      }),
+    ]);
     if (!processRaw) notFound();
+
+    const members = membersRaw.map((m) => m.user);
 
     const ownerPhotoUrl = await resolveAvatarUrl(processRaw.owner.image);
 
@@ -47,33 +60,48 @@ export default async function ProcessDetailPage({ params }: { params: Promise<{ 
       documentStatus: processRaw.documentStatus,
       quotaNumber: processRaw.quotaNumber,
       groupNumber: processRaw.groupNumber,
+      // Decimal do Prisma não atravessa a fronteira servidor->cliente como
+      // número: vira objeto e quebra a formatação de moeda.
+      value: processRaw.value != null ? Number(processRaw.value) : null,
       stageEnteredAt: processRaw.stageEnteredAt,
       createdAt: processRaw.createdAt,
-      contact: {
-        id: processRaw.contact.id,
-        name: processRaw.contact.name,
-        email: processRaw.contact.email,
-        phone: processRaw.contact.phone,
-        whatsapp: processRaw.contact.whatsapp,
-        company: processRaw.contact.company,
-        city: processRaw.contact.city,
-        address: processRaw.contact.address,
-        addressNumber: processRaw.contact.addressNumber,
-        addressComplement: processRaw.contact.addressComplement,
-        neighborhood: processRaw.contact.neighborhood,
-        state: processRaw.contact.state,
-        zipCode: processRaw.contact.zipCode,
-      },
+      // null em processo avulso (ver contactId/clientName no model Process) —
+      // nesse caso só existe o nome, em `displayName` logo abaixo.
+      contact: processRaw.contact
+        ? {
+            id: processRaw.contact.id,
+            name: processRaw.contact.name,
+            email: processRaw.contact.email,
+            phone: processRaw.contact.phone,
+            whatsapp: processRaw.contact.whatsapp,
+            company: processRaw.contact.company,
+            city: processRaw.contact.city,
+            address: processRaw.contact.address,
+            addressNumber: processRaw.contact.addressNumber,
+            addressComplement: processRaw.contact.addressComplement,
+            neighborhood: processRaw.contact.neighborhood,
+            state: processRaw.contact.state,
+            zipCode: processRaw.contact.zipCode,
+            // Os dois campos que o bloco "Responsável" escreve — vêm daqui
+            // pra tela já abrir mostrando o que está gravado hoje.
+            responsavelId: processRaw.contact.responsavelId,
+            tags: processRaw.contact.tags,
+          }
+        : null,
+      displayName: processRaw.contact?.name ?? processRaw.clientName ?? "Sem nome",
       owner: { id: processRaw.owner.id, name: processRaw.owner.name, photoUrl: ownerPhotoUrl },
-      deal: {
-        id: processRaw.deal.id,
-        name: processRaw.deal.name,
-        value: processRaw.deal.value != null ? Number(processRaw.deal.value) : null,
-        creditType: processRaw.deal.creditType,
-        closedAt: processRaw.deal.closedAt,
-      },
+      // null em processo sem negócio neste CRM (ver dealId no model Process).
+      deal: processRaw.deal
+        ? {
+            id: processRaw.deal.id,
+            name: processRaw.deal.name,
+            value: processRaw.deal.value != null ? Number(processRaw.deal.value) : null,
+            creditType: processRaw.deal.creditType,
+            closedAt: processRaw.deal.closedAt,
+          }
+        : null,
     };
 
-    return <ProcessDetail process={process} isAdmin={access.isAdmin} />;
+    return <ProcessDetail process={process} isAdmin={access.isAdmin} members={members} />;
   });
 }
