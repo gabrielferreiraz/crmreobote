@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
-import { Ban, Check, CheckCircle2, Clock, Download, History, Laptop, Loader2, RefreshCw, Settings2, Sparkles, Square, Trash2, Wifi, WifiOff, XCircle } from "lucide-react";
+import { Ban, Check, CheckCircle2, Clock, Download, History, KeyRound, Laptop, Loader2, RefreshCw, Settings2, Sparkles, Square, Trash2, Wifi, WifiOff, XCircle } from "lucide-react";
 import { Badge, type BadgeTone } from "@/components/badge";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Modal } from "@/components/modal";
@@ -443,12 +443,18 @@ export function ServopaOperations({ initialState }: { initialState: ServopaOpera
     if (newWorkerId && newWorkerName) writeSavedComputer({ id: newWorkerId, name: newWorkerName });
   }, [newWorkerId, newWorkerName]);
   const limitReached = state.workers.length >= state.maxWorkers;
+  const credentialsPending = !state.panelCredentialsConfigured;
   return (
     <>
       <div className="flex flex-wrap items-center justify-end gap-2">
-        <div className="min-w-0 text-right">
-          <Badge tone={status.tone} dot>{status.label}</Badge>
-          <p className="mt-1 max-w-72 truncate text-xs text-neutral-500 dark:text-neutral-400" title={status.detail}>{status.detail}</p>
+        <div className={`min-w-0 ${credentialsPending ? "flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-left dark:border-amber-900/70 dark:bg-amber-950/30" : "text-right"}`}>
+          {credentialsPending && <KeyRound className="h-4 w-4 shrink-0 text-amber-700 dark:text-amber-400" aria-hidden="true" />}
+          <div className="min-w-0">
+            <Badge tone={status.tone} dot>{status.label}</Badge>
+            <p className={`mt-0.5 max-w-72 truncate text-xs ${credentialsPending ? "text-amber-800 dark:text-amber-300" : "text-neutral-500 dark:text-neutral-400"}`} title={credentialsPending ? "Configure o acesso ao painel Servopa para habilitar as atualizações." : status.detail}>
+              {credentialsPending ? "Configure o acesso ao painel para atualizar as tabelas." : status.detail}
+            </p>
+          </div>
         </div>
         <button type="button" onClick={() => void runNow()} disabled={running || Boolean(state.activeRun) || !state.panelCredentialsConfigured} className="btn-primary">
           <RefreshCw className={`h-4 w-4 ${running || state.activeRun?.status === "RUNNING" ? "animate-spin" : ""}`} aria-hidden="true" />

@@ -41,8 +41,8 @@ export const BODY_LIMITS = {
   image: 11 * 1024 * 1024,
   /** Mídia do chat (áudio/imagem): mesmo raciocínio, teto do validador de mídia + folga. */
   chatMedia: 17 * 1024 * 1024,
-  /** Planilha de importação — as rotas aceitam até 5 MB (MAX_FILE_SIZE) + folga do multipart. */
-  spreadsheet: 6 * 1024 * 1024,
+  /** Planilha de importação — as rotas aceitam até 25 MB + folga do multipart. */
+  spreadsheet: 26 * 1024 * 1024,
 } as const;
 
 function formatBytes(n: number): string {

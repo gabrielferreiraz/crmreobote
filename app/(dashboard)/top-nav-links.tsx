@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Users, Kanban, MessageCircle, CalendarDays, ClipboardList, BarChart3, Wallet, Table2 } from "lucide-react";
+import { Home, Users, Kanban, MessageCircle, CalendarDays, ClipboardList, BarChart3, Wallet, Table2, FileSpreadsheet } from "lucide-react";
 import { LoadingDots } from "@/components/loading-dots";
 
 // Configurações saiu daqui — mora no menu do usuário agora (ver
@@ -18,6 +18,8 @@ const NAV_ITEMS = [
   { href: "/processos", label: "Processos", icon: ClipboardList },
   { href: "/relatorios", label: "Relatórios", icon: BarChart3 },
   { href: "/tabelas", label: "Tabelas", icon: Table2 },
+  // Planilhas do Administrativo: só área Administrativo e Dono (ver lib/sheets/access.ts).
+  { href: "/planilhas", label: "Planilhas", icon: FileSpreadsheet, sheetsOnly: true },
   // Só aparece pra quem tem o que ver (ver showCommissions em layout.tsx).
   { href: "/comissoes", label: "Comissões", icon: Wallet, commissionsOnly: true },
 ];
@@ -49,9 +51,19 @@ function NavLinkContent({ icon: Icon, label, isActive }: { icon: typeof Home; la
 const DRAG_THRESHOLD_PX = 4;
 
 /** Administrativo (pós-venda) não vê Pipeline/Negócios — não é o CRM de vendas que ele opera. */
-export function TopNavLinks({ isAdministrativo, showCommissions = false }: { isAdministrativo: boolean; showCommissions?: boolean }) {
+export function TopNavLinks({
+  isAdministrativo,
+  showCommissions = false,
+  showSheets = false,
+}: {
+  isAdministrativo: boolean;
+  showCommissions?: boolean;
+  showSheets?: boolean;
+}) {
   const pathname = usePathname();
-  const items = NAV_ITEMS.filter((item) => !(isAdministrativo && item.salesOnly) && !(item.commissionsOnly && !showCommissions));
+  const items = NAV_ITEMS.filter(
+    (item) => !(isAdministrativo && item.salesOnly) && !(item.commissionsOnly && !showCommissions) && !(item.sheetsOnly && !showSheets),
+  );
 
   const scrollRef = useRef<HTMLElement>(null);
   // dragState só existe enquanto o botão está pressionado (null fora

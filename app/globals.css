@@ -1884,3 +1884,328 @@ input[type="radio"] {
     padding: 0;
   }
 }
+
+/* Planilhas (app/(dashboard)/planilhas/[id]/): identidade visual do Excel —
+   verde do Excel na seleção/cabeçalhos/barra de título, linhas de grade e
+   cabeçalhos nos tons do Excel 365, fonte Aptos/Calibri na grade. Tudo em
+   variáveis para o tema escuro trocar de uma vez. Dentro da planilha a cor
+   é a do Excel (não a da marca) de propósito: o pedido é "muito parecido
+   com o Excel", e o verde é o que o usuário reconhece na hora. */
+:root,
+.xl-theme {
+  --xl: #107c41;
+  --xl-dark: #0b5a2f;
+  --xl-btn: #107c41;
+  --xl-btn-hover: #0b5a2f;
+  --xl-soft: #e3f1e8;
+  --xl-head: #f3f3f3;
+  --xl-head-text: #444;
+  --xl-head-sel: #d9d9d9;
+  --xl-head-line: #c8c8c8;
+  --xl-grid: #e1e1e1;
+  --xl-range: rgba(0, 0, 0, 0.075);
+  --xl-ribbon: #f8f8f8;
+  --xl-cell-text: #000;
+  --xl-border-auto: #000000;
+  --xl-sheet: #fff;
+  --xl-font: Aptos, Calibri, "Segoe UI", system-ui, sans-serif;
+  --xl-motion-fast: 120ms;
+  --xl-motion: 175ms;
+  --xl-motion-slow: 240ms;
+  --xl-ease: var(--ease-smooth);
+}
+.xl-theme {
+  color-scheme: light;
+}
+.dark,
+.dark .xl-theme {
+  --xl: #4cbb7c;
+  --xl-dark: #3a9c64;
+  --xl-btn: #15803d;
+  --xl-btn-hover: #106932;
+  --xl-soft: #1c3527;
+  --xl-head: #1f1f1f;
+  --xl-head-text: #bdbdbd;
+  --xl-head-sel: #333;
+  --xl-head-line: #3d3d3d;
+  --xl-grid: #2c2c2c;
+  --xl-range: rgba(255, 255, 255, 0.09);
+  --xl-ribbon: #1a1a1a;
+  --xl-cell-text: #f1f1f1;
+  --xl-border-auto: #8a8a8a;
+  --xl-sheet: #121212;
+}
+.dark .xl-theme,
+.dark [role="dialog"] {
+  color-scheme: dark;
+}
+
+/* "Formigas marchando" em volta do que foi copiado (Ctrl+C), como no Excel. */
+.xl-ants {
+  background-image:
+    linear-gradient(90deg, var(--xl) 50%, transparent 50%),
+    linear-gradient(90deg, var(--xl) 50%, transparent 50%),
+    linear-gradient(0deg, var(--xl) 50%, transparent 50%),
+    linear-gradient(0deg, var(--xl) 50%, transparent 50%);
+  background-repeat: repeat-x, repeat-x, repeat-y, repeat-y;
+  background-size: 8px 2px, 8px 2px, 2px 8px, 2px 8px;
+  background-position: 0 0, 0 100%, 0 0, 100% 0;
+  animation: xl-ants 0.6s linear infinite;
+}
+@keyframes xl-ants {
+  to {
+    background-position: 8px 0, -8px 100%, 0 -8px, 100% 8px;
+  }
+}
+
+/* Movimento fluido estilo Excel 365: a moldura de seleção, a célula em foco,
+   os cabeçalhos (letras/números) e o véu das células deslizam suavemente ao
+   navegar por setas, Tab/Enter, clique ou arraste. Durante o redimensionamento
+   manual da coluna (.xl-resizing), a transição de largura é desligada para
+   acompanhar o ponteiro sem atraso; no AutoAjuste (duplo clique) ela anima. */
+@keyframes xl-sel-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes xl-workbook-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.998);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes xl-ribbon-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes xl-indicator-in {
+  from {
+    opacity: 0;
+    transform: scaleX(0.35);
+  }
+  to {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+}
+
+@keyframes xl-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-5px) scale(0.975);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes xl-bar-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes xl-status-in {
+  from {
+    opacity: 0;
+    transform: translateX(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes xl-toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+}
+
+.xl-workbook-enter {
+  animation: xl-workbook-in var(--xl-motion-slow) var(--xl-ease);
+}
+
+.xl-ribbon-content {
+  animation: xl-ribbon-in var(--xl-motion) var(--xl-ease);
+}
+
+.xl-tab-indicator {
+  animation: xl-indicator-in var(--xl-motion) var(--xl-ease);
+  transform-origin: center;
+}
+
+.xl-bar-reveal,
+.xl-formula-reveal {
+  animation: xl-bar-in var(--xl-motion) var(--xl-ease);
+}
+
+.xl-status-reveal {
+  animation: xl-status-in var(--xl-motion) var(--xl-ease);
+}
+
+.xl-toast {
+  animation: xl-toast-in var(--xl-motion-slow) var(--xl-ease);
+}
+
+.xl-sel-box {
+  transition:
+    top var(--xl-motion-fast) var(--xl-ease),
+    left var(--xl-motion-fast) var(--xl-ease),
+    width var(--xl-motion-fast) var(--xl-ease),
+    height var(--xl-motion-fast) var(--xl-ease),
+    box-shadow var(--xl-motion) var(--xl-ease);
+  will-change: top, left, width, height;
+}
+
+.xl-extra-box {
+  animation: xl-sel-pop var(--xl-motion) var(--xl-ease) both;
+  transition:
+    top var(--xl-motion-fast) var(--xl-ease),
+    left var(--xl-motion-fast) var(--xl-ease),
+    width var(--xl-motion-fast) var(--xl-ease),
+    height var(--xl-motion-fast) var(--xl-ease);
+  will-change: top, left, width, height;
+}
+
+.xl-focus-cell {
+  transition:
+    top 105ms var(--xl-ease),
+    left 105ms var(--xl-ease),
+    width 105ms var(--xl-ease),
+    height 105ms var(--xl-ease);
+  will-change: top, left, width, height;
+}
+
+.xl-head-item {
+  transition:
+    background-color var(--xl-motion) var(--xl-ease),
+    color var(--xl-motion) var(--xl-ease),
+    box-shadow var(--xl-motion) var(--xl-ease),
+    width var(--xl-motion) var(--xl-ease),
+    height var(--xl-motion) var(--xl-ease);
+}
+
+.xl-cell {
+  transition:
+    box-shadow 145ms var(--xl-ease),
+    background-color var(--xl-motion) var(--xl-ease),
+    border-color var(--xl-motion) var(--xl-ease),
+    color var(--xl-motion) var(--xl-ease),
+    outline-color var(--xl-motion-fast) var(--xl-ease),
+    width var(--xl-motion) var(--xl-ease),
+    height var(--xl-motion) var(--xl-ease);
+}
+
+.xl-grid-row {
+  transition:
+    top var(--xl-motion) var(--xl-ease),
+    height var(--xl-motion) var(--xl-ease);
+  will-change: top, height;
+}
+
+.xl-tool-button,
+.xl-chrome-button,
+.xl-menu-item,
+.xl-sheet-tab,
+.xl-tab-button {
+  transition:
+    color var(--xl-motion) var(--xl-ease),
+    background-color var(--xl-motion) var(--xl-ease),
+    border-color var(--xl-motion) var(--xl-ease),
+    box-shadow var(--xl-motion) var(--xl-ease),
+    opacity var(--xl-motion) var(--xl-ease),
+    transform var(--xl-motion-fast) var(--xl-ease),
+    scale var(--xl-motion-fast) var(--xl-ease);
+}
+
+.xl-tool-button > svg,
+.xl-chrome-button > svg,
+.xl-menu-item svg {
+  transition: transform var(--xl-motion) var(--xl-ease);
+}
+
+.xl-tool-button:hover:not(:disabled) > svg,
+.xl-chrome-button:hover:not(:disabled) > svg,
+.xl-menu-item:hover:not(:disabled) svg {
+  transform: translateY(-1px);
+}
+
+.xl-tool-button:active:not(:disabled),
+.xl-chrome-button:active:not(:disabled),
+.xl-menu-item:active:not(:disabled),
+.xl-sheet-tab:active,
+.xl-tab-button:active {
+  scale: 0.975;
+}
+
+.xl-resizing .xl-cell,
+.xl-resizing .xl-head-item,
+.xl-resizing .xl-grid-row,
+.xl-resizing .xl-sel-box,
+.xl-resizing .xl-extra-box,
+.xl-resizing .xl-focus-cell {
+  transition: none !important;
+}
+
+.xl-menu-pop {
+  animation: xl-menu-in var(--xl-motion) var(--xl-ease) both;
+  transform-origin: top center;
+}
+
+.xl-menu-pop button {
+  transition:
+    color var(--xl-motion) var(--xl-ease),
+    background-color var(--xl-motion) var(--xl-ease),
+    opacity var(--xl-motion) var(--xl-ease),
+    transform var(--xl-motion-fast) var(--xl-ease),
+    scale var(--xl-motion-fast) var(--xl-ease);
+}
+
+.xl-menu-pop button:active:not(:disabled) {
+  scale: 0.985;
+}
+
+.xl-menu-pop input,
+.xl-menu-pop select,
+.xl-formula-reveal input {
+  transition:
+    border-color var(--xl-motion) var(--xl-ease),
+    background-color var(--xl-motion) var(--xl-ease),
+    box-shadow var(--xl-motion) var(--xl-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .xl-ants {
+    animation: none;
+  }
+}

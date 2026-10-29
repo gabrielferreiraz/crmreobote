@@ -502,6 +502,67 @@ por causa disso, só não aparece automaticamente no Google dele.
 
 ---
 
+## Planilhas (`/api/v1/sheets`)
+
+Planilhas próprias do Administrativo dentro do CRM. Cada coluna tem **id** e
+**tipo**; os valores de uma linha vêm como `{ "<columnId>": valor }` — pegue
+os ids em `GET /api/v1/sheets/{id}`. Toda escrita passa pela mesma validação
+da tela e fica no histórico da planilha como feita pela integração.
+
+| Método | Rota | O que faz |
+|---|---|---|
+| `GET` | `/api/v1/sheets` | Lista as planilhas ativas (`id`, `name`, `rowCount`…) |
+| `GET` | `/api/v1/sheets/{id}` | Planilha + colunas (`id`, `name`, `type`, `config.options`, `required`) |
+| `GET` | `/api/v1/sheets/{id}/rows?limit=&offset=&search=` | Linhas paginadas (até 500 por página) |
+| `POST` | `/api/v1/sheets/{id}/rows` | Cria linhas: `{ "rows": [{ "<columnId>": valor }] }` (até 1.000) |
+| `PATCH` | `/api/v1/sheets/{id}/rows` | Altera células: `{ "rows": [{ "id": "...", "values": { "<columnId>": valor \| null } }] }` |
+| `DELETE` | `/api/v1/sheets/{id}/rows` | Lixeira: `{ "ids": ["..."] }` (reversível pela tela) |
+| `POST` | `/api/v1/sheets/{id}/rows/query` | Filtros/ordenação (abaixo) |
+| `POST` | `/api/v1/sheets/{id}/summary` | Totais agrupados (abaixo) |
+| `GET` | `/api/v1/sheets/linked?contactId=` (ou `dealId=`) | Em quais planilhas o cliente/negócio aparece |
+
+**Formato dos valores por tipo:** texto → string · `NUMBER`/`CURRENCY` → número
+(aceita `"R$ 1.234,56"`) · `PERCENT` → `12.5` para 12,5% · `DATE` → `"AAAA-MM-DD"`
+(aceita `"DD/MM/AAAA"`) · `CHECKBOX` → `true/false` · `SELECT` → uma das opções ·
+`MULTI_SELECT` → lista de opções · `CPF`/`CNPJ` → com ou sem pontuação (validado,
+volta só dígitos) · `PHONE` → volta normalizado com DDI · `USER`/`CONTACT`/`DEAL`
+→ id do membro/cliente/negócio. `null` ou `""` esvazia a célula.
+
+**Consulta** (`/rows/query`):
+
+```json
+{
+  "filters": [
+    { "columnId": "cm…status", "op": "eq", "value": "Pendente" },
+    { "columnId": "cm…valor", "op": "gte", "value": 1000 }
+  ],
+  "match": "all",
+  "sort": [{ "columnId": "cm…vencimento", "dir": "asc" }],
+  "search": "maria",
+  "offset": 0,
+  "limit": 100
+}
+```
+
+Operações: `eq`, `neq`, `contains`, `notContains`, `gt`, `gte`, `lt`, `lte`
+(número e data), `empty`, `notEmpty`, `in` (lista). `match: "any"` = qualquer
+condição. Resposta: `{ rows, total, offset, limit }`.
+
+**Resumo** (`/summary`) — ex.: soma do valor e quantidade por status:
+
+```json
+{ "groupBy": "cm…status", "metrics": [{ "fn": "count" }, { "columnId": "cm…valor", "fn": "sum" }] }
+```
+
+Funções: `count`, `countFilled`, `sum`, `avg`, `min`, `max`. Resposta:
+`{ groups: [{ group: "Pendente", values: [12, 45300] }, …] }`.
+
+**Erros:** `400` valor inválido (mensagem diz a linha e a coluna, `details[0].columnId`) ·
+`404` planilha/linha não encontrada · `429` limite (120 leituras e 60 escritas
+por minuto por chave).
+
+---
+
 ## Webhooks de saída
 
 Ao criar uma assinatura de webhook (Configurações → Integrações), você
@@ -523,6 +584,12 @@ recebe uma URL de destino e escolhe os eventos:
 **Tarefa**
 - `task.created` — uma tarefa/compromisso novo foi criado.
 - `task.completed` — uma tarefa foi marcada como concluída (inclui o caso de remarcação de videochamada/visita, que finaliza a tentativa original).
+
+**Planilhas** (módulo do Administrativo — ver "Planilhas" acima)
+- `sheet.row.created` — linha criada (`data: { sheet: { id, name }, row: { id, values, ... } }`).
+- `sheet.row.updated` — células alteradas (mesmo formato, com a linha já atualizada).
+- `sheet.row.deleted` — linha enviada para a lixeira (`row: { id }` só).
+- Lote com mais de 200 linhas vira **um** evento com `{ sheet, rowIds: [...], truncated: true }` — busque as linhas em `GET /api/v1/sheets/{id}/rows`.
 
 **Consultor**
 - `member.created` — um consultor/membro foi cadastrado na organização.

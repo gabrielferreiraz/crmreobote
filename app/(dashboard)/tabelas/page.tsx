@@ -1,7 +1,9 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
-import { Building2, CarFront, Table2 } from "lucide-react";
+import { ArrowUpRight, Building2, CarFront, Megaphone, Table2 } from "lucide-react";
 import { getServopaTablesAccess } from "@/lib/servopa-tables/access";
+import { listServopaCampaigns } from "@/lib/servopa-tables/campaigns";
 import { getLastServopaSync, getServopaOperationState, listServopaTables } from "@/lib/servopa-tables/queries";
 import { formatDateBR } from "@/lib/servopa-tables/format";
 import { TablesBrowser, type TableBrowserInitialState, type TableSortKey } from "./tables-browser";
@@ -53,12 +55,14 @@ export default async function TabelasPage({ searchParams }: { searchParams: Prom
   const access = await getServopaTablesAccess();
   if (!access.ok) redirect("/login");
 
-  const [tables, lastSync, raw, operations] = await Promise.all([
+  const [tables, lastSync, raw, operations, campaigns] = await Promise.all([
     listServopaTables(access.organizationId),
     getLastServopaSync(access.organizationId),
     searchParams,
     access.canOperate ? getServopaOperationState(access.organizationId) : Promise.resolve(null),
+    access.canManageCampaigns ? listServopaCampaigns(access.organizationId).catch(() => []) : Promise.resolve([]),
   ]);
+  const activeCampaign = campaigns.find((campaign) => campaign.status === "ACTIVE" && !campaign.overriddenBy)?.name ?? null;
   const groups = new Map(tables.map((table) => [table.groupNumber, table.segment]));
   const realEstateGroups = [...groups.values()].filter((segment) => segment === "REAL_ESTATE").length;
 
@@ -72,11 +76,31 @@ export default async function TabelasPage({ searchParams }: { searchParams: Prom
           </div>
           <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Crédito, prazo e parcela por grupo e taxa de administração.</p>
         </div>
-        {operations ? (
-          <ServopaOperations initialState={operations} />
-        ) : lastSync?.finishedAt ? (
-          <div className="flex items-center gap-2 text-sm text-neutral-500 dark:text-neutral-400"><span className="h-2 w-2 rounded-full bg-emerald-500" />Atualizada em {formatDateBR(lastSync.finishedAt)}</div>
-        ) : null}
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+          {access.canManageCampaigns && (
+            <Link
+              href="/tabelas/campanhas"
+              className="group inline-flex h-10 items-center gap-2 rounded-md border border-neutral-200 bg-white px-3 text-sm font-medium text-neutral-800 shadow-sm transition-colors hover:border-brand/40 hover:text-brand dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-100 dark:hover:border-brand/50"
+              title={activeCampaign ? `Campanha no PDF agora: ${activeCampaign}` : "Definir a faixa que aparece no PDF"}
+            >
+              <Megaphone className="h-4 w-4 text-brand" aria-hidden="true" />
+              <span>Campanhas do PDF</span>
+              {activeCampaign ? (
+                <span className="inline-flex items-center gap-1.5 border-l border-neutral-200 pl-2 text-xs text-emerald-700 dark:border-neutral-700 dark:text-emerald-400">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden="true" />
+                  No ar
+                </span>
+              ) : (
+                <ArrowUpRight className="h-3.5 w-3.5 text-neutral-400 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-brand" aria-hidden="true" />
+              )}
+            </Link>
+          )}
+          {operations ? (
+            <ServopaOperations initialState={operations} />
+          ) : lastSync?.finishedAt ? (
+            <div className="flex items-center gap-2 text-sm text-neutral-500 dark:text-neutral-400"><span className="h-2 w-2 rounded-full bg-emerald-500" />Atualizada em {formatDateBR(lastSync.finishedAt)}</div>
+          ) : null}
+        </div>
       </div>
 
       <div className="grid grid-cols-2 border-y border-neutral-200 sm:flex dark:border-neutral-800">

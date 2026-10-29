@@ -24,7 +24,10 @@ type WebhookEventType =
   | "task.completed"
   | "member.created"
   | "member.activated"
-  | "member.deactivated";
+  | "member.deactivated"
+  | "sheet.row.created"
+  | "sheet.row.updated"
+  | "sheet.row.deleted";
 
 const EVENT_LABELS: Record<WebhookEventType, string> = {
   "contact.created": "Contato criado",
@@ -41,6 +44,9 @@ const EVENT_LABELS: Record<WebhookEventType, string> = {
   "member.created": "Consultor cadastrado",
   "member.activated": "Consultor reativado",
   "member.deactivated": "Consultor inativado",
+  "sheet.row.created": "Linha de planilha criada",
+  "sheet.row.updated": "Linha de planilha alterada",
+  "sheet.row.deleted": "Linha de planilha excluída",
 };
 
 const EVENT_GROUPS: { label: string; events: WebhookEventType[] }[] = [
@@ -48,6 +54,7 @@ const EVENT_GROUPS: { label: string; events: WebhookEventType[] }[] = [
   { label: "Negócio", events: ["deal.created", "deal.won", "deal.lost", "deal.stage_changed", "deal.owner_changed"] },
   { label: "Tarefa", events: ["task.created", "task.completed"] },
   { label: "Consultor", events: ["member.created", "member.activated", "member.deactivated"] },
+  { label: "Planilhas", events: ["sheet.row.created", "sheet.row.updated", "sheet.row.deleted"] },
 ];
 
 const ALL_EVENTS: WebhookEventType[] = EVENT_GROUPS.flatMap((g) => g.events);

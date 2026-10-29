@@ -296,6 +296,62 @@ export async function getChatMediaObject(key: string): Promise<{ body: Uint8Arra
   }
 }
 
+// ─── Arte de campanha das tabelas Servopa (faixa do cabeçalho do PDF) ───────
+
+// Bucket PRIVADO (o mesmo do avatar). O navegador nunca recebe URL assinada:
+// a arte passa por app/api/servopa-tables/campaign-art, na mesma origem da
+// folha — o "Baixar PDF" fotografa a página (html2canvas) e uma imagem de
+// outro domínio sem CORS sairia em branco no arquivo.
+const SERVOPA_CAMPAIGN_ART_PREFIX = "servopa-campaigns/";
+// Largura de uma folha A4 a 300 dpi: a faixa nunca é maior que isso no PDF.
+const SERVOPA_CAMPAIGN_ART_MAX_WIDTH = 2480;
+
+/** Mesmas regras do avatar: JPEG/PNG/WebP de até 10 MB, conferidos pelos bytes. */
+export function assertValidServopaCampaignArt(contentType: string, size: number, buffer: Buffer) {
+  assertValidAvatar(contentType, size, buffer);
+}
+
+/** Só reduz (nunca corta nem amplia): o enquadramento é decidido na folha (object-fit: cover). */
+export async function resizeServopaCampaignArt(buffer: Buffer, contentType: string): Promise<Buffer> {
+  const resized = sharp(buffer).rotate().resize({ width: SERVOPA_CAMPAIGN_ART_MAX_WIDTH, withoutEnlargement: true });
+  if (contentType === "image/png") return resized.png({ compressionLevel: 8 }).toBuffer();
+  if (contentType === "image/webp") return resized.webp({ quality: 88 }).toBuffer();
+  return resized.jpeg({ quality: 88, mozjpeg: true }).toBuffer();
+}
+
+/** Chave imprevisível e nova a cada envio: trocar a arte nunca reaproveita a chave (cache do navegador não mostra a antiga). */
+export function buildServopaCampaignArtKey(organizationId: string, contentType: string) {
+  const ext = contentType === "image/png" ? "png" : contentType === "image/webp" ? "webp" : "jpg";
+  const random = crypto.randomBytes(16).toString("hex");
+  return `${SERVOPA_CAMPAIGN_ART_PREFIX}${organizationId}/${random}.${ext}`;
+}
+
+/** A chave é desta organização e tem o formato que buildServopaCampaignArtKey gera. */
+export function isServopaCampaignArtKey(key: string, organizationId: string): boolean {
+  return new RegExp(`^${SERVOPA_CAMPAIGN_ART_PREFIX}${organizationId.replace(/[^\w-]/g, "")}/[a-f0-9]{32}\\.(?:png|jpg|webp)$`).test(key);
+}
+
+export async function uploadServopaCampaignArt(key: string, body: Buffer, contentType: string) {
+  await client.send(new PutObjectCommand({ Bucket: BUCKET_NAME, Key: key, Body: body, ContentType: contentType }));
+}
+
+export async function deleteServopaCampaignArt(key: string) {
+  if (!key.startsWith(SERVOPA_CAMPAIGN_ART_PREFIX)) return;
+  await client.send(new DeleteObjectCommand({ Bucket: BUCKET_NAME, Key: key }));
+}
+
+export async function getServopaCampaignArtObject(key: string): Promise<{ body: Uint8Array; contentType: string } | null> {
+  if (!key.startsWith(SERVOPA_CAMPAIGN_ART_PREFIX)) return null;
+  try {
+    const res = await client.send(new GetObjectCommand({ Bucket: BUCKET_NAME, Key: key }));
+    const body = await res.Body?.transformToByteArray();
+    if (!body) return null;
+    return { body, contentType: res.ContentType ?? "application/octet-stream" };
+  } catch {
+    return null;
+  }
+}
+
 // ─── Propagandas da TV (Configurações > TV) ─────────────────────────────────
 
 // Bucket PÚBLICO separado (ver .env) — diferente de avatar/mídia do WhatsApp

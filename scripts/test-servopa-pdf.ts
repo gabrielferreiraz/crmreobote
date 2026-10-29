@@ -97,7 +97,8 @@ test("folha: uma página A4 sem cabeçalho/rodapé do navegador, letra que se aj
   const sheet = readFileSync("components/servopa-tables/print-sheet.tsx", "utf8");
   assert.match(sheet, /@page \{ size: A4; margin: 0; \}/, "margem 0: o navegador não imprime data/endereço");
   assert.match(sheet, /\.servopa-sheet \{ width: 210mm; height: 297mm; overflow: hidden;/);
-  assert.match(sheet, /Parceira Autorizada/);
+  assert.match(readFileSync("components/servopa-tables/sheet-header.tsx", "utf8"), /Parceira Autorizada/);
+  assert.match(sheet, /<SheetTitle groupNumber=\{table\.groupNumber\}/);
   assert.match(sheet, /formatPercent\(table\.admEffective/, "o cliente vê só a taxa efetiva");
   assert.doesNotMatch(sheet, /admOriginal/, "a taxa original da Servopa nunca vai para o PDF");
   assert.match(sheet, /whitespace-nowrap[^"]*tabular-nums/, "valores não quebram (R$ separado do número)");

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Kanban, MessageCircle, CalendarDays, Menu, X, Plus, Users, BarChart3, Settings, LogOut, ChevronRight, Moon, Calculator, ClipboardList, MessageSquare, GraduationCap, Wallet, Table2 } from "lucide-react";
+import { Home, Kanban, MessageCircle, CalendarDays, Menu, X, Plus, Users, BarChart3, Settings, LogOut, ChevronRight, Moon, Calculator, ClipboardList, MessageSquare, GraduationCap, Wallet, Table2, FileSpreadsheet } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { usePushSubscription } from "@/lib/use-push-subscription";
 import { LoadingDots } from "@/components/loading-dots";
@@ -87,9 +87,12 @@ export function MobileNav({
   isAdministrativo,
   academyHref,
   showCommissions = false,
+  showSheets = false,
 }: {
   signOutAction: () => Promise<void>;
   isAdministrativo: boolean;
+  /** "Planilhas" na folha "Mais" — só Administrativo e Dono (ver lib/sheets/access.ts). */
+  showSheets?: boolean;
   /** "Comissões" na folha "Mais" — mesma regra do menu de cima (ver layout.tsx). */
   showCommissions?: boolean;
   /** Link "Treinamento" (Reobote Academy) — calculado no servidor (ver
@@ -102,9 +105,12 @@ export function MobileNav({
   const [sheetOpen, setSheetOpen] = useState(false);
   const primaryItems = isAdministrativo ? PRIMARY_ITEMS_ADMINISTRATIVO : PRIMARY_ITEMS_VENDAS;
   const baseOverflowItems = isAdministrativo ? OVERFLOW_ITEMS_ADMINISTRATIVO : OVERFLOW_ITEMS_VENDAS;
-  const overflowItems = showCommissions
-    ? [...baseOverflowItems.slice(0, -1), { href: "/comissoes", label: "Comissões", icon: Wallet }, ...baseOverflowItems.slice(-1)]
-    : baseOverflowItems;
+  const extraItems: NavItem[] = [
+    ...(showSheets ? [{ href: "/planilhas", label: "Planilhas", icon: FileSpreadsheet }] : []),
+    ...(showCommissions ? [{ href: "/comissoes", label: "Comissões", icon: Wallet }] : []),
+  ];
+  // Extras entram antes de "Configurações" (sempre o último).
+  const overflowItems = [...baseOverflowItems.slice(0, -1), ...extraItems, ...baseOverflowItems.slice(-1)];
   const { unsubscribe } = usePushSubscription();
   const openHelp = useHelpCenter();
   const { openNewDeal, preloadNewDeal } = useNewDeal();

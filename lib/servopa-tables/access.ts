@@ -11,6 +11,8 @@ export type ServopaTablesAccess =
       canAdjust: boolean;
       /** Opera o robô: somente Dono e área Administrativo. */
       canOperate: boolean;
+      /** Cadastra as campanhas (arte do cabeçalho do PDF): somente Dono e área Administrativo. */
+      canManageCampaigns: boolean;
     };
 
 /** Qualquer pessoa ativa da organização vê e imprime as tabelas; quem pode ajustar a taxa é restrito. */
@@ -24,5 +26,6 @@ export async function getServopaTablesAccess(): Promise<ServopaTablesAccess> {
     actorName: m.session.user.name ?? "Usuário",
     canAdjust: m.role === "OWNER" || m.role === "MANAGER" || m.area === "ADMINISTRATIVO",
     canOperate: m.role === "OWNER" || m.area === "ADMINISTRATIVO",
+    canManageCampaigns: m.role === "OWNER" || m.area === "ADMINISTRATIVO",
   };
 }

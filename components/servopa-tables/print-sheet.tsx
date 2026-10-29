@@ -2,8 +2,9 @@ import { REOBOTE_CARD_ADDRESS, REOBOTE_INSTAGRAM_HANDLE, REOBOTE_WEBSITE_URL } f
 import { splitContemplationText } from "@/lib/servopa-tables/contemplation";
 import { formatBRL, formatDateBR, formatPercent } from "@/lib/servopa-tables/format";
 import type { ServopaTableView } from "@/lib/servopa-tables/queries";
+import type { ServopaSheetCampaign } from "@/lib/servopa-tables/campaigns";
 import { ReoboteLogo } from "@/components/reobote-logo";
-import { ServopaLogo, ServopaSeal } from "@/components/servopa-tables/servopa-brand";
+import { CampaignBand, SheetTitle } from "@/components/servopa-tables/sheet-header";
 import { SheetFit } from "@/components/servopa-tables/sheet-fit";
 
 /**
@@ -16,8 +17,11 @@ import { SheetFit } from "@/components/servopa-tables/sheet-fit";
  *   (e, se preciso, o espaçamento da tabela) até tudo caber na folha.
  * - Na tela a folha mantém o tamanho real e só é reduzida visualmente
  *   (`zoom`) em telas estreitas, para o PDF baixado no celular sair igual.
+ * - Com campanha (Black November…), o cabeçalho vira uma faixa de ponta a
+ *   ponta de 210 × 52 mm com a arte de fundo (cortada para cobrir, centrada);
+ *   o resto da folha não muda.
  */
-export function ServopaPrintSheet({ table }: { table: ServopaTableView }) {
+export function ServopaPrintSheet({ table, campaign }: { table: ServopaTableView; campaign?: ServopaSheetCampaign | null }) {
   const blocks = splitContemplationText(table.contemplationText);
   return (
     <>
@@ -27,6 +31,7 @@ export function ServopaPrintSheet({ table }: { table: ServopaTableView }) {
         .servopa-sheet, .servopa-sheet * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         .servopa-sheet[data-compact="1"] .servopa-row > td { padding-top: 1.1mm; padding-bottom: 1.1mm; font-size: 13.5px; }
         .servopa-sheet[data-compact="1"] .servopa-reobote-header { margin-bottom: 6mm; padding-bottom: 3mm; }
+        .servopa-campaign-band { margin: -7mm -12mm 5mm; }
         .servopa-rules { columns: 2; column-gap: 7mm; }
         .servopa-rules > * { break-inside: avoid; }
         /*
@@ -51,6 +56,9 @@ export function ServopaPrintSheet({ table }: { table: ServopaTableView }) {
             box-shadow: none !important;
             overflow: visible !important;
           }
+          /* A faixa acompanha a margem interna da folha impressa (7mm 10mm). */
+          .servopa-campaign-band { margin: -7mm -10mm 5mm !important; }
+          .servopa-campaign-content { padding: 0 10mm !important; }
         }
       `}</style>
 
@@ -58,23 +66,24 @@ export function ServopaPrintSheet({ table }: { table: ServopaTableView }) {
         className="servopa-sheet mx-auto flex flex-col bg-white px-[12mm] pb-[8mm] pt-[7mm] text-[13.5px] leading-snug text-neutral-900 shadow-md"
         data-compact="0"
       >
-        <div className="servopa-reobote-header mb-[6mm] flex justify-center border-b border-neutral-200 pb-[3mm]">
-          <ReoboteLogo isLight className="h-[15mm] w-auto" />
-        </div>
-
-        <header className="grid grid-cols-[1fr_auto_1fr] items-center gap-4 pb-[4.5mm]">
-          <div className="inline-flex flex-col items-center justify-self-start">
-            <ServopaLogo />
-            <p className="mt-[1.2mm] whitespace-nowrap text-[10px] font-semibold uppercase tracking-[0.2em] text-neutral-500">Parceira Autorizada</p>
-          </div>
-          <div className="text-center">
-            <p className="whitespace-nowrap text-[22px] font-bold leading-tight tracking-tight">GRUPO {table.groupNumber}</p>
-            <p className="mt-0.5 whitespace-nowrap text-[14px] font-bold text-neutral-800">{table.termMonths} MESES</p>
-          </div>
-          <div className="flex justify-end">
-            <ServopaSeal />
-          </div>
-        </header>
+        {campaign ? (
+          <CampaignBand
+            artUrl={campaign.artUrl}
+            textColor={campaign.textColor}
+            groupNumber={table.groupNumber}
+            termMonths={table.termMonths}
+            campaignName={campaign.name}
+          />
+        ) : (
+          <>
+            <div className="servopa-reobote-header mb-[6mm] flex justify-center border-b border-neutral-200 pb-[3mm]">
+              <ReoboteLogo isLight className="h-[15mm] w-auto" />
+            </div>
+            <div className="pb-[4.5mm]">
+              <SheetTitle groupNumber={table.groupNumber} termMonths={table.termMonths} tone="dark" />
+            </div>
+          </>
+        )}
 
         <table className="w-full table-fixed border-collapse text-[13px]">
           <colgroup>

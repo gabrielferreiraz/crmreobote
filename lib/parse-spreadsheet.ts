@@ -47,18 +47,17 @@ if (typeof ExcelJS.Workbook !== "function") {
 // que ameaçaria um container pequeno, bem acima de qualquer uso real —
 // estourar isto SÓ acontece com um arquivo construído de propósito pra
 // abusar da descompactação (zip bomb).
-const MAX_OLD_GENERATION_MB = 256;
+const MAX_OLD_GENERATION_MB = 384;
 const MAX_YOUNG_GENERATION_MB = 64;
 
-// Um .xlsx de 5MB legítimo processa em bem menos de 1s. 20s cobre até um
+// Um .xlsx legítimo processa rápido; 30s cobre arquivos de até 25 MB mesmo em
 // container com CPU compartilhada/ocupada sem deixar uma requisição travada
-// pra sempre esperando um worker que nunca vai responder (arquivo
-// construído pra gastar CPU sem necessariamente estourar memória).
-const TIMEOUT_MS = 20_000;
+// pra sempre esperando um worker que nunca vai responder.
+const TIMEOUT_MS = 30_000;
 const MAX_CONCURRENT_PARSERS = 2;
 const MAX_WAITING_PARSERS = 4;
 const MAX_XLSX_ENTRIES = 2_048;
-const MAX_XLSX_EXPANDED_BYTES = 32 * 1024 * 1024;
+const MAX_XLSX_EXPANDED_BYTES = 96 * 1024 * 1024;
 
 export type SpreadsheetParseOptions = {
   /** Includes the header row. */
@@ -74,7 +73,7 @@ const DEFAULT_LIMITS: WorkerLimits = {
   maxRows: 1_001,
   maxColumns: 64,
   maxCellCharacters: 4_000,
-  maxTotalCharacters: 12 * 1024 * 1024,
+  maxTotalCharacters: 48 * 1024 * 1024,
 };
 
 type ParserPool = { active: number; waiting: Array<() => void> };

@@ -43,17 +43,23 @@ const APP_SHELL_ROUTES = ["/whatsapp/conversas", "/whatsapp/central", "/processo
 // principal aproveita toda a largura disponível.
 const FULL_WIDTH_ROUTES = ["/pipeline", "/agenda", "/whatsapp/central", "/whatsapp/conversas", "/whatsapp/campanhas", "/comissoes", "/comissoes/vendas"];
 
+// Editor de planilha (/planilhas/[id]): igual ao Excel, a grade ocupa a tela
+// inteira e rola por dentro — tela fixa (app shell), sem teto de largura e
+// com moldura mais justa no topo.
+const isSheetEditor = (pathname: string) => /^\/planilhas\/[^/]+$/.test(pathname);
+
 export function AppMain({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const isAppShell = APP_SHELL_ROUTES.some((route) => pathname === route);
+  const sheetEditor = isSheetEditor(pathname);
+  const isAppShell = APP_SHELL_ROUTES.some((route) => pathname === route) || sheetEditor;
   const isFullWidth =
-    FULL_WIDTH_ROUTES.some((route) => pathname === route) || pathname.startsWith("/whatsapp/campanhas/");
+    FULL_WIDTH_ROUTES.some((route) => pathname === route) || pathname.startsWith("/whatsapp/campanhas/") || sheetEditor;
   const hasFlushMobileStickyHeader = pathname.startsWith("/negocios/");
 
   return (
     <main
-      className={`min-h-0 flex-1 overflow-x-hidden px-4 lg:px-8 lg:pt-8 ${
-        hasFlushMobileStickyHeader ? "pt-0" : "pt-4"
+      className={`min-h-0 flex-1 overflow-x-hidden ${sheetEditor ? "px-2 pt-2 lg:px-4 lg:pt-3" : "px-4 lg:px-8 lg:pt-8"} ${
+        sheetEditor ? "" : hasFlushMobileStickyHeader ? "pt-0" : "pt-4"
       } ${
         isAppShell
           ? // Sem overflow-y-auto NEM scrollbar-gutter aqui — não tem scroll
@@ -64,7 +70,7 @@ export function AppMain({ children }: { children: React.ReactNode }) {
             // O menu mobile agora participa do fluxo do shell. Este padding
             // é apenas a moldura visual do painel, não uma compensação pela
             // navegação inferior.
-            "overflow-y-hidden pb-4 lg:pb-6"
+            sheetEditor ? "overflow-y-hidden pb-2 lg:pb-3" : "overflow-y-hidden pb-4 lg:pb-6"
           : // scrollbar-gutter reserva o espaço da barra de rolagem o tempo
             // todo — sem isso, trocar o filtro de período no Relatórios (ou
             // qualquer outra navegação que mude a altura do conteúdo) faz a

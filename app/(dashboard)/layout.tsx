@@ -26,6 +26,7 @@ import { NewDealButton, NewDealProvider } from "./new-deal-provider";
 import { AcademyOnboardingGate } from "@/components/academy/academy-onboarding-gate";
 import { AcademyShortcutHint } from "@/components/academy/academy-shortcut-hint";
 import { isCrmRestrictedByAcademy } from "@/lib/academy-onboarding";
+import { canUseSheets } from "@/lib/sheets/access";
 import { PushSubscriptionProvider } from "@/lib/use-push-subscription";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -43,6 +44,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   const photoUrlPromise = resolveAvatarUrl(membership.photoKey);
   const isAdministrativo = membership.area === "ADMINISTRATIVO";
+  // Mesma regra de lib/sheets/access.ts (a página e as rotas conferem de novo).
+  const showSheets = canUseSheets(membership);
   // Comissões: quem cuida delas sempre vê (pra montar o módulo antes de
   // ligar); quem vende, só depois de ligado (Organization.commissionStartDate).
   // Administrativo comum não recebe comissão de venda — não vê.
@@ -150,7 +153,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         </Link>
 
         <AdaptiveHeaderRow
-          nav={<TopNavLinks isAdministrativo={isAdministrativo} showCommissions={commissionsInTopNav} />}
+          nav={<TopNavLinks isAdministrativo={isAdministrativo} showCommissions={commissionsInTopNav} showSheets={showSheets} />}
           fullActions={
             <>
               <CommandPalette />
@@ -212,7 +215,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
       <AppMain>{children}</AppMain>
 
-      <MobileNav signOutAction={handleSignOut} isAdministrativo={isAdministrativo} academyHref={academyHref} showCommissions={showCommissions} />
+      <MobileNav signOutAction={handleSignOut} isAdministrativo={isAdministrativo} academyHref={academyHref} showCommissions={showCommissions} showSheets={showSheets} />
       <InstallPwaPrompt />
       <PresenceHeartbeat />
       <PushNotificationsPrompt />

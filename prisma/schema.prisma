@@ -113,6 +113,12 @@ model Organization {
   servopaSyncRuns        ServopaSyncRun[]
   servopaWorkers         ServopaWorker[]
   servopaWorkerPairings  ServopaWorkerPairing[]
+  servopaCampaigns       ServopaCampaign[]
+  sheets                 Sheet[]
+  sheetColumns           SheetColumn[]
+  sheetRows              SheetRow[]
+  sheetRowLinks          SheetRowLink[]
+  sheetActivities        SheetActivity[]
   jobTitles              JobTitle[]
   customFieldDefinitions CustomFieldDefinition[]
   userDailyActivities    UserDailyActivity[]
@@ -1408,6 +1414,7 @@ model Contact {
   tasks              Task[]
   activities         Activity[]
   whatsappThreads    WhatsAppThread[]
+  sheetRowLinks      SheetRowLink[]
   campaignRecipients CampaignRecipient[]
   processes          Process[]
   leadRequests       LeadRequest[]
@@ -1767,6 +1774,39 @@ model ServopaWorkerPairing {
   @@index([organizationId, expiresAt])
 }
 
+enum ServopaCampaignTextColor {
+  WHITE // arte escura (ex.: Black November)
+  BLACK // arte clara
+}
+
+/// Campanha (Black November, "12 do 12"…): arte de fundo na faixa do cabeçalho
+/// do PDF das tabelas. Vale no período [startsOn, endsOn] (dias inteiros no
+/// horário de Campo Grande, ambos opcionais) enquanto `enabled`; se duas
+/// coincidirem, vale a que começou por último. As artes ficam no R2 privado
+/// (`servopa-campaigns/<org>/…`) e saem de lá junto com a campanha.
+model ServopaCampaign {
+  id                 String                   @id @default(cuid())
+  organizationId     String
+  name               String
+  startsOn           DateTime?                @db.Date
+  endsOn             DateTime?                @db.Date
+  enabled            Boolean                  @default(true)
+  textColor          ServopaCampaignTextColor @default(WHITE)
+  // Arte usada em todas as tabelas…
+  artKey             String?
+  // …ou, se enviada, só nas tabelas daquele segmento.
+  realEstateArtKey   String?
+  movableArtKey      String?
+  createdById        String?
+  updatedById        String?
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, enabled])
+}
+
 
 // ─── Cargos (lista editável, alimenta o Select de "Cargo" do contato)
 // ──────────────────────────────────────────────────────────────────
@@ -1899,6 +1939,7 @@ model Deal {
   tasks              Task[]
   activities         Activity[]
   campaignRecipients CampaignRecipient[]
+  sheetRowLinks      SheetRowLink[]
   proposals          Proposal[]
   // Negócio ganho vira um Processo de pós-venda automaticamente (ver
   // lib/processes/create.ts, chamado em PUT /api/deals/[id] na transição pra
@@ -3936,4 +3977,150 @@ model AcademyRefreshToken {
   @@index([organizationId])
   @@index([issuedFromCodeId])
   @@index([sessionExpiresAt])
+}
+
+// ─── Planilhas (área Administrativo) ─────────────────────────────────
+//
+// Tabelas próprias com cara de planilha, onde o administrativo guarda as
+// listas e controles que antes ficavam no Excel/Sheets. Diferente de uma
+// planilha solta, cada coluna tem TIPO (ver lib/sheets/column-types.ts): é
+// isso que permite filtrar, cruzar e montar relatório com segurança. Acesso:
+// somente Dono e área ADMINISTRATIVO (lib/sheets/access.ts). Arquivar em vez
+// de apagar (archivedAt/deletedAt): nada some sem deixar rastro.
+
+enum SheetColumnType {
+  TEXT
+  LONG_TEXT
+  NUMBER
+  CURRENCY
+  PERCENT
+  DATE
+  CHECKBOX
+  SELECT
+  MULTI_SELECT
+  EMAIL
+  PHONE
+  CPF
+  CNPJ
+  URL
+  USER // membro da organização
+  CONTACT // vínculo com um cliente do CRM
+  DEAL // vínculo com um negócio do CRM
+}
+
+model Sheet {
+  id             String    @id @default(cuid())
+  organizationId String
+  name           String
+  description    String    @default("")
+  // Aparência no estilo Excel: "Formatar como Tabela" (estilo, faixas, linha
+  // de totais…) — validado em lib/sheets/formats.ts.
+  settings       Json      @default("{}")
+  createdById    String?
+  updatedById    String?
+  archivedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  columns      SheetColumn[]
+  rows         SheetRow[]
+  activities   SheetActivity[]
+
+  @@index([organizationId, archivedAt])
+}
+
+model SheetColumn {
+  id             String          @id @default(cuid())
+  organizationId String
+  sheetId        String
+  name           String
+  type           SheetColumnType
+  // Opções por tipo (lista do SELECT, casas decimais…) — validado em lib/sheets/column-types.ts.
+  config         Json            @default("{}")
+  required       Boolean         @default(false)
+  position       Int
+  archivedAt     DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sheet        Sheet        @relation(fields: [sheetId], references: [id], onDelete: Cascade)
+
+  @@index([sheetId, position])
+  @@index([organizationId])
+}
+
+model SheetRow {
+  id             String    @id @default(cuid())
+  organizationId String
+  sheetId        String
+  // Valores por id de coluna ({ "<columnId>": valor }) — o id não muda quando
+  // a coluna é renomeada, então renomear nunca perde dado.
+  values         Json      @default("{}")
+  // Marcações por célula { "<columnId>": { b, i, u, s, fill, color, align } } —
+  // separado de `values` para formatar nunca mexer no dado (nem no filtro).
+  formats        Json      @default("{}")
+  // Fórmulas por célula { "<columnId>": "=SOMA(⟦col|~-1⟧…)" } — formato interno
+  // de lib/sheets/formula.ts (coluna por id, linha relativa). O resultado
+  // calculado fica em `values`, para filtro/soma/exportação.
+  formulas       Json      @default("{}")
+  position       Float
+  createdById    String?
+  updatedById    String?
+  deletedAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sheet        Sheet           @relation(fields: [sheetId], references: [id], onDelete: Cascade)
+  links        SheetRowLink[]
+
+  @@index([sheetId, deletedAt, position])
+  @@index([values(ops: JsonbPathOps)], type: Gin, map: "SheetRow_values_gin_idx")
+  @@index([organizationId])
+}
+
+// Índice reverso das colunas CONTACT/DEAL: "em quais planilhas este cliente
+// aparece?" sem varrer JSON. Mantido na mesma transação que grava a linha
+// (lib/sheets/rows.ts). Cliente/negócio apagado leva o vínculo junto.
+model SheetRowLink {
+  id             String   @id @default(cuid())
+  organizationId String
+  rowId          String
+  columnId       String
+  contactId      String?
+  dealId         String?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  row          SheetRow     @relation(fields: [rowId], references: [id], onDelete: Cascade)
+  contact      Contact?     @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  deal         Deal?        @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  @@unique([rowId, columnId])
+  @@index([organizationId, contactId])
+  @@index([organizationId, dealId])
+}
+
+// Histórico de cada mudança (quem, quando, valor antes → depois). É o que
+// permite responder "quem apagou isso?" — o AuditLog fica só para ações
+// estruturais (criar/arquivar planilha, importar, exportar).
+model SheetActivity {
+  id             String   @id @default(cuid())
+  organizationId String
+  sheetId        String
+  rowId          String?
+  userId         String?
+  // Origem: "app" (tela) ou "api:<apiKeyId>" (integração).
+  source         String   @default("app")
+  action         String
+  changes        Json?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sheet        Sheet        @relation(fields: [sheetId], references: [id], onDelete: Cascade)
+
+  @@index([sheetId, createdAt])
+  @@index([rowId, createdAt])
 }

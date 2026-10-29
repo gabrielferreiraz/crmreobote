@@ -16,7 +16,10 @@ export type WebhookEvent =
   | "task.completed"
   | "member.created"
   | "member.activated"
-  | "member.deactivated";
+  | "member.deactivated"
+  | "sheet.row.created"
+  | "sheet.row.updated"
+  | "sheet.row.deleted";
 
 export const VALID_WEBHOOK_EVENTS: WebhookEvent[] = [
   "contact.created",
@@ -33,6 +36,9 @@ export const VALID_WEBHOOK_EVENTS: WebhookEvent[] = [
   "member.created",
   "member.activated",
   "member.deactivated",
+  "sheet.row.created",
+  "sheet.row.updated",
+  "sheet.row.deleted",
 ];
 
 /**

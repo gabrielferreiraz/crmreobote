@@ -36,6 +36,10 @@ export type AuditAction =
   | "SERVOPA_WORKER_CREDENTIAL_CREATED"
   | "SERVOPA_WORKER_CREDENTIAL_REVOKED"
   | "SERVOPA_WORKER_INSTALLER_DOWNLOADED"
+  // Campanhas do PDF das tabelas (arte do cabeçalho): o que o cliente recebe muda.
+  | "SERVOPA_CAMPAIGN_CREATED"
+  | "SERVOPA_CAMPAIGN_UPDATED"
+  | "SERVOPA_CAMPAIGN_DELETED"
   // Fila de disparo de uma campanha reordenada à mão (arrastar / mover pro topo
   // ou fim) — muda QUEM é contatado primeiro, então fica registrado quem mexeu.
   | "CAMPAIGN_QUEUE_REORDERED"
@@ -61,7 +65,14 @@ export type AuditAction =
   // Central de Leads (ver lib/whatsapp/lead-routing.ts): contato criado pelo
   // sistema na 1ª mensagem, e conexão/pool da Central mexidos pelo Dono.
   | "CENTRAL_CONTACT_CREATED"
-  | "CENTRAL_SETTINGS_CHANGED";
+  | "CENTRAL_SETTINGS_CHANGED"
+  // Planilhas do Administrativo (ver lib/sheets/): estrutura e entrada/saída
+  // de dados em massa. Edição de célula fica no histórico próprio (SheetActivity).
+  | "SHEET_CREATED"
+  | "SHEET_ARCHIVED"
+  | "SHEET_RESTORED"
+  | "SHEET_IMPORTED"
+  | "SHEET_EXPORTED";
 
 /**
  * Registra um evento de auditoria — nunca deve quebrar a ação real que está
