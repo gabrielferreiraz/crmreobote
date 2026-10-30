@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
-import { ArrowUpRight, Building2, CarFront, Megaphone, Table2 } from "lucide-react";
+import { ArrowUpRight, Palette, Table2 } from "lucide-react";
 import { getServopaTablesAccess } from "@/lib/servopa-tables/access";
 import { listServopaCampaigns } from "@/lib/servopa-tables/campaigns";
 import { getLastServopaSync, getServopaOperationState, listServopaTables } from "@/lib/servopa-tables/queries";
@@ -39,14 +39,14 @@ function initialState(raw: RawSearch): TableBrowserInitialState {
   };
 }
 
-function SummaryItem({ icon: Icon, value, label }: { icon: typeof Table2; value: number; label: string }) {
+function SummaryItem({ value, label, dot }: { value: number; label: string; dot?: string }) {
   return (
-    <div className="flex min-w-0 items-center gap-2.5 px-4 py-3 first:pl-0 sm:border-r sm:border-neutral-200 sm:last:border-r-0 dark:sm:border-neutral-800">
-      <Icon className="h-4 w-4 shrink-0 text-neutral-400" aria-hidden="true" />
-      <div className="min-w-0">
-        <p className="text-sm font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">{value}</p>
-        <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">{label}</p>
-      </div>
+    <div className="min-w-0 border-l border-neutral-200 pl-4 first:border-l-0 first:pl-0 dark:border-neutral-800 max-sm:odd:border-l-0 max-sm:odd:pl-0">
+      <p className="text-3xl font-semibold leading-none tracking-tight tabular-nums text-neutral-900 dark:text-neutral-100">{value}</p>
+      <p className="mt-2 flex items-center gap-1.5 truncate text-xs uppercase tracking-[0.12em] text-neutral-500 dark:text-neutral-400">
+        {dot && <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} aria-hidden="true" />}
+        {label}
+      </p>
     </div>
   );
 }
@@ -80,19 +80,22 @@ export default async function TabelasPage({ searchParams }: { searchParams: Prom
           {access.canManageCampaigns && (
             <Link
               href="/tabelas/campanhas"
-              className="group inline-flex h-10 items-center gap-2 rounded-md border border-neutral-200 bg-white px-3 text-sm font-medium text-neutral-800 shadow-sm transition-colors hover:border-brand/40 hover:text-brand dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-100 dark:hover:border-brand/50"
-              title={activeCampaign ? `Campanha no PDF agora: ${activeCampaign}` : "Definir a faixa que aparece no PDF"}
+              className="group inline-flex items-center gap-3 rounded-lg border border-neutral-200 bg-white py-2 pl-2.5 pr-3.5 text-left shadow-sm transition-colors hover:border-brand/40 dark:border-neutral-800 dark:bg-neutral-950 dark:hover:border-brand/50"
+              title="Escolher a campanha (Black Friday, 12 do 12…) que aparece no topo do PDF"
             >
-              <Megaphone className="h-4 w-4 text-brand" aria-hidden="true" />
-              <span>Campanhas do PDF</span>
-              {activeCampaign ? (
-                <span className="inline-flex items-center gap-1.5 border-l border-neutral-200 pl-2 text-xs text-emerald-700 dark:border-neutral-700 dark:text-emerald-400">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden="true" />
-                  No ar
-                </span>
-              ) : (
-                <ArrowUpRight className="h-3.5 w-3.5 text-neutral-400 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-brand" aria-hidden="true" />
-              )}
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-brand/10 text-brand"><Palette className="h-[18px] w-[18px]" aria-hidden="true" /></span>
+              <span className="min-w-0 leading-tight">
+                <span className="block text-sm font-semibold text-neutral-900 group-hover:text-brand dark:text-neutral-100">Alterar estilo do PDF</span>
+                {activeCampaign ? (
+                  <span className="mt-0.5 flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-400">
+                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" aria-hidden="true" />
+                    <span className="truncate">Campanha no ar: {activeCampaign}</span>
+                  </span>
+                ) : (
+                  <span className="mt-0.5 block text-xs text-neutral-500 dark:text-neutral-400">Campanhas e datas especiais</span>
+                )}
+              </span>
+              <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-neutral-400 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-brand" aria-hidden="true" />
             </Link>
           )}
           {operations ? (
@@ -103,11 +106,11 @@ export default async function TabelasPage({ searchParams }: { searchParams: Prom
         </div>
       </div>
 
-      <div className="grid grid-cols-2 border-y border-neutral-200 sm:flex dark:border-neutral-800">
-        <SummaryItem icon={Building2} value={groups.size} label="grupos publicados" />
-        <SummaryItem icon={Table2} value={tables.length} label="tabelas" />
-        <SummaryItem icon={Building2} value={realEstateGroups} label="grupos de imóveis" />
-        <SummaryItem icon={CarFront} value={groups.size - realEstateGroups} label="grupos de móveis" />
+      <div className="grid grid-cols-2 gap-x-4 gap-y-5 border-y border-neutral-200 py-5 lg:grid-cols-4 dark:border-neutral-800">
+        <SummaryItem value={groups.size} label="Grupos publicados" />
+        <SummaryItem value={tables.length} label="Tabelas" />
+        <SummaryItem value={realEstateGroups} label="Imóveis" dot="bg-emerald-500" />
+        <SummaryItem value={groups.size - realEstateGroups} label="Móveis" dot="bg-sky-500" />
       </div>
 
       <TablesBrowser tables={tables} initialState={initialState(raw)} canAdjust={access.canAdjust} />

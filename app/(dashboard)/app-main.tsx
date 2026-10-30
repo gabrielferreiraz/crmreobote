@@ -41,7 +41,7 @@ const APP_SHELL_ROUTES = ["/whatsapp/conversas", "/whatsapp/central", "/processo
 // redimensionada dentro dessa área. Comissões também é uma mesa operacional:
 // resumo, pendências e lista usam colunas lado a lado, por isso a tela
 // principal aproveita toda a largura disponível.
-const FULL_WIDTH_ROUTES = ["/pipeline", "/agenda", "/whatsapp/central", "/whatsapp/conversas", "/whatsapp/campanhas", "/comissoes", "/comissoes/vendas"];
+const FULL_WIDTH_ROUTES = ["/pipeline", "/tabelas", "/agenda", "/whatsapp/central", "/whatsapp/conversas", "/whatsapp/campanhas", "/comissoes", "/comissoes/vendas"];
 
 // Editor de planilha (/planilhas/[id]): igual ao Excel, a grade ocupa a tela
 // inteira e rola por dentro — tela fixa (app shell), sem teto de largura e

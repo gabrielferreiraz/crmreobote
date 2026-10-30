@@ -300,15 +300,14 @@ export function SheetEditor({
   const canonVersion = useRef(0);
   const loadCanon = useCallback(async () => {
     const version = ++canonVersion.current;
-    const all: ClientRow[] = [];
     try {
-      for (let offset = 0; offset < MAX_CALC_ROWS; offset += 500) {
-        const data = await api<QueryResult>(`/api/sheets/${sheetId}/rows/query`, { method: "POST", body: JSON.stringify({ offset, limit: 500 }) });
-        all.push(...data.rows);
-        setRefs((r) => ({ ...r, ...data.refs }));
-        if (data.rows.length < 500) break;
-      }
-      if (version === canonVersion.current) setCanon(all);
+      // Um pedido só (antes: páginas de 500 em sequência — 20 idas e voltas numa planilha de 10 mil linhas).
+      const data = await api<{ rows: { id: string; values: Record<string, CellValue>; formulas: Record<string, string>; rank: number }[]; refs: Record<string, string> }>(
+        `/api/sheets/${sheetId}/rows/all`,
+      );
+      if (version !== canonVersion.current) return;
+      setRefs((r) => ({ ...r, ...data.refs }));
+      setCanon(data.rows.map((r) => ({ ...r, position: r.rank, createdAt: "", updatedAt: "" })));
     } catch (err) {
       showToast("error", (err as Error).message);
     }

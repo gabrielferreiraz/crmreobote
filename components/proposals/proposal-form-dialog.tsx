@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { AlertTriangle, Calculator, FileText, Info, Loader2, Save, Table2, X } from "lucide-react";
 import { Modal } from "@/components/modal";
 import { TablesLookupPanel } from "@/components/proposals/tables-lookup-dialog";
-import { calcularTaxaTotal, totalizarQuotas, type AdheredQuota } from "@/lib/proposals/quotas";
+import { calcularParcelaInicial, calcularSomaPorGrupo, calcularTaxaTotal, totalizarQuotas, type AdheredQuota } from "@/lib/proposals/quotas";
 import { CurrencyInput } from "@/components/currency-input";
 import { LoadingDots } from "@/components/loading-dots";
 import { formatCurrency } from "@/lib/format";
@@ -192,9 +192,13 @@ export function ProposalFormDialog({
   }
 
   const busy = submitting !== null;
+  const hasQuotas = quotas.length > 0;
+  // Cada crédito tem prazo e taxa próprios; o campo único só vale quando todos coincidem.
+  const mixedTerms = hasQuotas && new Set(quotas.map((q) => q.termMonths)).size > 1;
+  const mixedFees = hasQuotas && new Set(quotas.map((q) => String(Number(calcularTaxaTotal(q.admEffective, q.reserveFundPercent))))).size > 1;
 
   return (
-    <Modal onClose={onClose} maxWidth="max-w-4xl !max-h-[calc(100vh-1rem)] !overflow-hidden">
+    <Modal onClose={onClose} maxWidth={`${tablesOpen ? "max-w-7xl !h-[calc(100vh_-_1rem_-_var(--lookup-reserve,0px))] [translate:0_calc(var(--lookup-reserve,0px)_*_-0.5)] transition-[height,translate] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]" : "max-w-4xl"} !max-h-[calc(100vh-1rem)] !overflow-hidden`}>
       {/* A consulta às tabelas troca o conteúdo deste painel; o formulário fica
           montado, então nada do que já foi digitado se perde. */}
       {tablesOpen ? (
@@ -231,9 +235,9 @@ export function ProposalFormDialog({
                 setTablesOpen(true);
               }}
             >
-              <button type="submit" className="btn-secondary btn-sm shrink-0" title="Consultar as tabelas sem sair da proposta">
+              <button type="submit" className="btn-secondary btn-sm shrink-0" title="Escolher créditos das tabelas da Servopa e anexar à proposta, sem sair dela">
                 <Table2 className="h-3.5 w-3.5" strokeWidth={2} />
-                Tabelas
+                Usar tabelas da Servopa
               </button>
             </form>
             <button type="button" onClick={onClose} disabled={busy} className="icon-btn h-8 w-8 shrink-0" aria-label="Fechar">
@@ -369,12 +373,33 @@ export function ProposalFormDialog({
             </div>
             <dl className="space-y-2 text-xs">
               <SummaryLine label="Crédito total" value={formatCurrency(total)} strong />
-              <SummaryLine label="Por cota" value={quota > 0 ? formatCurrency(perQuota) : "-"} />
+              {!hasQuotas && <SummaryLine label="Por cota" value={quota > 0 ? formatCurrency(perQuota) : "-"} />}
               <SummaryLine label="Cotas" value={quotaStr || "-"} />
-              <SummaryLine label="Prazo" value={termStr ? `${termStr} meses` : "-"} />
-              <SummaryLine label="Taxa" value={formatPercent(parsePercentInput(feePercent) || 0)} />
+              <SummaryLine label="Prazo" value={mixedTerms ? "Varia por grupo" : termStr ? `${termStr} meses` : "-"} />
+              <SummaryLine label="Taxa" value={mixedFees ? "Varia por grupo" : formatPercent(parsePercentInput(feePercent) || 0)} />
               <SummaryLine label="Parcela" value={installment ? formatCurrency(Number(installment)) : "-"} strong />
             </dl>
+            {hasQuotas && (
+              <div className="mt-3 border-t border-neutral-200 pt-3 dark:border-neutral-800">
+                <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-neutral-500 dark:text-neutral-400">Créditos escolhidos</p>
+                <ul className="mt-1 divide-y divide-neutral-100 dark:divide-neutral-800">
+                  {quotas.map((q) => (
+                    <li key={`${q.tableId}-${q.category}`} className="py-2 text-xs">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className="font-semibold text-neutral-900 dark:text-neutral-100">Grupo {q.groupNumber} · {q.category}</span>
+                        <span className="whitespace-nowrap font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">{formatCurrency(Number(calcularSomaPorGrupo(q.cotas, q.creditValue)))}</span>
+                      </div>
+                      <div className="mt-0.5 flex items-baseline justify-between gap-2 text-neutral-500 dark:text-neutral-400">
+                        <span>
+                          {q.cotas} {q.cotas === 1 ? "cota" : "cotas"} × {formatCurrency(Number(q.creditValue))} · {q.termMonths} meses · {formatPercent(Number(calcularTaxaTotal(q.admEffective, q.reserveFundPercent)))}
+                        </span>
+                        <span className="whitespace-nowrap font-medium tabular-nums text-brand dark:text-brand-light">{formatCurrency(Number(calcularParcelaInicial(q.cotas, q.installment)))}/mês</span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
           <div className="flex gap-2 rounded-lg border border-neutral-200 bg-neutral-50 p-3 text-xs leading-5 text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900/60 dark:text-neutral-300">
             <Info className="mt-0.5 h-4 w-4 shrink-0 text-brand dark:text-brand-light" strokeWidth={2} />

@@ -103,7 +103,7 @@ export function ServopaPrintSheet({ table, campaign }: { table: ServopaTableView
             </tr>
           </thead>
           <tbody>
-            {table.rows.map((r) => (
+            {[...table.rows].sort((a, b) => Number(a.creditValue) - Number(b.creditValue) || a.position - b.position).map((r) => (
               <tr key={r.category} className="servopa-row border-b border-neutral-900 text-center">
                 <td className="whitespace-nowrap px-1 py-[2mm]">{r.category}</td>
                 <td className="whitespace-nowrap px-1 py-[2mm] tabular-nums">{formatPercent(r.monthlyPercent)}</td>

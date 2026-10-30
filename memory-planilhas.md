@@ -385,3 +385,12 @@ Pedido: ao mudar uma coluna como a da imagem para Data, valores como “outubro 
 - **Arraste e solte de seleção (`sheet-grid.tsx`):** as 4 bordas da caixa de seleção (`xl-sel-box`) ganharam áreas interativas com `cursor: move`. Clicar e arrastar qualquer borda inicia o deslocamento de uma célula ou de um bloco inteiro de células.
 - **Contorno de destino e auto-rolagem:** durante o arraste, um retângulo pontilhado verde translúcido (`xl-move-box`) acompanha o ponteiro mostrando a posição exata de destino, integrado ao loop de auto-rolagem suave nas margens da grade.
 - **Aplicação e histórico (`applyMove`):** ao soltar o mouse, os valores, formatos e fórmulas são aplicados no destino e a origem não sobreposta é limpa. A seleção se ajusta ao novo local e a operação é gravada em um único passo no histórico do Ctrl+Z.
+
+## 2026-10-30 — Fluidez e velocidade
+- Rolagem: `onScroll` agrupa por quadro (rAF) e só faz setState quando a janela de linhas precisa andar (> OVERSCAN/2 linhas); antes era 1 re-render da grade inteira por pixel.
+- `Cell` memorizada (`memo` + `sameCellProps`, resultado de fórmula comparado por conteúdo) com handlers estáveis (`cellActions` ref → `onCellToggle/onCellEdit(r, c)`): selecionar/arrastar/digitar não redesenha as células iguais.
+- Linhas posicionadas por `transform: translate3d` (GPU) em vez de `top` (layout); `will-change: top` removido de cada linha.
+- `.xl-cell` só transiciona cor; seleção (box-shadow) instantânea como no Excel; largura/altura não animam (era o maior custo ao autoajustar).
+- `planilhas/[id]/loading.tsx`: esqueleto da planilha (só CSS) — clique abre na hora.
+- Fórmulas: `loadCanon` usa `/rows/all` (1 pedido, agora com `refs`) em vez de páginas de 500 em série.
+- Animações: modal 280ms spring → 200ms ease-smooth (sem quique), fundo 140ms, pop-in 150ms, menus da planilha 120ms; `prefers-reduced-motion` desliga transições da grade.

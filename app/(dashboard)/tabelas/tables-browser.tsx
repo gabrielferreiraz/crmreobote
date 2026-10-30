@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowDown, ArrowUp, ArrowUpDown, CalendarDays, CheckSquare2, Eye, MinusSquare, Percent, Printer, Square, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, CalendarDays, CheckSquare2, Eye, MinusSquare, Percent, Printer, Square, X, ChevronRight } from "lucide-react";
 import type { ServopaTableListView } from "@/lib/servopa-tables/queries";
 import { toUnits } from "@/lib/servopa-tables/adjust";
 import { formatBRL, formatDateBR, formatPercent, SEGMENT_LABEL } from "@/lib/servopa-tables/format";
@@ -63,9 +63,24 @@ function SelectAllCheckbox({ checked, indeterminate, onChange }: { checked: bool
   return <input ref={ref} type="checkbox" checked={checked} onChange={onChange} className="h-4 w-4 accent-indigo-600" aria-label="Selecionar todas as tabelas filtradas" />;
 }
 
+function SegmentBadge({ segment }: { segment: ServopaTableListView["segment"] }) {
+  const real = segment === "REAL_ESTATE";
+  return (
+    <span className="inline-flex items-center gap-2 text-sm text-neutral-700 dark:text-neutral-200">
+      <span className={`h-2 w-2 rounded-full ${real ? "bg-emerald-500" : "bg-sky-500"}`} />
+      {SEGMENT_LABEL[segment]}
+    </span>
+  );
+}
+
 function Vacancies({ value }: { value: number | null }) {
   if (value === null) return <span className="text-xs text-neutral-400">Não informado</span>;
-  return <span className="whitespace-nowrap font-medium tabular-nums text-neutral-900 dark:text-neutral-100">{value} {value === 1 ? "vaga" : "vagas"}</span>;
+  const low = value <= 20;
+  return (
+    <span className={`inline-flex items-center gap-2 whitespace-nowrap text-sm tabular-nums ${low ? "font-semibold text-amber-600 dark:text-amber-400" : "text-neutral-700 dark:text-neutral-200"}`}>
+      {value} {value === 1 ? "vaga" : "vagas"}
+    </span>
+  );
 }
 
 function SortHeader({ label, sortKey, activeKey, order, onSort }: {
@@ -166,6 +181,14 @@ export function TablesBrowser({ tables, initialState, canAdjust }: { tables: Ser
     else if (anchorId === id) setAnchorId(null);
   }
 
+  /** Clicar em qualquer ponto da linha abre a tabela (Ctrl/Cmd + clique, em nova aba); controles internos seguem com a ação própria. */
+  function openRow(event: MouseEvent, id: string) {
+    if ((event.target as HTMLElement).closest("a, button, input, label")) return;
+    if (window.getSelection()?.toString()) return;
+    if (event.ctrlKey || event.metaKey) window.open(`/tabelas/${id}`, "_blank");
+    else router.push(`/tabelas/${id}`);
+  }
+
   /** Shift + clique não pode selecionar o texto das linhas no meio do caminho. */
   function preventTextSelection(event: MouseEvent) {
     if (event.shiftKey) event.preventDefault();
@@ -212,21 +235,21 @@ export function TablesBrowser({ tables, initialState, canAdjust }: { tables: Ser
         <div className="card p-10 text-center text-sm text-neutral-500 dark:text-neutral-400">Nenhuma tabela com esses filtros.</div>
       ) : (
         <>
-          <div className="card hidden max-h-[calc(100vh-19rem)] overflow-auto md:block">
+          <div className="hidden max-h-[calc(100vh-19rem)] overflow-auto border-y border-neutral-200 md:block dark:border-neutral-800">
             <table className="w-full min-w-[960px] text-sm">
               <thead className="sticky top-0 z-10 bg-white dark:bg-neutral-900">
                 <tr className="border-b border-neutral-200 text-left text-xs uppercase tracking-wide text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
                   {canAdjust && <th className="w-10 px-4 py-3"><SelectAllCheckbox checked={allVisibleSelected} indeterminate={someVisibleSelected && !allVisibleSelected} onChange={toggleVisible} /></th>}
                   {headers.map(([label, key]) => <SortHeader key={key} label={label} sortKey={key} activeKey={state.ordenar} order={state.ordem} onSort={sort} />)}
-                  <th className="px-4 py-3 text-right font-medium">Ações</th>
+                  <th className="px-4 py-3 text-right font-medium"><span className="sr-only">Ações</span></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800/70">
                 {visible.map((table) => (
-                  <tr key={table.id} className="transition-colors hover:bg-neutral-50/70 dark:hover:bg-neutral-800/30">
+                  <tr key={table.id} onClick={(event) => openRow(event, table.id)} className={`group cursor-pointer transition-colors ${selected.has(table.id) ? "bg-indigo-50/70 hover:bg-indigo-50 dark:bg-indigo-500/10 dark:hover:bg-indigo-500/15" : "hover:bg-neutral-50 dark:hover:bg-neutral-800/40"}`}>
                     {canAdjust && <td className="px-4 py-3"><input type="checkbox" checked={selected.has(table.id)} onClick={(event) => toggleOne(table.id, event.shiftKey)} onMouseDown={preventTextSelection} onChange={() => {}} className="h-4 w-4 accent-indigo-600" aria-label={`Selecionar tabela do grupo ${table.groupNumber}`} title="Shift + clique seleciona um intervalo" /></td>}
-                    <td className="px-4 py-3 font-medium"><Link href={`/tabelas/${table.id}`} className="hover:text-brand">Grupo {table.groupNumber}</Link></td>
-                    <td className="px-4 py-3"><span className="rounded bg-neutral-100 px-2 py-1 text-xs font-medium text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">{SEGMENT_LABEL[table.segment]}</span></td>
+                    <td className="px-4 py-3.5"><Link href={`/tabelas/${table.id}`} className="text-[15px] font-semibold text-neutral-900 group-hover:text-brand dark:text-neutral-100">Grupo {table.groupNumber}</Link></td>
+                    <td className="px-4 py-3"><SegmentBadge segment={table.segment} /></td>
                     <td className="px-4 py-3 tabular-nums text-neutral-600 dark:text-neutral-300">{table.termMonths} meses</td>
                     <td className="px-4 py-3"><Rate table={table} /></td>
                     <td className="px-4 py-3"><MoneyRange range={table.creditRange} /></td>
@@ -234,8 +257,8 @@ export function TablesBrowser({ tables, initialState, canAdjust }: { tables: Ser
                     <td className="px-4 py-3"><Vacancies value={table.vacancies} /></td>
                     <td className="px-4 py-3 tabular-nums text-neutral-600 dark:text-neutral-300">{table.nextAssemblyAt ? formatDateBR(new Date(table.nextAssemblyAt)) : "—"}</td>
                     <td className="px-4 py-3"><div className="flex justify-end gap-1.5">
-                      <Link href={`/tabelas/${table.id}`} className="btn-ghost btn-sm"><Eye className="h-4 w-4" />Ver</Link>
                       <Link href={`/tabela-servopa/${table.id}`} target="_blank" className="btn-secondary btn-sm"><Printer className="h-4 w-4" />PDF</Link>
+                      <ChevronRight className="my-auto h-4 w-4 text-neutral-300 transition-transform group-hover:translate-x-0.5 group-hover:text-neutral-500" aria-hidden="true" />
                     </div></td>
                   </tr>
                 ))}
@@ -243,9 +266,9 @@ export function TablesBrowser({ tables, initialState, canAdjust }: { tables: Ser
             </table>
           </div>
 
-          <div className="space-y-2 md:hidden">
+          <div className="md:hidden">
             {visible.map((table) => (
-              <article key={table.id} className="card p-4">
+              <article key={table.id} onClick={(event) => openRow(event, table.id)} className={`cursor-pointer border-b border-neutral-200 py-4 transition-colors active:bg-neutral-50 dark:border-neutral-800 dark:active:bg-neutral-800/40 ${selected.has(table.id) ? "bg-indigo-50/60 dark:bg-indigo-500/10" : ""}`}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-start gap-3">
                     {canAdjust && <input type="checkbox" checked={selected.has(table.id)} onClick={(event) => toggleOne(table.id, event.shiftKey)} onChange={() => {}} className="mt-1 h-4 w-4 accent-indigo-600" aria-label={`Selecionar tabela do grupo ${table.groupNumber}`} />}

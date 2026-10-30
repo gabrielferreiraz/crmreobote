@@ -456,9 +456,9 @@ export function ServopaOperations({ initialState }: { initialState: ServopaOpera
             </p>
           </div>
         </div>
-        <button type="button" onClick={() => void runNow()} disabled={running || Boolean(state.activeRun) || !state.panelCredentialsConfigured} className="btn-primary">
+        <button type="button" onClick={() => void runNow()} disabled={running || Boolean(state.activeRun) || !state.panelCredentialsConfigured} className="btn-primary" title="Busca agora os valores mais recentes na Servopa e atualiza todas as tabelas">
           <RefreshCw className={`h-4 w-4 ${running || state.activeRun?.status === "RUNNING" ? "animate-spin" : ""}`} aria-hidden="true" />
-          {state.activeRun ? "Atualizando" : "Rodar robô agora"}
+          {state.activeRun ? "Atualizando tabelas…" : "Atualizar tabelas"}
         </button>
         {state.activeRun && (
           <button type="button" onClick={() => setConfirmAction("CANCEL_RUN")} className="btn-secondary text-red-600 dark:text-red-400">

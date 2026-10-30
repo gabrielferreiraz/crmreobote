@@ -236,10 +236,11 @@ body {
   }
 }
 
+/* Janela: rápida e suave — desacelera no fim (ease-smooth), sem "quicar"; deslocamento curto. */
 @keyframes modal-panel-in {
   from {
     opacity: 0;
-    transform: scale(0.96) translateY(8px);
+    transform: scale(0.97) translateY(6px);
   }
 
   to {
@@ -359,7 +360,7 @@ body {
    NotificationBell...) — um pouco de "estica além e volta" nesse único
    lugar já muda a sensação de "menu nativo" em toda tela do app de uma vez. */
 .animate-pop-in {
-  animation: pop-in 180ms var(--ease-spring);
+  animation: pop-in 150ms var(--ease-spring);
   transform-origin: top right;
 }
 
@@ -367,7 +368,7 @@ body {
    esquerda do gatilho (ex.: emoji/anexo do composer de WhatsApp, que fica
    colado na barra de digitar embaixo da tela). */
 .animate-pop-in-bottom {
-  animation: pop-in 180ms var(--ease-spring);
+  animation: pop-in 150ms var(--ease-spring);
   transform-origin: bottom left;
 }
 
@@ -391,7 +392,7 @@ body {
 
 @media (min-width: 1024px) {
   .modal-panel-mobile-sheet {
-    animation: modal-panel-in 280ms var(--ease-spring);
+    animation: modal-panel-in 200ms var(--ease-smooth);
   }
 }
 
@@ -2115,22 +2116,17 @@ input[type="radio"] {
     height var(--xl-motion) var(--xl-ease);
 }
 
+/* Célula: só cor (pintura barata). Seleção (box-shadow) é instantânea como no Excel, e
+   largura/altura não animam — animar layout em centenas de células era o maior gargalo. */
 .xl-cell {
   transition:
-    box-shadow 145ms var(--xl-ease),
-    background-color var(--xl-motion) var(--xl-ease),
-    border-color var(--xl-motion) var(--xl-ease),
-    color var(--xl-motion) var(--xl-ease),
-    outline-color var(--xl-motion-fast) var(--xl-ease),
-    width var(--xl-motion) var(--xl-ease),
-    height var(--xl-motion) var(--xl-ease);
+    background-color var(--xl-motion-fast) var(--xl-ease),
+    color var(--xl-motion-fast) var(--xl-ease);
 }
 
+/* Linha posicionada por transform (camada da GPU): inserir/excluir desliza sem refazer layout. */
 .xl-grid-row {
-  transition:
-    top var(--xl-motion) var(--xl-ease),
-    height var(--xl-motion) var(--xl-ease);
-  will-change: top, height;
+  transition: transform var(--xl-motion) var(--xl-ease);
 }
 
 .xl-tool-button,
@@ -2178,7 +2174,7 @@ input[type="radio"] {
 }
 
 .xl-menu-pop {
-  animation: xl-menu-in var(--xl-motion) var(--xl-ease) both;
+  animation: xl-menu-in var(--xl-motion-fast) var(--xl-ease) both;
   transform-origin: top center;
 }
 
@@ -2206,6 +2202,17 @@ input[type="radio"] {
 
 @media (prefers-reduced-motion: reduce) {
   .xl-ants {
+    animation: none;
+  }
+  /* Quem pediu menos movimento no sistema: sem deslizar/aparecer — tudo instantâneo. */
+  .xl-grid-row,
+  .xl-cell,
+  .xl-sel-box,
+  .xl-focus-cell,
+  .xl-head-item {
+    transition: none !important;
+  }
+  .xl-menu-pop {
     animation: none;
   }
 }

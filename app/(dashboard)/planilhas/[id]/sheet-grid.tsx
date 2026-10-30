@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowDown, ArrowUp, Check, ChevronDown, ExternalLink, Filter } from "lucide-react";
 import { isCheckboxLikeColumn, SHEET_COLUMN_TYPE_LABELS, type CellValue, type SheetColumnType } from "@/lib/sheets/column-types";
@@ -378,12 +378,28 @@ export function SheetGrid(props: Props) {
   const first = clamp(rowAtY(Math.max(HEADER_H, viewport.top)) - OVERSCAN, 1, rowCount);
   const last = clamp(rowAtY(viewport.top + viewport.height) + OVERSCAN + 1, 1, rowCount);
 
+  // Rolagem sem gargalo: no máximo um setState por quadro (rAF), e só quando a janela de linhas
+  // renderizadas precisa andar. As linhas já desenhadas têm OVERSCAN de folga em cima e embaixo,
+  // então rolar alguns pixels não precisa redesenhar nada — o navegador só move a camada.
+  const scrollRaf = useRef(0);
   function onScroll() {
-    const el = scrollRef.current!;
-    setViewport({ top: el.scrollTop, height: el.clientHeight, width: el.clientWidth });
-    setMenu(null);
-    if (el.scrollTop + el.clientHeight > yOf(Math.max(1, rows.length - 40))) props.onLoadMore();
+    if (menu) setMenu(null);
+    if (scrollRaf.current) return;
+    scrollRaf.current = requestAnimationFrame(() => {
+      scrollRaf.current = 0;
+      const el = scrollRef.current;
+      if (!el) return;
+      const top = el.scrollTop;
+      setViewport((v) =>
+        Math.abs(top - v.top) < (OVERSCAN / 2) * ROW && v.height === el.clientHeight && v.width === el.clientWidth
+          ? v
+          : { top, height: el.clientHeight, width: el.clientWidth },
+      );
+      if (top + el.clientHeight > yOf(Math.max(1, rows.length - 40))) props.onLoadMore();
+    });
   }
+  useEffect(() => () => cancelAnimationFrame(scrollRaf.current), []);
+
 
   const focusGrid = useCallback(() => scrollRef.current?.focus({ preventScroll: true }), []);
 
@@ -567,6 +583,25 @@ export function SheetGrid(props: Props) {
     editSession.current++;
     setEditing({ r, c, initialText });
   }
+
+  // Ações das células com identidade fixa: a Cell é memorizada e não redesenha só porque a grade
+  // redesenhou (selecionar, arrastar, digitar). O ref aponta sempre para a versão atual.
+  const cellActions = useRef<{ toggle: (r: number, c: number) => void; edit: (r: number, c: number) => void }>({ toggle: () => {}, edit: () => {} });
+  useLayoutEffect(() => {
+    cellActions.current = {
+      toggle: (r, c) => {
+        const col = columns[c];
+        if (col) props.onChanges([{ rowIndex: r - 1, colId: col.id, raw: !rows[r - 1]?.values[col.id] }]);
+      },
+      edit: (r, c) => {
+        setExtraRanges([]);
+        setSel({ anchor: { r, c }, focus: { r, c } });
+        startEdit(r, c, null);
+      },
+    };
+  });
+  const onCellToggle = useCallback((r: number, c: number) => cellActions.current.toggle(r, c), []);
+  const onCellEdit = useCallback((r: number, c: number) => cellActions.current.edit(r, c), []);
 
   const moveDelta = (move: CommitMove): [number, number] => ({ down: [1, 0], up: [-1, 0], right: [0, 1], left: [0, -1], none: [0, 0], selection: [0, 0] })[move] as [number, number];
 
@@ -2053,7 +2088,7 @@ export function SheetGrid(props: Props) {
             const fullRow = isFullRowSelected(r);
             const rowHeight = hOf(r);
             return (
-              <div key={row?.id ?? `new-${r}`} className="xl-grid-row absolute left-0 flex" style={{ top: yOf(r), height: rowHeight, width: totalWidth }}>
+              <div key={row?.id ?? `new-${r}`} className="xl-grid-row absolute top-0 left-0 flex" style={{ transform: `translate3d(0, ${yOf(r)}px, 0)`, height: rowHeight, width: totalWidth }}>
                 {showHeadings && (
                   <div
                     className={`sticky left-0 z-10 flex shrink-0 cursor-pointer items-center justify-center text-[length:calc(var(--xl-fs)*0.8)] tabular-nums ${
@@ -2184,12 +2219,8 @@ export function SheetGrid(props: Props) {
                       gridLine={gridLine}
                       readOnly={readOnly || isNew}
                       editingActive={!!editing}
-                      onToggle={() => props.onChanges([{ rowIndex: r - 1, colId: col.id, raw: !row?.values[col.id] }])}
-                      onEdit={() => {
-                        setExtraRanges([]);
-                        setSel({ anchor: { r, c }, focus: { r, c } });
-                        startEdit(r, c, null);
-                      }}
+                      onToggle={onCellToggle}
+                      onEdit={onCellEdit}
                     />
                   ) : (
                     <div
@@ -2341,7 +2372,22 @@ export function SheetGrid(props: Props) {
   );
 }
 
-function Cell({
+/** Props iguais = não redesenha (o resultado de fórmula vem como objeto novo a cada render: compara o conteúdo). */
+function sameCellProps(a: CellProps, b: CellProps) {
+  for (const k in a) {
+    const key = k as keyof CellProps;
+    if (key === "shown") {
+      if (a.shown?.display !== b.shown?.display || a.shown?.error !== b.shown?.error) return false;
+    } else if (a[key] !== b[key]) return false;
+  }
+  return true;
+}
+
+const Cell = memo(CellImpl, sameCellProps);
+
+type CellProps = Parameters<typeof CellImpl>[0];
+
+function CellImpl({
   r,
   c,
   col,
@@ -2383,8 +2429,8 @@ function Cell({
   gridLine: string;
   readOnly: boolean;
   editingActive: boolean;
-  onToggle: () => void;
-  onEdit: () => void;
+  onToggle: (r: number, c: number) => void;
+  onEdit: (r: number, c: number) => void;
 }) {
   // Igual ao Excel: número e data à direita, texto à esquerda, caixa de seleção no centro.
   const rightAligned = isNumericType(col.type) || col.type === "DATE";
@@ -2426,7 +2472,7 @@ function Cell({
         type="button"
         disabled={readOnly}
         onMouseDown={(e) => !readOnly && e.stopPropagation()}
-        onClick={onToggle}
+        onClick={() => onToggle(r, c)}
         aria-label={value ? "Desmarcar" : "Marcar"}
         className={`mx-auto flex aspect-square h-[60%] items-center justify-center rounded-[2px] border ${
           value ? "border-[var(--xl)] bg-[var(--xl)] text-white" : "border-[#8a8a8a] bg-white hover:border-[var(--xl)] dark:bg-neutral-900"
@@ -2477,7 +2523,7 @@ function Cell({
               }}
               onClick={(e) => {
                 e.stopPropagation();
-                onEdit();
+                onEdit(r, c);
               }}
               title={`Trocar ${noun} vinculado`}
               aria-label={`Trocar ${noun} vinculado`}

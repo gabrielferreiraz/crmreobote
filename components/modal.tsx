@@ -136,7 +136,7 @@ export function Modal({
           } ${
             isNested ? "bg-neutral-900/30 dark:bg-neutral-950/45" : "bg-neutral-900/40 backdrop-blur-lg dark:bg-neutral-950/60"
           }`}
-          style={{ animation: "modal-backdrop-in 180ms var(--ease-smooth)" }}
+          style={{ animation: "modal-backdrop-in 140ms var(--ease-smooth)" }}
           onMouseDown={(e) => {
             if (e.target === e.currentTarget) onClose();
           }}
@@ -150,7 +150,7 @@ export function Modal({
             // acima: o painel é o que "chega" na tela, o fundo só esmaece —
             // dar um pouco de "estica além e volta" nele é o que lê como
             // apresentação nativa (iOS/macOS), não como um <div> aparecendo.
-            style={mobileSheet ? undefined : { animation: "modal-panel-in 280ms var(--ease-spring)" }}
+            style={mobileSheet ? undefined : { animation: "modal-panel-in 200ms var(--ease-smooth)" }}
             className={`surface-glass-panel scrollbar-thin w-full outline-none ${maxWidth} overflow-y-auto p-5 ${
               mobileSheet
                 ? "modal-panel-mobile-sheet max-h-[88dvh] rounded-t-xl rounded-b-none border-b-0 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] lg:max-h-[90vh] lg:rounded-xl lg:border-b lg:pb-7"

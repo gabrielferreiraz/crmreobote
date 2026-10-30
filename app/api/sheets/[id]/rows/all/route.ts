@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { rateLimitOrResponse } from "@/lib/rate-limit";
 import { requireSheetsAccess } from "@/lib/sheets/access";
 import { allRowsForCalc } from "@/lib/sheets/rows";
+import { referenceNamesFast } from "@/lib/sheets/open";
 import { sheetRouteError } from "@/lib/sheets/http";
 
 export const dynamic = "force-dynamic";
@@ -18,8 +19,10 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const limited = rateLimitOrResponse(`sheets:read:${access.organizationId}:${access.userId}`, 600, 60_000);
   if (limited) return limited;
   try {
-    const { rows } = await allRowsForCalc(access.organizationId, id);
-    return NextResponse.json({ rows });
+    const { columns, rows } = await allRowsForCalc(access.organizationId, id);
+    // Nomes de cliente/negócio/membro: fórmula que lê essas colunas mostra o nome, não o id.
+    const refs = await referenceNamesFast(access.organizationId, columns, rows);
+    return NextResponse.json({ rows, refs });
   } catch (err) {
     return sheetRouteError(err);
   }
