@@ -1,10 +1,11 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { Fragment, useRef, useState } from "react";
 import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
 import { Home, Users, Kanban, MessageCircle, CalendarDays, ClipboardList, BarChart3, Wallet, Table2, FileSpreadsheet } from "lucide-react";
 import { LoadingDots } from "@/components/loading-dots";
+import { Lista50Button } from "./lista-50-button";
 
 // Configurações saiu daqui — mora no menu do usuário agora (ver
 // components/user-menu.tsx), pra deixar essa fileira só com o que é
@@ -131,8 +132,8 @@ export function TopNavLinks({
             : pathname.startsWith(item.href) || (item.alsoActiveOn?.some((p) => pathname.startsWith(p)) ?? false);
         const Icon = item.icon;
         return (
+          <Fragment key={item.href}>
           <Link
-            key={item.href}
             href={item.href}
             aria-current={isActive ? "page" : undefined}
             onClick={(e) => {
@@ -153,6 +154,11 @@ export function TopNavLinks({
           >
             <NavLinkContent icon={Icon} label={item.label} isActive={isActive} />
           </Link>
+          {/* Campanha Novembro Black, logo depois de Tabelas. Fica aqui (e não
+              numa entrada do NAV_ITEMS) porque tem visual próprio, de fita de
+              alerta, em vez do estilo dos links da fileira. */}
+          {item.href === "/tabelas" && <Lista50Button />}
+          </Fragment>
         );
       })}
     </nav>
