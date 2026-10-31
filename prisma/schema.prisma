@@ -1948,6 +1948,13 @@ model Deal {
   // veio — null pra negócio criado manualmente/por API/outra integração.
   // É o que permite achar "o que esse arquivo criou" depois do fato.
   importBatchId     String?
+  // true = este negócio nasceu da campanha Lista dos 50 (ver lib/lista-50.ts).
+  // Marcador DURÁVEL — independente da etapa atual: o consultor pode (e deve)
+  // arrastar o negócio pelo pipeline normalmente depois de entregue, e ele
+  // precisa continuar contando pra meta semanal e nunca ser entregue 2x pelo
+  // mesmo contato+consultor. Por isso a contagem/idempotência usam este
+  // campo, nunca `stageId` (que muda com o trabalho normal do consultor).
+  lista50           Boolean  @default(false)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -1976,6 +1983,11 @@ model Deal {
   @@index([organizationId, status])
   @@index([organizationId, ownerId])
   @@index([organizationId, lossReasonId])
+  // Contagem semanal/dedupe da Lista dos 50 (ver lib/lista-50.ts) — sempre
+  // filtra por organizationId + lista50 + ownerId, e geralmente também por
+  // createdAt (janela da semana) ou contactId (checagem de duplicidade).
+  @@index([organizationId, lista50, ownerId, createdAt])
+  @@index([organizationId, lista50, contactId, ownerId])
   // Sem isso, achar o(s) negócio(s) de um contato exigia varredura sem
   // índice — usado tanto pelo EXISTS de Relatórios (dealThreads, ver
   // page.tsx) quanto por lib/campaigns/reply.ts's "já existe negócio aberto

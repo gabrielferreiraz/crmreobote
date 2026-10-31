@@ -14,7 +14,6 @@ export type Lista50DuplicateInfo = {
     name: string;
     status: "OPEN" | "WON" | "LOST";
     stageName: string;
-    value: number | null;
     createdAt: string;
     updatedAt: string;
   } | null;

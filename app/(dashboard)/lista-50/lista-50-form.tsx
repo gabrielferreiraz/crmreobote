@@ -106,13 +106,20 @@ type EnvioResultado = { created: number; skipped: number; errors: { nome: string
 export function Lista50Form({
   vendedorPadrao,
   enabled,
+  campaignEnabled,
+  scheduledFor,
   weeklyGoal,
   ownWeek,
   progress,
   canManageCampaign,
 }: {
   vendedorPadrao: string;
+  /** Formulário pode ser mostrado agora (campanha ligada E já começou). */
   enabled: boolean;
+  /** Estado bruto do banco (ligada/desligada) — usado só pelo controle do Dono, independente de já ter começado. */
+  campaignEnabled: boolean;
+  /** Ligada, mas com início agendado pro futuro — mostra "começa em" em vez de "não está no ar". */
+  scheduledFor: Date | null;
   weeklyGoal: number;
   ownWeek: { weekNumber: number; count: number } | null;
   progress: Lista50Progress | null;
@@ -124,6 +131,7 @@ export function Lista50Form({
   const [erro, setErro] = useState<string | null>(null);
   const [enviado, setEnviado] = useState<EnvioResultado | null>(null);
   const [enviando, setEnviando] = useState(false);
+  const enviandoRef = useRef(false);
   // Contagem REAL (negócios já criados no banco) desta semana — separada do
   // `validas.length` abaixo, que é só o rascunho ainda não entregue.
   const [semana, setSemana] = useState(ownWeek?.weekNumber ?? 1);
@@ -203,6 +211,11 @@ export function Lista50Form({
    */
   async function entregar(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    // Trava SÍNCRONA (não é o `enviando` do state, que só reflete no DOM no
+    // próximo render) — um duplo clique bem rápido, ou Enter + clique quase
+    // juntos, conseguia disparar duas submissões antes do botão desabilitar
+    // de verdade e criar negócio duplicado pros mesmos nomes.
+    if (enviandoRef.current) return;
     setEnviado(null);
 
     if (!vendedor.trim()) {
@@ -227,6 +240,7 @@ export function Lista50Form({
     }
 
     setErro(null);
+    enviandoRef.current = true;
     setEnviando(true);
     try {
       const resposta = await fetch("/api/lista-50/entregar", {
@@ -249,14 +263,19 @@ export function Lista50Form({
         return;
       }
 
+      // Se a semana virou entre a última vez que a tela carregou/entregou e
+      // agora, a contagem reinicia (não soma em cima do total da semana
+      // anterior) — é a própria semana que o servidor diz que esses leads
+      // caíram, nunca a que a tela ainda tinha na tela.
+      setEntregues((atual) => (dados.weekNumber === semana ? atual + dados.created : dados.created));
       setSemana(dados.weekNumber);
-      setEntregues((atual) => atual + dados.created);
       setEnviado({ created: dados.created, skipped: dados.skipped, errors: dados.errors ?? [] });
       setLinhas(Array.from({ length: LINHAS_INICIAIS }, (_, i) => novaLinha(i + 1)));
       setProximoId(LINHAS_INICIAIS + 1);
     } catch {
       setErro("Falha de conexão — tente novamente.");
     } finally {
+      enviandoRef.current = false;
       setEnviando(false);
     }
   }
@@ -271,11 +290,13 @@ export function Lista50Form({
           Lista dos <span className="text-[#ffcc00] [text-shadow:0_0_12px_rgba(255,204,0,0.5)]">50</span>
         </h1>
         <p className="mb-8 max-w-md text-sm text-gray-400">
-          A campanha Novembro Black não está no ar agora. Ela é sazonal — volta quando a próxima temporada começar.
+          {scheduledFor
+            ? `A campanha Novembro Black começa em ${scheduledFor.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "America/Campo_Grande" })}.`
+            : "A campanha Novembro Black não está no ar agora. Ela é sazonal — volta quando a próxima temporada começar."}
         </p>
         {canManageCampaign && (
           <div className="w-full max-w-sm">
-            <Lista50AdminToggle enabled={false} />
+            <Lista50AdminToggle enabled={campaignEnabled} />
           </div>
         )}
       </div>
@@ -355,7 +376,7 @@ export function Lista50Form({
 
         {canManageCampaign && (
           <div className="mb-4">
-            <Lista50AdminToggle enabled={enabled} />
+            <Lista50AdminToggle enabled={campaignEnabled} />
           </div>
         )}
 

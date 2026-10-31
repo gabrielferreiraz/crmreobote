@@ -9,6 +9,15 @@ export const dynamic = "force-dynamic";
 // meta, só pra não deixar um corpo gigante passar sem limite nenhum.
 const MAX_LEADS_PER_SUBMIT = 200;
 
+// Trava em memória contra duas entregas do MESMO consultor em voo ao mesmo
+// tempo (clique duplo que passou da trava síncrona do navegador, aba
+// duplicada, retry de rede) — sem isso, duas requisições concorrentes podiam
+// ambas não encontrar o contato ainda, e as duas criarem um Contato/Deal
+// para o mesmo nome (não há índice único de telefone no banco pra impedir
+// isso na camada de dados). Mesma limitação de processo único de
+// lib/rate-limit.ts — aceitável aqui pelo mesmo motivo.
+const emVoo = new Set<string>();
+
 function isValidLead(v: unknown): v is Lista50LeadInput {
   if (!v || typeof v !== "object") return false;
   const lead = v as Record<string, unknown>;
@@ -49,15 +58,25 @@ export async function POST(req: Request) {
   const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
   if (!access.ok) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
-  return runWithTenant(access.organizationId, async () => {
-    try {
-      const result = await submitLista50Leads(access.organizationId, access.userId, leadsInput as Lista50LeadInput[]);
-      return NextResponse.json(result);
-    } catch (err) {
-      if (err instanceof Lista50CampaignInactiveError) {
-        return NextResponse.json({ error: err.message }, { status: 409 });
+  const chave = `${access.organizationId}:${access.userId}`;
+  if (emVoo.has(chave)) {
+    return NextResponse.json({ error: "Sua lista já está sendo entregue — aguarde terminar." }, { status: 409 });
+  }
+  emVoo.add(chave);
+
+  try {
+    return await runWithTenant(access.organizationId, async () => {
+      try {
+        const result = await submitLista50Leads(access.organizationId, access.userId, leadsInput as Lista50LeadInput[]);
+        return NextResponse.json(result);
+      } catch (err) {
+        if (err instanceof Lista50CampaignInactiveError) {
+          return NextResponse.json({ error: err.message }, { status: 409 });
+        }
+        throw err;
       }
-      throw err;
-    }
-  });
+    });
+  } finally {
+    emVoo.delete(chave);
+  }
 }

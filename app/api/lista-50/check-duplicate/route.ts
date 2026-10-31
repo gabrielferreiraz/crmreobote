@@ -46,14 +46,17 @@ export async function GET(req: Request) {
     // entra em nenhuma decisão de permissão; quem decide se pode assumir
     // continua sendo exclusivamente lib/lead-claim.ts, sempre reconferido de
     // novo no servidor quando o consultor de fato clicar em assumir/pedir
-    // (POST /api/lead-requests nunca confia neste payload).
+    // (POST /api/lead-requests nunca confia neste payload). De propósito SEM
+    // `value`: diferente de nome/responsável (que POST /api/contacts já
+    // revelava em qualquer duplicidade), o valor do negócio é informação
+    // financeira/comissão de outro consultor — não é preciso pra decidir
+    // assumir ou pedir, então nunca sai daqui.
     const deal = await prisma.deal.findFirst({
       where: { organizationId: access.organizationId, contactId: duplicate.contactId },
       orderBy: { updatedAt: "desc" },
       select: {
         name: true,
         status: true,
-        value: true,
         createdAt: true,
         updatedAt: true,
         stage: { select: { name: true } },
@@ -73,7 +76,6 @@ export async function GET(req: Request) {
             name: deal.name,
             status: deal.status,
             stageName: deal.stage.name,
-            value: deal.value ? Number(deal.value) : null,
             createdAt: deal.createdAt,
             updatedAt: deal.updatedAt,
           }

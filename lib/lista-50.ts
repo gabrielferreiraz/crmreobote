@@ -1,7 +1,11 @@
 import { prisma } from "@/lib/prisma";
 import { upsertContactFromIntegration } from "@/lib/api/upsert-contact";
+import { findDuplicateContact } from "@/lib/contact-duplicate";
+import { resolveContactPhones } from "@/lib/phone-normalize";
 import { buildDealName } from "@/lib/deal-name";
+import { sanitizeCell } from "@/lib/csv-sanitize";
 import { scopeWhere, type DealScope } from "@/lib/team-scope";
+import { brazilDateStringToUTC, brazilDateKey } from "@/lib/timezone";
 
 /**
  * Campanha sazonal "Lista dos 50" (Novembro Black). Liga/desliga por
@@ -13,16 +17,20 @@ import { scopeWhere, type DealScope } from "@/lib/team-scope";
  * distribui são incondicionais — valem tenha ou não batido a meta daquela
  * semana. Por isso esta camada nunca trava/libera nada; só registra e conta.
  *
- * Cada lead entregue com nome + WhatsApp vira um Deal real na etapa
- * "Black November" do pipeline padrão, com o consultor que entregou como
- * dono — o próprio Deal é o registro; a contagem semanal/por consultor é
- * derivada dele (createdAt + ownerId), sem tabela de bookkeeping duplicada.
+ * Cada lead entregue com nome + WhatsApp vira um Deal real na etapa "Black
+ * November" do pipeline padrão, com o consultor que entregou como dono — o
+ * próprio Deal é o registro, marcado com `lista50: true` (campo DURÁVEL,
+ * independente da etapa atual — ver comentário no schema). A contagem
+ * semanal/por consultor e a checagem de "já entregue antes" usam sempre esse
+ * campo, nunca `stageId`: o consultor arrasta o negócio pelo pipeline
+ * normalmente depois de entregue, e isso não pode fazê-lo sumir da meta nem
+ * abrir brecha pra entregar o mesmo contato duas vezes.
  */
 
 export const LISTA_50_STAGE_NAME = "Black November";
 export const LISTA_50_DEAL_SOURCE = "Lista dos 50";
-const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_WEEKLY_GOAL = 50;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 export type Lista50Config = {
   enabled: boolean;
@@ -44,16 +52,65 @@ export async function getLista50Config(organizationId: string): Promise<Lista50C
   };
 }
 
-/** Semana corrente (1-based) a partir de startsOn — antes do início, semana 1. */
-export function lista50WeekNumber(startsOn: Date, now = new Date()): number {
-  const diff = now.getTime() - startsOn.getTime();
-  if (diff < 0) return 1;
-  return Math.floor(diff / WEEK_MS) + 1;
+// ─── Datas: tudo em CHAVE DE CALENDÁRIO ("AAAA-MM-DD"), nunca em aritmética
+// de milissegundos sobre o valor cru do banco ───────────────────────────────
+//
+// `Lista50Config.startsOn` é coluna DATE do Postgres — o Prisma sempre
+// devolve meia-noite UTC pra ela, não importa o que foi gravado (confirmado
+// na prática: gravar 04:00 UTC volta como 00:00 UTC na próxima leitura; mesma
+// pegadinha já documentada em lib/servopa-tables/campaign-rules.ts). Por
+// isso: NUNCA comparar `startsOn` com milissegundos de "agora" — só a chave
+// de calendário (`dateKey`) importa, e o fuso correto (Campo Grande) só entra
+// na hora de transformar uma chave em instante real pra filtrar `createdAt`.
+
+/** Coluna DATE do Postgres → "AAAA-MM-DD" (sempre meia-noite UTC, não precisa de fuso aqui). */
+function dateKey(value: Date): string {
+  return value.toISOString().slice(0, 10);
 }
 
+function addDaysToKey(key: string, days: number): string {
+  const d = new Date(`${key}T00:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return dateKey(d);
+}
+
+function daysBetweenKeys(fromKey: string, toKey: string): number {
+  const from = new Date(`${fromKey}T00:00:00.000Z`).getTime();
+  const to = new Date(`${toKey}T00:00:00.000Z`).getTime();
+  return Math.round((to - from) / DAY_MS);
+}
+
+/**
+ * Converte a data escolhida pelo Dono ("AAAA-MM-DD", do `<input type=date>`,
+ * já validada pelo chamador) numa Date pra gravar na coluna DATE — sem
+ * undefined vira "hoje" no calendário de Campo Grande. Formato inválido é
+ * responsabilidade do chamador rejeitar ANTES de chegar aqui (ver
+ * POST /api/lista-50/config).
+ */
+export function parseLista50StartDate(dateKeyStr: string | undefined): Date {
+  const key = dateKeyStr ?? brazilDateKey();
+  return new Date(`${key}T00:00:00.000Z`);
+}
+
+/** Semana corrente (1-based) a partir de startsOn, pelo calendário de Campo Grande — antes do início, semana 1. */
+export function lista50WeekNumber(startsOn: Date, now: Date = new Date()): number {
+  const days = daysBetweenKeys(dateKey(startsOn), brazilDateKey(now));
+  if (days < 0) return 1;
+  return Math.floor(days / 7) + 1;
+}
+
+/** Limites REAIS (instantes UTC corretos, Campo Grande) de uma semana — usável direto num filtro de `createdAt`. */
 export function lista50WeekRange(startsOn: Date, weekNumber: number): { start: Date; end: Date } {
-  const start = new Date(startsOn.getTime() + (weekNumber - 1) * WEEK_MS);
-  return { start, end: new Date(start.getTime() + WEEK_MS) };
+  const startKey = dateKey(startsOn);
+  const rangeStartKey = addDaysToKey(startKey, (weekNumber - 1) * 7);
+  const rangeEndKey = addDaysToKey(startKey, weekNumber * 7);
+  return { start: brazilDateStringToUTC(rangeStartKey), end: brazilDateStringToUTC(rangeEndKey) };
+}
+
+/** A campanha está ligada E já começou (pelo calendário de Campo Grande) — uma data futura agendada não conta como "no ar" ainda. */
+export function lista50IsLive(config: Pick<Lista50Config, "enabled" | "startsOn">, now: Date = new Date()): boolean {
+  if (!config.enabled || !config.startsOn) return false;
+  return brazilDateKey(now) >= dateKey(config.startsOn);
 }
 
 /**
@@ -61,6 +118,8 @@ export function lista50WeekRange(startsOn: Date, weekNumber: number): { start: D
  * (reaproveita se ela já existir de uma temporada anterior, nunca duplica) e
  * grava o início desta temporada. Só o Dono decide isto (ver requireRole na
  * rota) — é uma decisão de campanha, não uma tarefa operacional do dia a dia.
+ * A rota (POST /api/lista-50/config) serializa chamadas concorrentes — esta
+ * função sozinha não é atômica contra duas chamadas simultâneas.
  */
 export async function enableLista50Campaign(organizationId: string, updatedById: string, startsOn: Date): Promise<void> {
   const pipeline =
@@ -121,16 +180,44 @@ function buildDealDescription(lead: Lista50LeadInput): string | undefined {
   if (lead.temperatura) partes.push(`Temperatura: ${lead.temperatura}`);
   const cabecalho = partes.join(" · ");
   const observacao = lead.observacao?.trim();
-  if (cabecalho && observacao) return `${cabecalho}\nObservação: ${observacao}`;
-  return cabecalho || observacao || undefined;
+  const texto = cabecalho && observacao ? `${cabecalho}\nObservação: ${observacao}` : cabecalho || observacao || undefined;
+  // Mesma proteção que POST /api/deals já aplica em `description` (prefixo
+  // perigoso tipo "=1+1" vira texto inofensivo) — sem isso, exportar esse
+  // texto como planilha (ex.: "Obter Dados do CRM" em Planilhas) carregaria
+  // uma fórmula/injeção de quem digitou a observação.
+  return texto !== undefined ? sanitizeCell(texto) : undefined;
+}
+
+/**
+ * Trava em memória (processo único, mesma limitação de lib/rate-limit.ts) —
+ * serializa o processamento do MESMO telefone dentro da mesma organização,
+ * mesmo entre duas chamadas concorrentes de CONSULTORES DIFERENTES (o
+ * `emVoo` de POST /api/lista-50/entregar só protege contra o mesmo usuário
+ * se duplicando). Sem isso, dois consultores entregando o mesmo número novo
+ * ao mesmo tempo podiam cada um não encontrar o contato ainda e criar um
+ * Contato + Deal próprio pro mesmo lead — exatamente o "repetir nome de
+ * outro vendedor" que a campanha proíbe.
+ */
+const phoneLocks = new Map<string, Promise<unknown>>();
+
+function withPhoneLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const prior = phoneLocks.get(key) ?? Promise.resolve();
+  const task = prior.then(fn, fn);
+  const guarded = task.catch(() => {});
+  phoneLocks.set(key, guarded);
+  guarded.finally(() => {
+    if (phoneLocks.get(key) === guarded) phoneLocks.delete(key);
+  });
+  return task;
 }
 
 /**
  * Entrega da lista: cada linha válida (nome + WhatsApp) vira um Contato (ou
  * reaproveita um já existente — upsertContactFromIntegration nunca rouba o
- * responsável de um contato que já tem um) e um Deal na etapa "Black
- * November", com o consultor que entregou como dono. Resubmissão do mesmo
- * contato pro mesmo dono na etapa não duplica o Deal (idempotente).
+ * responsável de um contato que já tem um) e um Deal `lista50: true` na
+ * etapa "Black November", com o consultor que entregou como dono.
+ * Resubmissão do mesmo contato pro mesmo dono não duplica o Deal
+ * (idempotente) — mesmo que o Deal já tenha saído da etapa original.
  */
 export async function submitLista50Leads(
   organizationId: string,
@@ -138,7 +225,7 @@ export async function submitLista50Leads(
   leads: Lista50LeadInput[],
 ): Promise<Lista50SubmitResult> {
   const config = await getLista50Config(organizationId);
-  if (!config.enabled || !config.pipelineId || !config.stageId) {
+  if (!lista50IsLive(config) || !config.pipelineId || !config.stageId) {
     throw new Lista50CampaignInactiveError();
   }
   const { pipelineId, stageId } = config;
@@ -162,38 +249,67 @@ export async function submitLista50Leads(
     seen.add(digitos);
 
     try {
-      const outcome = await upsertContactFromIntegration(organizationId, {
-        name: nome,
-        whatsapp: lead.whatsapp,
-        source: LISTA_50_DEAL_SOURCE,
-        ownerId: userId,
-      });
-      if (!outcome.ok) {
-        errors.push({ nome, error: outcome.error });
-        continue;
-      }
+      const resultado = await withPhoneLock(`${organizationId}:${digitos}`, async () => {
+        const phones = resolveContactPhones({ whatsapp: lead.whatsapp });
+        // Só manda `source` quando o contato ainda NÃO existe — upsertContactFromIntegration
+        // sobrescreve o campo quando ele vem no corpo, então mandar sempre
+        // apagaria a origem real (Facebook Ads, Indicação…) de um contato que
+        // já existia antes e só está sendo reentregue numa semana seguinte.
+        const existingContact = phones.whatsappNormalized
+          ? await findDuplicateContact(organizationId, null, phones.whatsappNormalized)
+          : null;
 
-      const existingDeal = await prisma.deal.findFirst({
-        where: { organizationId, contactId: outcome.contact.id, stageId, ownerId: userId },
-        select: { id: true },
-      });
-      if (existingDeal) {
-        skipped++;
-        continue;
-      }
-
-      await prisma.deal.create({
-        data: {
-          organizationId,
-          pipelineId,
-          stageId,
-          contactId: outcome.contact.id,
+        const outcome = await upsertContactFromIntegration(organizationId, {
+          name: nome,
+          whatsapp: lead.whatsapp,
           ownerId: userId,
-          name: buildDealName(nome, LISTA_50_DEAL_SOURCE),
-          description: buildDealDescription(lead),
-        },
+          ...(existingContact ? {} : { source: LISTA_50_DEAL_SOURCE }),
+        });
+        if (!outcome.ok) return { kind: "error" as const, message: outcome.error };
+
+        // upsertContactFromIntegration nunca ROUBA o responsável de um contato
+        // que já tem um (comportamento certo) — mas isso sozinho não impede
+        // criar um Deal "Black November" em nome deste consultor sobre um
+        // contato que continua sendo de outra pessoa. "Sem repetir nome de
+        // outro vendedor" (regra da própria campanha) precisa ser cumprida de
+        // verdade: se o contato é de outra pessoa, este lead não entra pela
+        // entrega em massa — só pelo caminho de assumir/solicitar (o aviso no
+        // campo WhatsApp → POST /api/lead-requests), que fica auditado e
+        // avisa quem era o dono.
+        if (outcome.contact.responsavelId && outcome.contact.responsavelId !== userId) {
+          return {
+            kind: "error" as const,
+            message: "Esse contato já pertence a outro consultor — assuma ou solicite o lead primeiro (veja o aviso que aparece ao digitar o WhatsApp).",
+          };
+        }
+
+        // `lista50: true` (não `stageId`) é o que marca "já entregue por este
+        // consultor" — o Deal pode ter avançado pro pipeline normal desde a
+        // entrega anterior, e mesmo assim não deve ser entregue de novo.
+        const existingDeal = await prisma.deal.findFirst({
+          where: { organizationId, contactId: outcome.contact.id, ownerId: userId, lista50: true },
+          select: { id: true },
+        });
+        if (existingDeal) return { kind: "skip" as const };
+
+        await prisma.deal.create({
+          data: {
+            organizationId,
+            pipelineId,
+            stageId,
+            contactId: outcome.contact.id,
+            ownerId: userId,
+            lista50: true,
+            name: buildDealName(nome, LISTA_50_DEAL_SOURCE),
+            description: buildDealDescription(lead),
+          },
+        });
+        return { kind: "created" as const };
       });
-      created++;
+
+      if (resultado.kind === "created") created++;
+      else if (resultado.kind === "skip") skipped++;
+      else errors.push({ nome, error: resultado.message });
     } catch (err) {
       errors.push({ nome, error: err instanceof Error ? err.message : "Erro desconhecido" });
     }
@@ -218,11 +334,13 @@ export type Lista50Progress = {
  * Progresso por consultor/por semana — pra visão do supervisor (escopo via
  * getDealScope/scopeWhere, mesma regra de visibilidade usada em Pipeline).
  * Sempre inclui todo consultor ATIVO do escopo, mesmo com 0 entregas na
- * semana — é o que deixa visível quem ainda não entregou nada.
+ * semana — é o que deixa visível quem ainda não entregou nada. Filtra por
+ * `lista50: true` (nunca `stageId`) — negócio que o consultor já avançou no
+ * pipeline continua contando pra meta da semana em que foi entregue.
  */
 export async function getLista50Progress(organizationId: string, scope: DealScope): Promise<Lista50Progress | null> {
   const config = await getLista50Config(organizationId);
-  if (!config.enabled || !config.startsOn || !config.stageId) return null;
+  if (!lista50IsLive(config) || !config.startsOn) return null;
   const startsOn = config.startsOn;
 
   const [members, deals] = await Promise.all([
@@ -231,7 +349,7 @@ export async function getLista50Progress(organizationId: string, scope: DealScop
       select: { userId: true, user: { select: { name: true } } },
     }),
     prisma.deal.findMany({
-      where: { organizationId, stageId: config.stageId, ...scopeWhere(scope) },
+      where: { organizationId, lista50: true, ...scopeWhere(scope) },
       select: { ownerId: true, createdAt: true },
     }),
   ]);
@@ -258,14 +376,18 @@ export async function getLista50Progress(organizationId: string, scope: DealScop
   return { weeklyGoal: config.weeklyGoal, startsOn, currentWeek, weeks };
 }
 
-/** Quantos leads o PRÓPRIO consultor já entregou nesta semana (pro contador da página dele). */
+/**
+ * Quantos leads o PRÓPRIO consultor já entregou nesta semana (pro contador
+ * da página dele). Filtra por `lista50: true`, nunca `stageId` — mesmo
+ * motivo de getLista50Progress acima.
+ */
 export async function getLista50OwnWeekCount(organizationId: string, userId: string): Promise<{ weekNumber: number; count: number } | null> {
   const config = await getLista50Config(organizationId);
-  if (!config.enabled || !config.startsOn || !config.stageId) return null;
+  if (!lista50IsLive(config) || !config.startsOn) return null;
   const weekNumber = lista50WeekNumber(config.startsOn);
   const { start, end } = lista50WeekRange(config.startsOn, weekNumber);
   const count = await prisma.deal.count({
-    where: { organizationId, stageId: config.stageId, ownerId: userId, createdAt: { gte: start, lt: end } },
+    where: { organizationId, ownerId: userId, lista50: true, createdAt: { gte: start, lt: end } },
   });
   return { weekNumber, count };
 }

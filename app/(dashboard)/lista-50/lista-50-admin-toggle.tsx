@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Power, PowerOff } from "lucide-react";
 
 /**
@@ -12,9 +12,14 @@ export function Lista50AdminToggle({ enabled }: { enabled: boolean }) {
   const [aberto, setAberto] = useState(false);
   const [data, setData] = useState(() => new Date().toISOString().slice(0, 10));
   const [enviando, setEnviando] = useState(false);
+  const enviandoRef = useRef(false);
   const [erro, setErro] = useState<string | null>(null);
 
   async function alterar(novoEnabled: boolean) {
+    // Trava síncrona contra duplo clique — ligar duas vezes em paralelo
+    // podia criar duas etapas "Black November" (ver enableLista50Campaign).
+    if (enviandoRef.current) return;
+    enviandoRef.current = true;
     setEnviando(true);
     setErro(null);
     try {
@@ -26,12 +31,14 @@ export function Lista50AdminToggle({ enabled }: { enabled: boolean }) {
       if (!resposta.ok) {
         const corpo = await resposta.json().catch(() => null);
         setErro(corpo?.error ?? "Não foi possível salvar.");
+        enviandoRef.current = false;
         setEnviando(false);
         return;
       }
       window.location.reload();
     } catch {
       setErro("Falha de conexão — tente novamente.");
+      enviandoRef.current = false;
       setEnviando(false);
     }
   }
