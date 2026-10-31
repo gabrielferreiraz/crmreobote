@@ -30,12 +30,23 @@ export async function GET() {
   if (!painelNichosUrl) {
     return NextResponse.json({ error: "PAINEL_NICHOS_URL não configurado" }, { status: 500 });
   }
+  // Fora de localhost (dev), só HTTPS — nunca um domínio interno nem porta 80
+  // por engano na configuração de produção.
+  if (!/^https:\/\//.test(painelNichosUrl) && !/^https?:\/\/localhost(:\d+)?$/.test(painelNichosUrl)) {
+    console.error("[painel-nichos-sso] PAINEL_NICHOS_URL inválido (precisa ser https:// fora de localhost)");
+    return NextResponse.json({ error: "PAINEL_NICHOS_URL configurado incorretamente" }, { status: 500 });
+  }
 
-  const session = membership.session;
+  // Nome/e-mail SEMPRE lidos do banco agora (membership.*), nunca do JWT da
+  // sessão (session.user.*) — o JWT fica com o valor de quando a pessoa
+  // logou e não é atualizado se o nome/e-mail mudar depois, enquanto
+  // GET /api/v1/members (que o Painel de Nichos usa para casar o usuário)
+  // sempre lê fresco do banco. Usar fontes diferentes aqui e lá podia fazer
+  // o token carregar um e-mail que não bate mais com o do /v1/members.
   const token = buildPainelNichosSsoToken({
-    id: session.user.id,
-    email: session.user.email ?? "",
-    name: session.user.name ?? "",
+    id: membership.userId,
+    email: membership.email ?? "",
+    name: membership.name ?? "",
     organizationId: membership.organizationId,
   });
 

@@ -75,18 +75,24 @@ curl -X GET https://api.seudominio.com/api/v1/members \
         "name": "Vendedor Escolhido",
         "email": "vendedor@empresa.com",
         "role": "MEMBER",
+        "area": "VENDAS",
         "active": true,
-        "team": { "id": "cm...", "name": "Equipe Centro" },
+        "teamId": "cm...",
+        "team": { "id": "cm...", "name": "Equipe Centro", "leaderId": "cm..." },
+        "teamsLed": [],
         "photoUrl": "https://.../avatars/....jpg?X-Amz-Signature=...",
         "memberSince": "2026-01-10T12:00:00.000Z"
       },
       {
         "id": "cm...",
-        "name": "Gerente da Conta",
-        "email": "gerente@empresa.com",
-        "role": "MANAGER",
+        "name": "Supervisora da Equipe Centro",
+        "email": "supervisora@empresa.com",
+        "role": "SUPERVISOR",
+        "area": "VENDAS",
         "active": true,
+        "teamId": null,
         "team": null,
+        "teamsLed": [{ "id": "cm...", "name": "Equipe Centro" }],
         "photoUrl": null,
         "memberSince": "2025-11-02T09:00:00.000Z"
       }
@@ -96,8 +102,10 @@ curl -X GET https://api.seudominio.com/api/v1/members \
 ```
 
 - `role`: `OWNER` (dono), `MANAGER` (gerente), `SUPERVISOR` (supervisor de uma equipe) ou `MEMBER` (consultor/vendedor).
+- `area`: `VENDAS` ou `ADMINISTRATIVO` — define qual experiência a pessoa usa no CRM, independente do `role`. **Não é `"SALES"`/`"ADMIN"` nem nenhum outro valor em inglês** — são exatamente essas duas strings, em português.
 - `active`: `false` quando o usuário foi desativado (desligado do time) — ainda aparece na lista pra manter negócios antigos legíveis, mas **filtre por `active: true` na sua interface** antes de deixar escolher um responsável. Mandar o `id` de um membro inativo em `ownerId` não quebra a chamada, mas o CRM ignora e devolve um aviso em `warnings` — melhor nem oferecer essa opção pra começo de conversa.
-- `team`: `null` quando o membro não está em nenhuma equipe.
+- `teamId`/`team`: de qual equipe esta pessoa é **membro** (`null` quando não está em nenhuma). `team.leaderId` é o `id` de quem **lidera** essa equipe — não necessariamente igual ao `id` deste membro, mesmo quando ele é `SUPERVISOR`.
+- `teamsLed`: lista de equipes que esta pessoa **lidera** (normalmente vazia, exceto pra quem é `SUPERVISOR`). Separado de `team` de propósito: nesta organização, um supervisor pode liderar uma equipe sem estar registrado como membro dela — nesse caso `team` vem `null` e `teamsLed` é onde a equipe liderada aparece. **Não assuma que `team.leaderId` de um `SUPERVISOR` vai ser igual ao `id` dele** — use `teamsLed` quando o que você precisa é "qual equipe esta pessoa lidera".
 - `photoUrl`: `null` quando não tem foto cadastrada. Quando vem preenchido, é uma URL assinada que **expira em 1 hora** — não guarde/cacheie por muito tempo, busque de novo se precisar depois.
 
 ## `POST /api/v1/contacts`

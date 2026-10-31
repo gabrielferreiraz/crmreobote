@@ -22,6 +22,8 @@ export type CurrentMembership = {
   photoKey: string | null;
   /** E-mail atual do usuário, lido do banco (não do JWT) — ver lib/sheets/access.ts. */
   email: string | null;
+  /** Nome atual, lido do banco (não do JWT) — ver app/api/painel-nichos-sso/route.ts. */
+  name: string | null;
   /** Atalho "Cartão de visita" do menu do usuário (ver components/user-menu.tsx).
    * Vem junto nesta consulta (um JOIN em FK única) em vez de uma consulta
    * própria: isto aqui roda em TODA navegação do dashboard, e cada operação
@@ -70,6 +72,7 @@ export const getCurrentMembership = cache(async (): Promise<CurrentMembership | 
           select: {
             image: true,
             email: true,
+            name: true,
             digitalCard: { select: { slug: true, active: true } },
           },
         },
@@ -92,6 +95,7 @@ export const getCurrentMembership = cache(async (): Promise<CurrentMembership | 
     academyShortcutHintSeenAt: membership.academyShortcutHintSeenAt,
     photoKey: membership.user.image,
     email: membership.user.email,
+    name: membership.user.name,
     cardShortcut: membership.user.digitalCard,
   };
 });
