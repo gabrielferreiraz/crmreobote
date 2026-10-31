@@ -27,7 +27,7 @@ export async function GET(req: Request) {
       orderBy: { createdAt: "asc" },
       include: {
         user: { select: { id: true, name: true, email: true, image: true } },
-        team: { select: { id: true, name: true } },
+        team: { select: { id: true, name: true, leaderId: true } },
       },
     });
 
@@ -39,8 +39,10 @@ export async function GET(req: Request) {
         name: m.user.name,
         email: m.user.email,
         role: m.role,
+        area: m.area,
         active: m.active,
-        team: m.team ? { id: m.team.id, name: m.team.name } : null,
+        teamId: m.teamId,
+        team: m.team ? { id: m.team.id, name: m.team.name, leaderId: m.team.leaderId } : null,
         photoUrl: m.user.image ? (avatarMap.get(m.user.image) ?? null) : null,
         memberSince: m.createdAt,
       })),

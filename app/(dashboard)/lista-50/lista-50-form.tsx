@@ -12,10 +12,17 @@ import {
   Wand2,
   X,
 } from "lucide-react";
+import type { Lista50Progress } from "@/lib/lista-50";
+import { Lista50SupervisorPanel } from "./lista-50-supervisor-panel";
+import { Lista50AdminToggle } from "./lista-50-admin-toggle";
 
 /**
- * Lista dos 50 — a campanha "Novembro Black": o vendedor entrega 50 nomes do
- * círculo dele e passa a receber 20 leads por dia.
+ * Lista dos 50 — a campanha "Novembro Black": o consultor entrega 50 nomes do
+ * círculo dele por semana. É a meta/desafio dele — vira negócio de verdade no
+ * pipeline (etapa "Black November"), tenha ou não batido os 50 naquela
+ * semana. Os 20 leads/dia que a Reobote distribui NÃO dependem de bater essa
+ * meta (decisão do Dono, 2026-10-31): são incondicionais, só não é isto que a
+ * página precisa anunciar — o que ela mostra é o desafio em si.
  *
  * A tela tem visual próprio (preto e amarelo), fora do tema do CRM: é material
  * de campanha, não uma tela de cadastro comum, e é assim que a Reobote já
@@ -93,12 +100,33 @@ const LUGARES = [
 
 const DICAS = ["Futebol", "Padel", "Tênis", "Célula da igreja", "Academia", "Clientes antigos: peça indicação"];
 
-export function Lista50Form({ vendedorPadrao }: { vendedorPadrao: string }) {
+type EnvioResultado = { created: number; skipped: number; errors: { nome: string; error: string }[] };
+
+export function Lista50Form({
+  vendedorPadrao,
+  enabled,
+  weeklyGoal,
+  ownWeek,
+  progress,
+  canManageCampaign,
+}: {
+  vendedorPadrao: string;
+  enabled: boolean;
+  weeklyGoal: number;
+  ownWeek: { weekNumber: number; count: number } | null;
+  progress: Lista50Progress | null;
+  canManageCampaign: boolean;
+}) {
   const [vendedor, setVendedor] = useState(vendedorPadrao);
   const [linhas, setLinhas] = useState<Linha[]>(() => Array.from({ length: LINHAS_INICIAIS }, (_, i) => novaLinha(i + 1)));
   const [proximoId, setProximoId] = useState(LINHAS_INICIAIS + 1);
   const [erro, setErro] = useState<string | null>(null);
-  const [enviado, setEnviado] = useState<number | null>(null);
+  const [enviado, setEnviado] = useState<EnvioResultado | null>(null);
+  const [enviando, setEnviando] = useState(false);
+  // Contagem REAL (negócios já criados no banco) desta semana — separada do
+  // `validas.length` abaixo, que é só o rascunho ainda não entregue.
+  const [semana, setSemana] = useState(ownWeek?.weekNumber ?? 1);
+  const [entregues, setEntregues] = useState(ownWeek?.count ?? 0);
 
   const validas = useMemo(() => linhas.filter(linhaValida), [linhas]);
   const concluido = validas.length >= TOTAL_GOAL;
@@ -147,11 +175,12 @@ export function Lista50Form({ vendedorPadrao }: { vendedorPadrao: string }) {
   }
 
   /**
-   * Entrega da lista. Por enquanto só valida e confirma na tela — ainda não há
-   * para onde mandar: a tabela no banco e a liberação dos 20 leads por dia
-   * são o próximo passo.
+   * Entrega da lista: valida na tela e manda pro servidor, que cria um
+   * Contato + Deal na etapa "Black November" pra cada linha válida (ver
+   * lib/lista-50.ts e POST /api/lista-50/entregar). Sucesso limpa a tabela
+   * (a lista foi "entregue") e soma na contagem real da semana.
    */
-  function entregar(event: FormEvent<HTMLFormElement>) {
+  async function entregar(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setEnviado(null);
 
@@ -177,12 +206,72 @@ export function Lista50Form({ vendedorPadrao }: { vendedorPadrao: string }) {
     }
 
     setErro(null);
-    setEnviado(validas.length);
+    setEnviando(true);
+    try {
+      const resposta = await fetch("/api/lista-50/entregar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          leads: validas.map((l) => ({
+            nome: l.nome.trim(),
+            whatsapp: l.whatsapp,
+            circulo: l.circulo,
+            interesse: l.interesse,
+            temperatura: l.temperatura,
+            observacao: l.observacao.trim() || undefined,
+          })),
+        }),
+      });
+      const dados = await resposta.json().catch(() => null);
+      if (!resposta.ok) {
+        setErro(dados?.error ?? "Não foi possível entregar a lista agora. Tente novamente.");
+        return;
+      }
+
+      setSemana(dados.weekNumber);
+      setEntregues((atual) => atual + dados.created);
+      setEnviado({ created: dados.created, skipped: dados.skipped, errors: dados.errors ?? [] });
+      setLinhas(Array.from({ length: LINHAS_INICIAIS }, (_, i) => novaLinha(i + 1)));
+      setProximoId(LINHAS_INICIAIS + 1);
+    } catch {
+      setErro("Falha de conexão — tente novamente.");
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  // Campanha sazonal desligada (ver lib/lista-50.ts) — a página fica de pé
+  // (mesma identidade visual), mas sem formulário: não há pra onde mandar os
+  // leads agora. Só o Dono vê o controle pra religar.
+  if (!enabled) {
+    return (
+      <div className="-mx-4 -my-4 flex min-h-screen flex-col items-center justify-center bg-[#0a0a0c] px-4 py-16 text-center font-sans text-gray-200 sm:-mx-6 lg:-mx-8">
+        <h1 className="mb-2 text-3xl font-black uppercase tracking-tight text-white md:text-5xl">
+          Lista dos <span className="text-[#ffcc00] [text-shadow:0_0_12px_rgba(255,204,0,0.5)]">50</span>
+        </h1>
+        <p className="mb-8 max-w-md text-sm text-gray-400">
+          A campanha Novembro Black não está no ar agora. Ela é sazonal — volta quando a próxima temporada começar.
+        </p>
+        {canManageCampaign && (
+          <div className="w-full max-w-sm">
+            <Lista50AdminToggle enabled={false} />
+          </div>
+        )}
+      </div>
+    );
   }
 
   return (
     <form onSubmit={entregar} className="-mx-4 -my-4 min-h-screen bg-[#0a0a0c] font-sans text-gray-200 sm:-mx-6 lg:-mx-8">
-      <style>{`@keyframes lista50-marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }`}</style>
+      <style>{`
+        @keyframes lista50-marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+        /* Marcador de texto passando por baixo da frase, uma vez, ao entrar na
+           página — só a LARGURA do traço anda (0% → 100%, da esquerda pra
+           direita); a altura fica fixa nos dois extremos, então o traço nunca
+           "cresce" verticalmente, só revela da esquerda pra direita, como uma
+           caneta marca-texto de verdade. */
+        @keyframes lista50-highlight { from { background-size: 0% 0.62em; } to { background-size: 100% 0.62em; } }
+      `}</style>
 
       {/* Fita de alerta rolando no topo. O texto vai duplicado e a animação
           anda metade da largura: ao reiniciar, a segunda cópia está onde a
@@ -209,16 +298,45 @@ export function Lista50Form({ vendedorPadrao }: { vendedorPadrao: string }) {
 
       <div className="relative mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <header className="mb-8">
-          <div className="mb-2 flex items-center gap-2">
+          <div className="mb-3 flex items-center gap-2">
             <span className="inline-block h-3 w-3 animate-ping rounded-full bg-[#ffcc00]" />
             <span className="text-xs font-extrabold uppercase tracking-[0.2em] text-[#ffcc00] md:text-sm">
-              Novembro Black • Todo dia como se fosse o último
+              Novembro Black
             </span>
           </div>
+          {/* A frase ganhou linha própria, bem maior que o resto do cabeçalho
+              (pedido explícito: mais ênfase) — mesmo brilho amarelo do "50"
+              logo abaixo, pra ler como o grito de guerra da campanha, não
+              como legenda miúda do "Novembro Black". */}
+          <p className="mb-2 text-2xl font-black uppercase italic tracking-tight text-[#ffcc00] [text-shadow:0_0_16px_rgba(255,204,0,0.55)] md:text-4xl">
+            {/* Passada de marca-texto azul, uma vez, assim que a página abre
+                (pedido explícito) — fundo em gradiente que não se repete,
+                animando só a largura (ver keyframes lista50-highlight acima);
+                `both` segura o traço 100% revelado no final, nunca volta a
+                sumir. */}
+            <span
+              className="bg-no-repeat"
+              style={{
+                backgroundImage: "linear-gradient(90deg, rgba(37,99,235,0.75), rgba(59,130,246,0.55))",
+                backgroundPosition: "0 78%",
+                backgroundSize: "0% 0.62em",
+                animation: "lista50-highlight 1.8s cubic-bezier(0.19, 1, 0.22, 1) 0.5s both",
+              }}
+            >
+              Todo dia como se fosse o último
+            </span>
+          </p>
           <h1 className="text-4xl font-black uppercase tracking-tight text-white md:text-6xl">
             Lista dos <span className="text-5xl text-[#ffcc00] [text-shadow:0_0_12px_rgba(255,204,0,0.5)] md:text-7xl">50</span>
           </h1>
+          <p className="mt-2 text-xs font-bold uppercase tracking-wider text-gray-500">Semana {semana} de Novembro</p>
         </header>
+
+        {canManageCampaign && (
+          <div className="mb-4">
+            <Lista50AdminToggle enabled={enabled} />
+          </div>
+        )}
 
         {/* Regra da troca */}
         <section className="relative mb-8 overflow-hidden rounded-2xl border border-[#262933] bg-[#121318] p-6 shadow-2xl md:p-8">
@@ -226,17 +344,31 @@ export function Lista50Form({ vendedorPadrao }: { vendedorPadrao: string }) {
           <div className="rounded-xl border border-gray-800/80 bg-[#0a0a0c]/60 p-5">
             <span className="mb-1 block text-xs font-semibold uppercase tracking-wider text-gray-400">Sua parte</span>
             <h2 className="mb-2 text-xl font-bold text-white">Você entrega 50 nomes</h2>
-            <p className="text-sm text-gray-400">Do seu círculo de relacionamento, no CRM, na segunda-feira até as 9h.</p>
+            <p className="text-sm text-gray-400">Do seu círculo de relacionamento, no CRM, toda semana.</p>
           </div>
 
           <ul className="mt-6 grid grid-cols-1 gap-3 border-t border-gray-800/80 pt-6 text-xs font-medium sm:grid-cols-2 lg:grid-cols-4 md:text-sm">
-            {["50 nomes com WhatsApp válido", "Pessoas reais que você conhece", "Sem repetir nome de outro vendedor", "Leads liberados a partir da entrega"].map((item) => (
+            {["50 nomes com WhatsApp válido", "Pessoas reais que você conhece", "Sem repetir nome de outro vendedor", "Vira negócio direto no seu pipeline"].map((item) => (
               <li key={item} className="flex items-center gap-2 text-gray-300">
                 <CheckCircle2 className="h-4 w-4 shrink-0 text-[#ffcc00]" strokeWidth={2.5} />
                 <span>{item}</span>
               </li>
             ))}
           </ul>
+
+          <div className="mt-6 flex items-center justify-between gap-3 rounded-xl border border-gray-800/80 bg-[#0a0a0c]/60 p-4">
+            <div>
+              <span className="block text-xs font-semibold uppercase tracking-wider text-gray-400">Essa semana você já entregou</span>
+              <span className="text-2xl font-black text-[#ffcc00]">
+                {entregues} <span className="text-base font-bold text-gray-500">/ {weeklyGoal}</span>
+              </span>
+            </div>
+            {entregues >= weeklyGoal && (
+              <span className="rounded border border-green-500/40 bg-green-500/20 px-2.5 py-1 text-xs font-bold text-green-400">
+                Meta da semana batida! 🎉
+              </span>
+            )}
+          </div>
         </section>
 
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-12">
@@ -274,17 +406,13 @@ export function Lista50Form({ vendedorPadrao }: { vendedorPadrao: string }) {
                   />
                 </div>
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs">
-                  <span className="rounded border border-green-500/40 bg-green-500/20 px-2.5 py-1 font-bold text-green-400">
-                    Meta de 50 concluída! Leads liberados
-                  </span>
-
-
-
-
-                  {!concluido && (
-                    <span className="font-bold text-[#ffcc00]">Faltam {faltam} para liberar seus leads</span>
+                  {concluido ? (
+                    <span className="rounded border border-green-500/40 bg-green-500/20 px-2.5 py-1 font-bold text-green-400">
+                      Lista completa! Pronta para entregar
+                    </span>
+                  ) : (
+                    <span className="font-bold text-[#ffcc00]">Faltam {faltam} para completar a sua lista</span>
                   )}
-
                 </div>
               </div>
 
@@ -385,16 +513,29 @@ export function Lista50Form({ vendedorPadrao }: { vendedorPadrao: string }) {
                 <p className="mt-4 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-300">{erro}</p>
               )}
               {enviado !== null && (
-                <p className="mt-4 rounded-lg border border-green-500/40 bg-green-500/10 px-3 py-2 text-xs font-medium text-green-300">
-                  Lista conferida: {enviado} {enviado === 1 ? "contato válido" : "contatos válidos"}. A gravação ainda não está ligada.
-                </p>
+                <div className="mt-4 rounded-lg border border-green-500/40 bg-green-500/10 px-3 py-2 text-xs font-medium text-green-300">
+                  <p>
+                    {enviado.created} {enviado.created === 1 ? "negócio criado" : "negócios criados"} no seu pipeline, etapa Black November
+                    {enviado.skipped > 0 && ` · ${enviado.skipped} já estavam entregues`}.
+                  </p>
+                  {enviado.errors.length > 0 && (
+                    <ul className="mt-1 list-disc pl-4 text-red-300">
+                      {enviado.errors.map((e) => (
+                        <li key={e.nome}>
+                          {e.nome}: {e.error}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
               )}
 
               <button
                 type="submit"
-                className="mt-4 w-full rounded-xl bg-[#ffcc00] py-3.5 text-sm font-black uppercase tracking-wider text-black transition hover:bg-[#e6b800]"
+                disabled={enviando}
+                className="mt-4 w-full rounded-xl bg-[#ffcc00] py-3.5 text-sm font-black uppercase tracking-wider text-black transition hover:bg-[#e6b800] disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Entregar minha Lista dos 50
+                {enviando ? "Entregando…" : "Entregar minha Lista dos 50"}
               </button>
             </div>
           </main>
@@ -451,6 +592,8 @@ export function Lista50Form({ vendedorPadrao }: { vendedorPadrao: string }) {
             </div>
           </aside>
         </div>
+
+        {progress && <Lista50SupervisorPanel progress={progress} />}
 
         <footer className="mt-12 border-t border-gray-900 pt-6 text-center text-xs text-gray-600">
           Novembro Black • Ferramenta de alta performance de vendas Reobote.

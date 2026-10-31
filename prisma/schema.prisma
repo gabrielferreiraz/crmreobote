@@ -114,6 +114,7 @@ model Organization {
   servopaWorkers         ServopaWorker[]
   servopaWorkerPairings  ServopaWorkerPairing[]
   servopaCampaigns       ServopaCampaign[]
+  lista50Configs         Lista50Config[]
   sheets                 Sheet[]
   sheetColumns           SheetColumn[]
   sheetRows              SheetRow[]
@@ -1806,6 +1807,30 @@ model ServopaCampaign {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([organizationId, enabled])
+}
+
+/// Campanha sazonal "Lista dos 50" (Novembro Black) — ligar/desligar sem
+/// apagar nada, pra reaproveitar ano a ano. `startsOn` é de onde contam as
+/// semanas ("Semana 1, Semana 2…", ver lib/lista-50.ts); `stageId` aponta pra
+/// etapa "Black November", criada uma vez no pipeline padrão e reaproveitada
+/// (nunca duplicada) a cada vez que a campanha é religada. Os leads entregues
+/// NÃO ficam numa tabela própria: cada lead entregue é um Deal real nessa
+/// etapa (dono = o consultor que entregou) — o próprio Deal é o registro, a
+/// contagem semanal/por consultor é derivada dele (createdAt + ownerId), sem
+/// bookkeeping duplicado.
+model Lista50Config {
+  id             String    @id @default(cuid())
+  organizationId String    @unique
+  enabled        Boolean   @default(false)
+  startsOn       DateTime? @db.Date
+  weeklyGoal     Int       @default(50)
+  pipelineId     String?
+  stageId        String?
+  updatedById    String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 }
 
 

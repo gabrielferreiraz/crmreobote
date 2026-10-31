@@ -73,7 +73,9 @@ export type AuditAction =
   | "SHEET_RESTORED"
   | "SHEET_DELETED"
   | "SHEET_IMPORTED"
-  | "SHEET_EXPORTED";
+  | "SHEET_EXPORTED"
+  // Campanha sazonal "Lista dos 50" (Novembro Black) ligada/desligada pelo Dono.
+  | "LISTA_50_CAMPAIGN_CHANGED";
 
 /**
  * Registra um evento de auditoria — nunca deve quebrar a ação real que está
