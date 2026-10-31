@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useRef, useState, type FormEvent } from "react";
 import {
   CheckCircle2,
   Compass,
@@ -15,6 +15,7 @@ import {
 import type { Lista50Progress } from "@/lib/lista-50";
 import { Lista50SupervisorPanel } from "./lista-50-supervisor-panel";
 import { Lista50AdminToggle } from "./lista-50-admin-toggle";
+import { Lista50DuplicateModal, type Lista50DuplicateInfo } from "./lista-50-duplicate-modal";
 
 /**
  * Lista dos 50 — a campanha "Novembro Black": o consultor entrega 50 nomes do
@@ -127,6 +128,26 @@ export function Lista50Form({
   // `validas.length` abaixo, que é só o rascunho ainda não entregue.
   const [semana, setSemana] = useState(ownWeek?.weekNumber ?? 1);
   const [entregues, setEntregues] = useState(ownWeek?.count ?? 0);
+  // Aviso de duplicidade (ver lista-50-duplicate-modal.tsx) — só abre quando
+  // o backend de fato aponta duplicata; nunca interrompe quem está digitando.
+  const [duplicado, setDuplicado] = useState<{ linhaId: number; info: Lista50DuplicateInfo } | null>(null);
+  // Números (só dígitos) já checados nesta sessão — evita repetir a mesma
+  // consulta a cada blur se a pessoa só clicou pra fora e voltou sem mudar nada.
+  const checados = useRef<Set<string>>(new Set());
+
+  async function checarDuplicidade(linhaId: number, digitos: string) {
+    if (digitos.length < 10 || checados.current.has(digitos)) return;
+    checados.current.add(digitos);
+    try {
+      const resposta = await fetch(`/api/lista-50/check-duplicate?whatsapp=${encodeURIComponent(digitos)}`);
+      if (!resposta.ok) return;
+      const dados = await resposta.json();
+      if (dados?.duplicate) setDuplicado({ linhaId, info: dados as Lista50DuplicateInfo });
+    } catch {
+      // Silencioso de propósito — essa checagem nunca pode travar/avisar
+      // errado por causa de uma falha de rede passageira.
+    }
+  }
 
   const validas = useMemo(() => linhas.filter(linhaValida), [linhas]);
   const concluido = validas.length >= TOTAL_GOAL;
@@ -462,6 +483,7 @@ export function Lista50Form({
                           <input
                             value={linha.whatsapp}
                             onChange={(e) => alterar(linha.id, "whatsapp", mascararTelefone(e.target.value))}
+                            onBlur={() => checarDuplicidade(linha.id, linha.whatsapp.replace(/\D/g, ""))}
                             placeholder="(00) 00000-0000"
                             inputMode="numeric"
                             aria-label={`WhatsApp do contato ${index + 1}`}
@@ -599,6 +621,8 @@ export function Lista50Form({
           Novembro Black • Ferramenta de alta performance de vendas Reobote.
         </footer>
       </div>
+
+      {duplicado && <Lista50DuplicateModal info={duplicado.info} onClose={() => setDuplicado(null)} />}
     </form>
   );
 }
