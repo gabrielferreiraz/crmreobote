@@ -127,7 +127,15 @@ export async function enableLista50Campaign(organizationId: string, updatedById:
     (await prisma.pipeline.findFirst({ where: { organizationId }, orderBy: { order: "asc" }, include: { stages: true } }));
   if (!pipeline) throw new Error("Nenhum pipeline encontrado nesta organização");
 
-  let stage = pipeline.stages.find((s) => s.name === LISTA_50_STAGE_NAME);
+  // Sem diferenciar maiúscula/minúscula nem espaços nas pontas — a equipe de
+  // vendas pode já ter criado a etapa "na mão" pra campanha Black November em
+  // geral (achado em produção, 31/10/2026: existia "BLACK NOVEMBER" com 127
+  // negócios reais; o match sensível a caixa não reconheceu e criou uma
+  // segunda etapa vazia). Reaproveitar a MESMA etapa que a equipe já usa é o
+  // comportamento certo — os leads da Lista dos 50 se somam ao que já existe,
+  // e a contagem da meta semanal usa `Deal.lista50`, não o nome da etapa.
+  const normalizedTarget = LISTA_50_STAGE_NAME.trim().toLowerCase();
+  let stage = pipeline.stages.find((s) => s.name.trim().toLowerCase() === normalizedTarget);
   if (!stage) {
     const maxOrder = Math.max(0, ...pipeline.stages.map((s) => s.order));
     stage = await prisma.pipelineStage.create({

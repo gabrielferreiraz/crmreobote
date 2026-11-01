@@ -108,6 +108,7 @@ export function Lista50Form({
   enabled,
   campaignEnabled,
   scheduledFor,
+  totalDelivered,
   weeklyGoal,
   ownWeek,
   progress,
@@ -120,6 +121,8 @@ export function Lista50Form({
   campaignEnabled: boolean;
   /** Ligada, mas com início agendado pro futuro — mostra "começa em" em vez de "não está no ar". */
   scheduledFor: Date | null;
+  /** Quantos negócios a campanha já gerou no total (qualquer semana/etapa) — pro aviso de "Desligar campanha" ser preciso, não genérico. */
+  totalDelivered: number;
   weeklyGoal: number;
   ownWeek: { weekNumber: number; count: number } | null;
   progress: Lista50Progress | null;
@@ -291,12 +294,16 @@ export function Lista50Form({
         </h1>
         <p className="mb-8 max-w-md text-sm text-gray-400">
           {scheduledFor
-            ? `A campanha Novembro Black começa em ${scheduledFor.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "America/Campo_Grande" })}.`
+            ? // `scheduledFor` é sempre meia-noite UTC do dia escolhido (chave de
+              // calendário, igual a `startsOn` em lib/lista-50.ts) — formatar com
+              // fuso de Campo Grande aqui RECUARIA 1 dia (a mesma pegadinha da
+              // coluna DATE do Postgres). Formata em UTC, sem conversão nenhuma.
+              `A campanha Novembro Black começa em ${scheduledFor.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" })}.`
             : "A campanha Novembro Black não está no ar agora. Ela é sazonal — volta quando a próxima temporada começar."}
         </p>
         {canManageCampaign && (
           <div className="w-full max-w-sm">
-            <Lista50AdminToggle enabled={campaignEnabled} />
+            <Lista50AdminToggle enabled={campaignEnabled} totalDelivered={totalDelivered} />
           </div>
         )}
       </div>
@@ -376,7 +383,7 @@ export function Lista50Form({
 
         {canManageCampaign && (
           <div className="mb-4">
-            <Lista50AdminToggle enabled={campaignEnabled} />
+            <Lista50AdminToggle enabled={campaignEnabled} totalDelivered={totalDelivered} />
           </div>
         )}
 

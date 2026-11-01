@@ -2,15 +2,23 @@
 
 import { useRef, useState } from "react";
 import { Power, PowerOff } from "lucide-react";
+import { brazilDateKey } from "@/lib/timezone";
 
 /**
  * Ligar/desligar a campanha sazonal — só o Dono vê isto (ver canManageCampaign
  * na página). Desligar não apaga nada: só recarrega a página pra refletir o
  * novo estado (o próximo ano religa com uma nova data de início).
  */
-export function Lista50AdminToggle({ enabled }: { enabled: boolean }) {
+export function Lista50AdminToggle({ enabled, totalDelivered }: { enabled: boolean; totalDelivered: number }) {
   const [aberto, setAberto] = useState(false);
-  const [data, setData] = useState(() => new Date().toISOString().slice(0, 10));
+  // brazilDateKey(), não `new Date().toISOString()` (UTC) — entre meia-noite
+  // UTC e meia-noite em Campo Grande (até 4h por dia) os dois calendários
+  // discordam: o campo mostraria "amanhã" enquanto em Campo Grande ainda é
+  // "hoje", e quem clicasse Ligar sem reparar religava a campanha 1 dia
+  // depois do que pretendia (foi exatamente o que aconteceu em produção,
+  // 2026-10-31 ~22h: o campo sugeriu 01/11, a campanha só ficaria "ao vivo"
+  // no dia seguinte).
+  const [data, setData] = useState(() => brazilDateKey());
   const [enviando, setEnviando] = useState(false);
   const enviandoRef = useRef(false);
   const [erro, setErro] = useState<string | null>(null);
@@ -57,7 +65,11 @@ export function Lista50AdminToggle({ enabled }: { enabled: boolean }) {
           </button>
         ) : (
           <div className="inline-flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs text-red-300">
-            <span>Desligar a Lista dos 50? A etapa e os negócios já criados ficam guardados.</span>
+            <span>
+              {totalDelivered > 0
+                ? `Desligar a Lista dos 50? Os ${totalDelivered} ${totalDelivered === 1 ? "negócio já entregue" : "negócios já entregues"} continuam guardados.`
+                : "Desligar a Lista dos 50? Nenhum negócio foi entregue ainda — a etapa fica guardada caso religue depois."}
+            </span>
             <button type="button" disabled={enviando} onClick={() => alterar(false)} className="font-bold text-red-300 underline disabled:opacity-50">
               Confirmar
             </button>
