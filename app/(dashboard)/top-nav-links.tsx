@@ -5,7 +5,7 @@ import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
 import { Home, Users, Kanban, MessageCircle, CalendarDays, ClipboardList, BarChart3, Wallet, Table2, FileSpreadsheet } from "lucide-react";
 import { LoadingDots } from "@/components/loading-dots";
-// import { Lista50Button } from "./lista-50-button"; — ícone escondido de propósito, ver comentário abaixo
+import { Lista50Button } from "./lista-50-button";
 
 // Configurações saiu daqui — mora no menu do usuário agora (ver
 // components/user-menu.tsx), pra deixar essa fileira só com o que é
@@ -125,13 +125,13 @@ export function TopNavLinks({
       onMouseLeave={endDrag}
       className="flex min-w-0 cursor-grab items-center gap-0.5 overflow-x-auto active:cursor-grabbing"
     >
-      {/* Campanha Novembro Black — ícone escondido de propósito (pedido
-          explícito, 2026-10-31): o resto do módulo (API, página, etapa
-          "Black November") já subiu, mas ninguém deve achar o caminho até a
-          campanha ainda. Só descomentar aqui quando a campanha for pra ar de
-          verdade. Fora do NAV_ITEMS porque tem visual próprio (fita de
-          alerta), não o estilo dos links normais da fileira. */}
-      {/* <Lista50Button /> */}
+      {/* Campanha Novembro Black — primeiro botão da fileira, de propósito
+          (pedido explícito), logo antes de "Início": é o mais visível
+          possível, pra todo consultor ver assim que abre o CRM. Liberado
+          pra equipe em 2026-10-31, depois da revisão completa do módulo.
+          Fora do NAV_ITEMS porque tem visual próprio (fita de alerta), não
+          o estilo dos links normais da fileira. */}
+      <Lista50Button />
       {items.map((item) => {
         const isActive =
           item.href === "/"
