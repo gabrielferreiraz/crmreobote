@@ -29,6 +29,7 @@ import {
   Undo2,
   BarChart3,
   FileText,
+  ListOrdered,
 } from "lucide-react";
 
 export type ConfigItem = {
@@ -90,6 +91,7 @@ const ICONS: Record<string, IconComponent> = {
   Undo2,
   BarChart3,
   FileText,
+  ListOrdered,
 };
 const SECTION_FALLBACK_ICON = SlidersHorizontal;
 

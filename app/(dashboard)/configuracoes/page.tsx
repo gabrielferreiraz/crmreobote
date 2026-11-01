@@ -204,6 +204,13 @@ export default async function ConfiguracoesPage() {
                       description: "Texto padrão da descrição que já vem preenchido em toda proposta nova.",
                       keywords: ["proposta", "descrição", "modelo", "texto padrão", "pdf", "cliente", "condições", "observações"],
                     },
+                    {
+                      href: "/configuracoes/lista-50",
+                      icon: "ListOrdered",
+                      title: "Lista dos 50",
+                      description: "Liga/desliga a campanha sazonal Novembro Black pra toda a organização.",
+                      keywords: ["lista dos 50", "novembro black", "campanha", "sazonal", "black november", "ligar", "desligar"],
+                    },
                   ]
                 : []),
             ]

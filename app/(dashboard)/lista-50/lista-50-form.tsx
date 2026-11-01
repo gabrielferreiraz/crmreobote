@@ -9,7 +9,6 @@ import {
   Plus,
   PlusCircle,
   Trash2,
-  Wand2,
   X,
 } from "lucide-react";
 import type { Lista50Progress } from "@/lib/lista-50";
@@ -66,16 +65,6 @@ function mascararTelefone(valor: string): string {
 function linhaValida(linha: Linha): boolean {
   return linha.nome.trim().length >= 2 && linha.whatsapp.replace(/\D/g, "").length >= 10;
 }
-
-const NOMES_EXEMPLO = [
-  "João do Futebol", "Ana da Célula", "Primo Marcos", "Carlos Oficina", "Mariana Vizinha",
-  "Lucas Padel", "Dr. Roberto", "Tia Solange", "Renato Faculdade", "Patricia Academia",
-  "Gustavo Cliente", "Fernando Barber", "Camila Inglês", "Sérgio Condomínio", "Beatriz Pátio",
-];
-const OBS_EXEMPLO = [
-  "Quer trocar de carro", "Pediu orçamento mês passado", "Tem interesse na Black",
-  "Mudar de plano", "Investidor em potencial", "Amigo próximo", "Atender via WhatsApp",
-];
 
 const LUGARES = [
   { n: "01", titulo: "Agenda do celular de A a Z.", texto: "Role contato por contato. Só aqui costumam sair 30 nomes." },
@@ -179,26 +168,6 @@ export function Lista50Form({
     setEnviado(null);
   }
 
-  function preencherExemplo() {
-    setLinhas((atuais) => {
-      const base = atuais.length >= NOMES_EXEMPLO.length
-        ? atuais
-        : [...atuais, ...Array.from({ length: NOMES_EXEMPLO.length - atuais.length }, (_, i) => novaLinha(proximoId + i))];
-      return base.map((linha, index) =>
-        linha.nome || index >= NOMES_EXEMPLO.length
-          ? linha
-          : {
-            ...linha,
-            nome: NOMES_EXEMPLO[index],
-            whatsapp: mascararTelefone(`67 9${String(10_000_000 + index * 1_234_567).slice(0, 8)}`),
-            observacao: OBS_EXEMPLO[index % OBS_EXEMPLO.length],
-            circulo: CIRCULOS[(index % (CIRCULOS.length - 1)) + 1],
-            temperatura: index % 2 === 0 ? TEMPERATURAS[1] : TEMPERATURAS[0],
-          },
-      );
-    });
-    setProximoId((id) => Math.max(id, NOMES_EXEMPLO.length + 1));
-  }
 
   function limparTudo() {
     setLinhas(Array.from({ length: LINHAS_INICIAIS }, (_, i) => novaLinha(proximoId + i)));
@@ -431,7 +400,7 @@ export function Lista50Form({
                   id="lista50-vendedor"
                   value={vendedor}
                   onChange={(e) => setVendedor(e.target.value)}
-                  placeholder="Ex.: Carlos Souza"
+                  placeholder="Seu nome completo"
                   className="w-full rounded-lg border border-[#2e3340] bg-[#181a20] px-4 py-2.5 text-sm text-gray-100 outline-none focus:border-[#ffcc00] focus:ring-2 focus:ring-[#ffcc00]/20 md:max-w-sm"
                 />
               </div>
@@ -470,10 +439,6 @@ export function Lista50Form({
                   <button type="button" onClick={() => adicionar(5)} className="rounded-lg border border-gray-700 bg-gray-800 px-3 py-1.5 text-xs font-semibold text-gray-300 transition hover:bg-gray-700">
                     <Plus className="mr-1 inline h-3.5 w-3.5" strokeWidth={2.5} />5 linhas
                   </button>
-                  <button type="button" onClick={preencherExemplo} className="rounded-lg border border-[#ffcc00]/30 bg-[#ffcc00]/10 px-3 py-1.5 text-xs font-semibold text-[#ffcc00] transition hover:bg-[#ffcc00]/20">
-                    <Wand2 className="mr-1 inline h-3.5 w-3.5" strokeWidth={2.5} />
-                    Preencher exemplo
-                  </button>
                 </div>
                 <button type="button" onClick={limparTudo} className="text-xs font-medium text-red-400 transition hover:text-red-300">
                   <Trash2 className="mr-1 inline h-3.5 w-3.5" strokeWidth={2} />
@@ -482,32 +447,32 @@ export function Lista50Form({
               </div>
 
               <div className="overflow-x-auto rounded-xl border border-gray-800">
-                <table className="w-full min-w-[700px] border-collapse text-left">
+                <table className="w-full min-w-[1040px] border-collapse text-left">
                   <thead>
-                    <tr className="border-b border-gray-800 bg-[#0a0a0c] text-[11px] font-bold uppercase tracking-wider text-gray-400">
+                    <tr className="border-b border-gray-800 bg-[#0a0a0c] text-xs font-bold uppercase tracking-wider text-gray-400">
                       <th className="w-10 px-3 py-3 text-center">#</th>
-                      <th className="min-w-[150px] px-3 py-3">Nome</th>
-                      <th className="min-w-[130px] px-3 py-3">WhatsApp</th>
-                      <th className="min-w-[110px] px-3 py-3">Círculo</th>
-                      <th className="min-w-[110px] px-3 py-3">Interesse</th>
-                      <th className="min-w-[110px] px-3 py-3">Temperatura</th>
-                      <th className="min-w-[140px] px-3 py-3">Observação</th>
+                      <th className="min-w-[200px] px-3 py-3">Nome</th>
+                      <th className="min-w-[170px] px-3 py-3">WhatsApp</th>
+                      <th className="min-w-[130px] px-3 py-3">Círculo</th>
+                      <th className="min-w-[130px] px-3 py-3">Interesse</th>
+                      <th className="min-w-[130px] px-3 py-3">Temperatura</th>
+                      <th className="min-w-[230px] px-3 py-3">Observação</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-800/60 text-xs">
+                  <tbody className="divide-y divide-gray-800/60 text-sm">
                     {linhas.map((linha, index) => (
                       <tr key={linha.id} className="group transition-colors hover:bg-[#0a0a0c]/40">
-                        <td className="px-3 py-2 text-center text-[11px] font-bold text-gray-500">{index + 1}</td>
-                        <td className="px-2 py-2">
+                        <td className="px-3 py-2.5 text-center text-xs font-bold text-gray-500">{index + 1}</td>
+                        <td className="px-2 py-2.5">
                           <input
                             value={linha.nome}
                             onChange={(e) => alterar(linha.id, "nome", e.target.value)}
-                            placeholder="Ex.: João do futebol"
+                            placeholder="Nome"
                             aria-label={`Nome do contato ${index + 1}`}
-                            className="w-full rounded border border-[#2e3340] bg-[#181a20] px-2.5 py-1.5 text-xs text-gray-100 outline-none focus:border-[#ffcc00]"
+                            className="w-full rounded-md border border-[#2e3340] bg-[#181a20] px-3 py-2 text-sm text-gray-100 outline-none focus:border-[#ffcc00] focus:ring-1 focus:ring-[#ffcc00]/30"
                           />
                         </td>
-                        <td className="px-2 py-2">
+                        <td className="px-2 py-2.5">
                           <input
                             value={linha.whatsapp}
                             onChange={(e) => alterar(linha.id, "whatsapp", mascararTelefone(e.target.value))}
@@ -515,25 +480,25 @@ export function Lista50Form({
                             placeholder="(00) 00000-0000"
                             inputMode="numeric"
                             aria-label={`WhatsApp do contato ${index + 1}`}
-                            className="w-full rounded border border-[#2e3340] bg-[#181a20] px-2.5 py-1.5 text-xs text-gray-100 outline-none focus:border-[#ffcc00]"
+                            className="w-full rounded-md border border-[#2e3340] bg-[#181a20] px-3 py-2 text-sm text-gray-100 outline-none focus:border-[#ffcc00] focus:ring-1 focus:ring-[#ffcc00]/30"
                           />
                         </td>
-                        <td className="px-2 py-2">
+                        <td className="px-2 py-2.5">
                           <Selecao valor={linha.circulo} opcoes={CIRCULOS} rotulo={`Círculo do contato ${index + 1}`} onChange={(v) => alterar(linha.id, "circulo", v)} />
                         </td>
-                        <td className="px-2 py-2">
+                        <td className="px-2 py-2.5">
                           <Selecao valor={linha.interesse} opcoes={INTERESSES} rotulo={`Interesse do contato ${index + 1}`} onChange={(v) => alterar(linha.id, "interesse", v)} />
                         </td>
-                        <td className="px-2 py-2">
+                        <td className="px-2 py-2.5">
                           <Selecao valor={linha.temperatura} opcoes={TEMPERATURAS} rotulo={`Temperatura do contato ${index + 1}`} onChange={(v) => alterar(linha.id, "temperatura", v)} />
                         </td>
-                        <td className="relative px-2 py-2">
+                        <td className="relative px-2 py-2.5">
                           <input
                             value={linha.observacao}
                             onChange={(e) => alterar(linha.id, "observacao", e.target.value)}
-                            placeholder="Ex.: quer trocar de carro"
+                            placeholder="Observação (opcional)"
                             aria-label={`Observação do contato ${index + 1}`}
-                            className="w-full rounded border border-[#2e3340] bg-[#181a20] py-1.5 pl-2.5 pr-7 text-xs text-gray-100 outline-none focus:border-[#ffcc00]"
+                            className="w-full rounded-md border border-[#2e3340] bg-[#181a20] py-2 pl-3 pr-8 text-sm text-gray-100 outline-none focus:border-[#ffcc00] focus:ring-1 focus:ring-[#ffcc00]/30"
                           />
                           <button
                             type="button"
@@ -671,7 +636,7 @@ function Selecao({
       value={valor}
       onChange={(e) => onChange(e.target.value)}
       aria-label={rotulo}
-      className="w-full rounded border border-[#2e3340] bg-[#181a20] px-2 py-1.5 text-xs text-gray-100 outline-none focus:border-[#ffcc00]"
+      className="w-full rounded-md border border-[#2e3340] bg-[#181a20] px-2.5 py-2 text-sm text-gray-100 outline-none focus:border-[#ffcc00] focus:ring-1 focus:ring-[#ffcc00]/30"
     >
       {opcoes.map((opcao) => (
         <option key={opcao} value={opcao}>
