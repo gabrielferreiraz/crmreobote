@@ -118,7 +118,6 @@ export function ServopaPrintSheet({ table, campaign }: { table: ServopaTableView
         <div className="mt-[4.5mm] grid grid-cols-[auto_auto_auto] justify-between gap-x-4 whitespace-nowrap border-b border-neutral-900 pb-[1.4mm] text-[13px] font-bold">
           <span>Taxa de Administração: {formatPercent(table.admEffective, { trim: true })}</span>
           <span>Fundo de Reserva: {table.reserveFundPercent ? formatPercent(table.reserveFundPercent, { trim: true }) : "—"}</span>
-          <span>Vagas disponíveis: {table.vacancies ?? "—"}</span>
         </div>
         <div className="flex justify-between whitespace-nowrap border-b border-neutral-900 py-[1.6mm] text-[14px] font-bold">
           <span>Assembleia provável: {table.nextAssemblyAt ? formatDateBR(table.nextAssemblyAt) : "—"}</span>
