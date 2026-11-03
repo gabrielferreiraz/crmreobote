@@ -61,6 +61,19 @@ function mascararTelefone(valor: string): string {
   return digitos;
 }
 
+/**
+ * 1.234,56 — os dígitos entram pela direita, como centavos, igual ao
+ * CurrencyInput do resto do CRM: digitar "500000" dá "5.000,00". Assim não há
+ * como errar o separador decimal em 50 linhas digitadas na correria.
+ *
+ * O teto de 12 dígitos é o do Decimal(12,2) de Deal.value.
+ */
+function mascararMoeda(valor: string): string {
+  const digitos = valor.replace(/\D/g, "").replace(/^0+/, "").slice(0, 12);
+  if (!digitos) return "";
+  return (Number(digitos) / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 /** Vale como lead: nome de verdade e um celular com DDD. */
 function linhaValida(linha: Linha): boolean {
   return linha.nome.trim().length >= 2 && linha.whatsapp.replace(/\D/g, "").length >= 10;
@@ -521,12 +534,17 @@ export function Lista50Form({
                             <X className="h-3.5 w-3.5" strokeWidth={2.5} />
                           </button>
                         </td>
-                        <td className="relative p2.5x-2 py-">
+                        <td className="relative px-2 py-2.5">
+                          <span className="pointer-events-none absolute left-5 top-1/2 -translate-y-1/2 text-sm font-medium text-gray-500">
+                            R$
+                          </span>
                           <input
                             value={linha.valorLista}
-                            onChange={(e) => alterar(linha.id, "valorLista", e.target.value)}
-                            placeholder="R$ 500.000.00"
-                            className="w-full rounded-md border border-[#2e3340] bg-[#181a20] py-2 pl-3 pr-8 text-sm text-gray-100 outline-none focus:border-[#ffcc00] focus:ring-1 focus:ring-[#ffcc00]/30"
+                            onChange={(e) => alterar(linha.id, "valorLista", mascararMoeda(e.target.value))}
+                            placeholder="0,00"
+                            inputMode="decimal"
+                            aria-label={`Valor líquido do contato ${index + 1}`}
+                            className="w-full rounded-md border border-[#2e3340] bg-[#181a20] py-2 pl-10 pr-3 text-right text-sm tabular-nums text-gray-100 outline-none focus:border-[#ffcc00] focus:ring-1 focus:ring-[#ffcc00]/30"
                           />
                         </td>
                       </tr>

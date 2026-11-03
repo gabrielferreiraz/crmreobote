@@ -23,6 +23,7 @@ import { UndoProvider } from "@/components/undo-provider";
 import { ProductivityTipsHost } from "@/components/productivity-tips-host";
 import { HelpCenterProvider } from "@/components/help/help-center";
 import { NewDealButton, NewDealProvider } from "./new-deal-provider";
+import { PainelNichosButton } from "./painel-nichos-button";
 import { AcademyOnboardingGate } from "@/components/academy/academy-onboarding-gate";
 import { AcademyShortcutHint } from "@/components/academy/academy-shortcut-hint";
 import { isCrmRestrictedByAcademy } from "@/lib/academy-onboarding";
@@ -160,6 +161,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
               {!isAdministrativo && (
                 <NewDealButton />
               )}
+              <PainelNichosButton />
             </>
           }
           compactActions={
@@ -168,6 +170,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
               {!isAdministrativo && (
                 <NewDealButton compact />
               )}
+              <PainelNichosButton compact />
             </>
           }
           fixedActions={
