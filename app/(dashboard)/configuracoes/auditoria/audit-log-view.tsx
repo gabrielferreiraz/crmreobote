@@ -75,6 +75,7 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   CENTRAL_CONTACT_CREATED: "Contato criado pela Central",
   CENTRAL_SETTINGS_CHANGED: "Central de Leads alterada",
   LISTA_50_CAMPAIGN_CHANGED: "Campanha Lista dos 50 alterada",
+  CONTACT_OWNER_TRANSFERRED: "Responsável do contato transferido via API",
 };
 
 const ACTION_TONE: Record<AuditAction, "neutral" | "success" | "danger" | "warning"> = {
@@ -134,6 +135,7 @@ const ACTION_TONE: Record<AuditAction, "neutral" | "success" | "danger" | "warni
   CENTRAL_CONTACT_CREATED: "neutral",
   CENTRAL_SETTINGS_CHANGED: "warning",
   LISTA_50_CAMPAIGN_CHANGED: "warning",
+  CONTACT_OWNER_TRANSFERRED: "warning",
 };
 
 function actionLabel(action: string): string {

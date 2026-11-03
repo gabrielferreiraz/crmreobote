@@ -106,6 +106,14 @@ export const dealNoteInputSchema = z.object({
   note: z.string().trim().min(1).max(2000),
 });
 
+/**
+ * PATCH /api/v1/contacts/:id/owner — transferência explícita do responsável
+ * de um contato já existente (ver a rota pra regra completa).
+ */
+export const contactOwnerInputSchema = z.object({
+  ownerId: z.string().trim().min(1).max(100),
+});
+
 /** Formata o primeiro erro do Zod numa mensagem curta, no mesmo estilo das mensagens de apiError já usadas nessas rotas. */
 export function firstZodMessage(error: z.ZodError): string {
   const issue = error.issues[0];

@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { CalendarRange, Check, Download, Eye, ImagePlus, Loader2, Pencil, Plus, Trash2, Upload, Wand2 } from "lucide-react";
+import { CalendarRange, Check, Crop, Download, Eye, ImagePlus, Loader2, Pencil, Plus, Trash2, Upload, Wand2 } from "lucide-react";
 import { Modal } from "@/components/modal";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { ImageCropModal } from "@/components/image-crop-modal";
 import { Switch } from "@/components/switch";
 import { CampaignBand } from "@/components/servopa-tables/sheet-header";
 import { requestJson } from "@/lib/client-request";
@@ -23,6 +24,9 @@ type TextColor = "WHITE" | "BLACK";
 
 /** Faixa de 210 × 52 mm a 300 dpi — o mesmo tamanho do molde para o designer. */
 const ART_SIZE = "2480 × 614 px";
+const ART_WIDTH = 2480;
+const ART_HEIGHT = 614;
+const ART_ASPECT = 210 / 52;
 const TEMPLATE_URL = "/servopa-campanha-molde.png";
 const MAX_ART_BYTES = 10 * 1024 * 1024;
 const ART_TYPES = ["image/png", "image/jpeg", "image/webp"];
@@ -264,6 +268,12 @@ export function CampaignsManager({ initialCampaigns, sampleTables, today }: { in
 
 /** saved = já está no R2; file = escolhida agora, sobe ao salvar; null = sem arte. */
 type ArtDraft = { kind: "saved"; url: string } | { kind: "file"; file: File; url: string } | null;
+type CropDraft = {
+  slot: ServopaCampaignArtSlot;
+  sourceUrl: string;
+  sourceName: string;
+  temporarySource: boolean;
+};
 
 function savedArt(url: string | null): ArtDraft {
   return url ? { kind: "saved", url } : null;
@@ -303,6 +313,7 @@ function CampaignEditor({
   const [previewSlot, setPreviewSlot] = useState<ServopaCampaignArtSlot>("ALL");
   const [progress, setProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [cropDraft, setCropDraft] = useState<CropDraft | null>(null);
 
   // Libera da memória as imagens escolhidas e descartadas.
   const objectUrls = useRef(new Set<string>());
@@ -318,7 +329,17 @@ function CampaignEditor({
   const slots: ServopaCampaignArtSlot[] = split ? ["ALL", "REAL_ESTATE", "MOVABLE"] : ["ALL"];
   const previewArt = arts[previewSlot] ?? arts.ALL;
 
-  async function chooseArt(slot: ServopaCampaignArtSlot, file: File) {
+  function releaseObjectUrl(url: string) {
+    if (!objectUrls.current.delete(url)) return;
+    URL.revokeObjectURL(url);
+  }
+
+  function closeCropEditor() {
+    if (cropDraft?.temporarySource) releaseObjectUrl(cropDraft.sourceUrl);
+    setCropDraft(null);
+  }
+
+  function chooseArt(slot: ServopaCampaignArtSlot, file: File) {
     if (!ART_TYPES.includes(file.type)) {
       setError("Use uma imagem PNG, JPEG ou WebP.");
       return;
@@ -330,12 +351,46 @@ function CampaignEditor({
     setError(null);
     const url = URL.createObjectURL(file);
     objectUrls.current.add(url);
-    setArts((current) => ({ ...current, [slot]: { kind: "file", file, url } }));
     setPreviewSlot(slot);
+    setCropDraft({ slot, sourceUrl: url, sourceName: file.name, temporarySource: true });
+  }
+
+  function editArt(slot: ServopaCampaignArtSlot, art: Exclude<ArtDraft, null>) {
+    setPreviewSlot(slot);
+    setCropDraft({
+      slot,
+      sourceUrl: art.url,
+      sourceName: art.kind === "file" ? art.file.name : `campanha-${slot.toLowerCase()}.png`,
+      temporarySource: false,
+    });
+  }
+
+  async function applyCrop(blob: Blob) {
+    if (!cropDraft) return;
+    const draft = cropDraft;
+    const baseName = draft.sourceName.replace(/\.[^.]+$/, "").slice(0, 80) || "arte-campanha";
+    const file = new File([blob], `${baseName}-ajustada.png`, { type: "image/png" });
+    const url = URL.createObjectURL(file);
+    objectUrls.current.add(url);
+
+    const previousArt = arts[draft.slot];
+    setArts((current) => ({ ...current, [draft.slot]: { kind: "file", file, url } }));
+    setPreviewSlot(draft.slot);
+    setCropDraft(null);
+
+    if (previousArt?.kind === "file") releaseObjectUrl(previousArt.url);
+    if (draft.temporarySource) releaseObjectUrl(draft.sourceUrl);
+
     if (colorIsAuto) {
       const suggested = await suggestTextColor(url);
       if (suggested) setTextColor(suggested);
     }
+  }
+
+  function removeArt(slot: ServopaCampaignArtSlot) {
+    const current = arts[slot];
+    if (current?.kind === "file") releaseObjectUrl(current.url);
+    setArts((all) => ({ ...all, [slot]: null }));
   }
 
   function pickPeriod(range: { startsOn: string; endsOn: string } | null) {
@@ -441,8 +496,12 @@ function CampaignEditor({
             fallback={previewSlot !== "ALL" ? arts.ALL : null}
             textColor={textColor}
             disabled={saving}
-            onChoose={(file) => void chooseArt(previewSlot, file)}
-            onRemove={() => setArts((current) => ({ ...current, [previewSlot]: null }))}
+            onChoose={(file) => chooseArt(previewSlot, file)}
+            onEdit={() => {
+              const art = arts[previewSlot];
+              if (art) editArt(previewSlot, art);
+            }}
+            onRemove={() => removeArt(previewSlot)}
           />
 
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -536,6 +595,21 @@ function CampaignEditor({
             {campaignId ? "Salvar" : "Criar campanha"}
           </button>
         </div>
+
+        <ImageCropModal
+          isOpen={!!cropDraft}
+          imageSrc={cropDraft?.sourceUrl ?? null}
+          title="Enquadrar arte do PDF"
+          description="Mova, amplie ou gire a imagem. A área destacada é exatamente o que aparecerá no PDF."
+          aspectRatio={ART_ASPECT}
+          fixedAspect
+          outputWidth={ART_WIDTH}
+          outputHeight={ART_HEIGHT}
+          outputType="image/png"
+          confirmLabel="Usar esta imagem"
+          onClose={closeCropEditor}
+          onCropComplete={(blob) => void applyCrop(blob)}
+        />
       </div>
     </Modal>
   );
@@ -557,6 +631,7 @@ function ArtDropzone({
   textColor,
   disabled,
   onChoose,
+  onEdit,
   onRemove,
 }: {
   slot: ServopaCampaignArtSlot;
@@ -566,6 +641,7 @@ function ArtDropzone({
   textColor: TextColor;
   disabled: boolean;
   onChoose: (file: File) => void;
+  onEdit: () => void;
   onRemove: () => void;
 }) {
   const input = useRef<HTMLInputElement>(null);
@@ -602,6 +678,7 @@ function ArtDropzone({
               {art.kind === "file" ? `${art.file.name}: é enviada ao salvar.` : "Assim fica o topo do PDF (grupo de exemplo)."}
             </p>
             <div className="flex gap-2">
+              <button type="button" disabled={disabled} onClick={onEdit} className="btn-secondary btn-sm"><Crop className="h-3.5 w-3.5" aria-hidden="true" />Reenquadrar</button>
               <button type="button" disabled={disabled} onClick={() => input.current?.click()} className="btn-secondary btn-sm"><Upload className="h-3.5 w-3.5" aria-hidden="true" />Trocar arte</button>
               <button type="button" disabled={disabled} onClick={onRemove} className="btn-secondary btn-sm text-red-600 dark:text-red-400"><Trash2 className="h-3.5 w-3.5" aria-hidden="true" />Remover</button>
             </div>

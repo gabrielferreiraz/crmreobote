@@ -75,7 +75,10 @@ export type AuditAction =
   | "SHEET_IMPORTED"
   | "SHEET_EXPORTED"
   // Campanha sazonal "Lista dos 50" (Novembro Black) ligada/desligada pelo Dono.
-  | "LISTA_50_CAMPAIGN_CHANGED";
+  | "LISTA_50_CAMPAIGN_CHANGED"
+  // Transferência explícita de responsável de contato via API externa
+  // (PATCH /api/v1/contacts/:id/owner — ver lib/lead-claim.ts pra regra).
+  | "CONTACT_OWNER_TRANSFERRED";
 
 /**
  * Registra um evento de auditoria — nunca deve quebrar a ação real que está

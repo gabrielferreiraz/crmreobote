@@ -25,6 +25,12 @@ const SSO_PATH = "/api/auth/crm-sso";
 export async function GET() {
   const membership = await getCurrentMembership();
   if (!membership?.active) return NextResponse.redirect(new URL("/login", process.env.NEXTAUTH_URL ?? "http://localhost:3000"));
+  // Mesma regra do botão (ver app/(dashboard)/layout.tsx) — checada de novo
+  // aqui porque esta rota é um link direto: escondido o botão, continuaria
+  // dando acesso pra quem soubesse a URL se não travasse também no servidor.
+  if (membership.role === "MEMBER") {
+    return NextResponse.redirect(new URL("/", process.env.NEXTAUTH_URL ?? "http://localhost:3000"));
+  }
 
   const painelNichosUrl = process.env.PAINEL_NICHOS_URL;
   if (!painelNichosUrl) {

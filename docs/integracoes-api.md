@@ -23,6 +23,7 @@ outra. Não existe recuperação.
 - `POST /api/v1/deals`: 30 requisições/minuto por chave.
 - `GET /api/v1/availability`: 60 requisições/minuto por chave.
 - `POST /api/v1/appointments`: 30 requisições/minuto por chave.
+- `PATCH /api/v1/contacts/:id/owner`: 30 requisições/minuto por chave.
 
 Ao estourar, a resposta é `429` com header `Retry-After` (segundos).
 
@@ -367,6 +368,79 @@ curl -X POST https://api.seudominio.com/api/v1/deals \
   }
 }
 ```
+
+---
+
+## `PATCH /api/v1/contacts/:id/owner`
+
+Transferência **explícita** do responsável de um contato já existente — pra
+quando uma integração precisa repassar a carteira de um lead pra outro
+consultor (ex.: reatribuindo os contatos de alguém que saiu da empresa).
+Diferente de `ownerId` em `POST /api/v1/contacts`/`POST /api/v1/deals` (que
+**nunca** troca o responsável de um contato que já tem um — reenvio comum de
+lead não pode roubar carteira de ninguém), esta rota existe só pra esse caso
+excepcional, mas com uma trava: só transfere quando o contato está **sem**
+responsável, o responsável atual **saiu** da organização, ou o lead está
+**perdido há mais de 3 meses** sem o responsável atual ter mexido nele —
+exatamente os casos em que o próprio CRM libera "Assumir lead" sem pedir
+aprovação de ninguém. Contato com responsável **ativo** cuidando de um
+negócio aberto/ganho nunca é transferido por aqui: a resposta vem com
+`transferred: false` e quem chamou decide o que fazer (pedir pro Dono mudar
+dentro do CRM, ou pular esse contato).
+
+`ownerId` precisa ser um usuário **ativo** desta organização — use
+`GET /api/v1/members` pra escolher um `id` válido.
+
+**Request**
+
+```bash
+curl -X PATCH https://api.seudominio.com/api/v1/contacts/cm.../owner \
+  -H "Authorization: Bearer crm_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" \
+  -H "Content-Type: application/json" \
+  -d '{ "ownerId": "cm..." }'
+```
+
+**Response** (`200`) — transferido:
+
+```json
+{
+  "success": true,
+  "data": {
+    "transferred": true,
+    "reason": "OWNER_INACTIVE",
+    "contact": { "id": "cm...", "name": "Maria Silva" },
+    "previousOwnerId": "cm...",
+    "ownerId": "cm..."
+  }
+}
+```
+
+`reason` quando `transferred: true` é `NO_OWNER` (contato nunca teve
+responsável), `OWNER_INACTIVE` (o responsável anterior saiu da empresa) ou
+`LOST_OVER_3_MONTHS` (lead perdido e parado há mais de 3 meses).
+
+**Response** (`200`) — bloqueado, responsável ativo cuidando do lead:
+
+```json
+{
+  "success": true,
+  "data": {
+    "transferred": false,
+    "reason": "ACTIVE_OWNER",
+    "contact": { "id": "cm...", "name": "Maria Silva" },
+    "currentOwnerId": "cm...",
+    "currentOwnerName": "Consultor Atual"
+  }
+}
+```
+
+`reason: "ALREADY_OWNER"` (também com `transferred: false`) quando o
+`ownerId` enviado já é o responsável atual — chamada idempotente, nada muda.
+
+Erros: `400` (`ownerId` ausente/inválido, ou não é um usuário ativo desta
+organização), `404` (contato não encontrado), `409` (o responsável mudou
+entre a leitura e a escrita — raro, tente de novo). Toda transferência
+aplicada fica registrada em auditoria (**Configurações → Auditoria**).
 
 ---
 

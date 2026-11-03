@@ -29,6 +29,7 @@ import { AcademyShortcutHint } from "@/components/academy/academy-shortcut-hint"
 import { isCrmRestrictedByAcademy } from "@/lib/academy-onboarding";
 import { canUseSheets } from "@/lib/sheets/access";
 import { PushSubscriptionProvider } from "@/lib/use-push-subscription";
+import { DashboardShell } from "./dashboard-shell";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
@@ -45,6 +46,10 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   const photoUrlPromise = resolveAvatarUrl(membership.photoKey);
   const isAdministrativo = membership.area === "ADMINISTRATIVO";
+  // Painel de Nichos: só pra quem lidera gente (Supervisor/Gerente) ou Dono
+  // — consultor comum (MEMBER) não usa esta ferramenta. Checado de novo no
+  // servidor (GET /api/painel-nichos-sso) — este só decide se o BOTÃO aparece.
+  const canUsePainelNichos = membership.role !== "MEMBER";
   // Mesma regra de lib/sheets/access.ts (a página e as rotas conferem de novo).
   const showSheets = canUseSheets(membership);
   // Comissões: quem cuida delas sempre vê (pra montar o módulo antes de
@@ -113,8 +118,10 @@ export default async function DashboardLayout({ children }: { children: React.Re
     // e rolar — por isso não dá pra travar ele globalmente) crescer junto e
     // o navegador mostrar a rolagem de verdade da janela inteira, por cima
     // de tudo que já estava certo aqui dentro (ver AppMain.tsx).
-    // dashboard-gradient-bg (ver globals.css) — malha de gradiente fixa do
-    // redesign, escopada aqui (não no <body> global) de propósito. relative
+    // DashboardShell aplica dashboard-gradient-bg (ver globals.css) nas
+    // rotas comuns e o tema preto local da Lista dos 50 somente em
+    // /lista-50. A malha segue escopada aqui (não no <body> global) de
+    // propósito. relative
     // é o que torna seguro o `position:absolute + z-index:-1` do `::before`
     // dessa classe: nada dentro desta div tem z-index negativo pra furar
     // por baixo, e overflow-hidden (já existia) contém a malha nos cantos.
@@ -136,7 +143,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         espalhados no cabeçalho abaixo são as âncoras que o tour destaca
         (ver lib/help/tours.ts). */}
     <HelpCenterProvider role={membership.role} isAdministrativo={isAdministrativo} academyHref={academyHref}>
-    <div className="dashboard-gradient-bg relative flex h-dvh flex-col overflow-hidden text-neutral-900 dark:text-neutral-100">
+    <DashboardShell>
       <MobileHeader
         photoUrl={photoUrl}
         name={session.user.name ?? session.user.email ?? "?"}
@@ -161,7 +168,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
               {!isAdministrativo && (
                 <NewDealButton />
               )}
-              <PainelNichosButton />
+              {canUsePainelNichos && <PainelNichosButton />}
             </>
           }
           compactActions={
@@ -170,7 +177,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
               {!isAdministrativo && (
                 <NewDealButton compact />
               )}
-              <PainelNichosButton compact />
+              {canUsePainelNichos && <PainelNichosButton compact />}
             </>
           }
           fixedActions={
@@ -229,7 +236,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
       {membership.academyOnboardingStatus === "CRM_UNLOCKED" && !membership.academyShortcutHintSeenAt && (
         <AcademyShortcutHint />
       )}
-    </div>
+    </DashboardShell>
     </HelpCenterProvider>
     </NewDealProvider>
     </CommandPaletteProvider>

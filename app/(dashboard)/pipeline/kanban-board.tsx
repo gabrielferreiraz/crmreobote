@@ -35,9 +35,14 @@ import { classifyTaskUrgency, type TaskUrgency } from "@/lib/task-urgency";
 import type { PipelineQuickFilter } from "./pipeline-filters";
 import { PipelineQuickFilterNotice } from "./pipeline-quick-filter-buttons";
 import { useUndoToast } from "@/components/undo-provider";
+import { AnimatedFire } from "@/components/animated-fire";
 import { sanitizeRequiredFields, type RequirableDealField } from "@/lib/deal-required-fields";
 
 type Stage = { id: string; name: string; color: string | null; order: number };
+
+function isBlackNovemberStageName(name: string) {
+  return name.trim().toLocaleLowerCase("pt-BR") === "black november";
+}
 
 // Mesma paleta compartilhada de components/badge.tsx — Imóvel/Veículo não
 // são "bom" ou "ruim", só identidades diferentes, por isso não usam os tons
@@ -1251,7 +1256,7 @@ export function KanbanBoard({
         <DragOverlay>
           {activeDeal ? (
             <div className="relative">
-              <DealCard deal={activeDeal} overlay />
+              <DealCard deal={activeDeal} overlay blackNovember={isBlackNovemberStageName(activeDeal.stage.name)} />
               {/* Arrastando um cartão marcado: diz QUANTOS vão junto. Sem
                   isso, arrastar 19 negócios parece arrastar 1 — e a pessoa
                   só descobre o que aconteceu depois de soltar. */}
@@ -1337,6 +1342,7 @@ const StageColumn = memo(function StageColumn({
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage.id, disabled });
   const hasMore = deals.length < total;
+  const blackNovember = isBlackNovemberStageName(stage.name);
   // Saúde da etapa: % de negócios com tarefa pendente — verde ≥60%, âmbar
   // ≥30%, vermelho abaixo disso (ver new-design-for-claude/README.md).
   const healthPct = total > 0 ? Math.round((withTaskCount / total) * 100) : null;
@@ -1442,11 +1448,18 @@ const StageColumn = memo(function StageColumn({
   return (
     <div
       ref={setNodeRef}
-      className={`flex w-64 min-h-0 shrink-0 flex-col rounded-lg border bg-neutral-100/50 dark:bg-neutral-800/40 transition-colors ${
-        isOver ? "border-neutral-900 dark:border-white bg-neutral-100 dark:bg-neutral-800 ring-1 ring-neutral-900 dark:ring-white" : "border-neutral-200 dark:border-neutral-800"
+      className={`relative isolate flex min-h-0 w-64 shrink-0 flex-col overflow-hidden rounded-lg border transition-colors ${
+        blackNovember
+          ? isOver
+            ? "border-violet-500 bg-violet-100/80 ring-1 ring-violet-500 dark:border-violet-400/80 dark:bg-[#201d28] dark:ring-violet-400/70"
+            : "border-violet-200 bg-violet-50/75 dark:border-violet-500/30 dark:bg-[#16151b]"
+          : isOver
+            ? "border-neutral-900 bg-neutral-100 ring-1 ring-neutral-900 dark:border-white dark:bg-neutral-800 dark:ring-white"
+            : "border-neutral-200 bg-neutral-100/50 dark:border-neutral-800 dark:bg-neutral-800/40"
       }`}
     >
-      <div className="flex shrink-0 items-center gap-2 px-3 py-2.5">
+      {blackNovember && <div className="pipeline-black-november-reflection pointer-events-none absolute inset-x-[-18%] top-0 z-0 h-[26%]" aria-hidden="true" />}
+      <div className="relative z-10 flex shrink-0 items-center gap-2 px-3 py-2.5">
         {selectionMode ? (
           // Ocupa o lugar do pontinho colorido da etapa em vez de somar mais
           // um controle na fileira — o cabeçalho da coluna tem 256px e já
@@ -1467,18 +1480,44 @@ const StageColumn = memo(function StageColumn({
               <Square className="h-3.5 w-3.5" strokeWidth={2} />
             )}
           </button>
+        ) : blackNovember ? (
+          <span className="flex h-4 w-4 shrink-0 items-center justify-center" aria-hidden="true">
+            <AnimatedFire
+              progress={90}
+              className="text-orange-400"
+              style={{ width: 10, height: 10 }}
+            />
+          </span>
         ) : (
-          <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: stage.color ?? "#999" }} />
+          <span
+            className="h-2 w-2 shrink-0 rounded-full"
+            style={{ backgroundColor: stage.color ?? "#999" }}
+          />
         )}
-        <span className="min-w-0 truncate text-xs font-semibold tracking-wide text-neutral-600 dark:text-neutral-400 uppercase">
+        <span
+          title={stage.name}
+          className={`min-w-0 truncate text-xs font-semibold tracking-wide uppercase ${
+            blackNovember ? "text-violet-800 dark:text-violet-200" : "text-neutral-600 dark:text-neutral-400"
+          }`}
+        >
           {stage.name}
         </span>
         {sumValue > 0 && (
-          <span className="shrink-0 text-[10px] font-medium tabular-nums text-neutral-400 dark:text-neutral-500">
+          <span
+            className={`shrink-0 text-[10px] font-medium tabular-nums ${
+              blackNovember ? "text-violet-500 dark:text-violet-400/70" : "text-neutral-400 dark:text-neutral-500"
+            }`}
+          >
             {formatCurrencyCompact(sumValue)}
           </span>
         )}
-        <span className="ml-auto shrink-0 rounded-full bg-neutral-200/70 dark:bg-neutral-800/70 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-neutral-500 dark:text-neutral-400">
+        <span
+          className={`ml-auto shrink-0 rounded-full px-1.5 py-0.5 text-[11px] font-medium tabular-nums ${
+            blackNovember
+              ? "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300"
+              : "bg-neutral-200/70 text-neutral-500 dark:bg-neutral-800/70 dark:text-neutral-400"
+          }`}
+        >
           {total}
         </span>
       </div>
@@ -1489,14 +1528,24 @@ const StageColumn = memo(function StageColumn({
         // baixo mesmo". Math.max(healthPct, 4) garante uma fatia mínima
         // visível sempre que for >0% de verdade — só fica com largura 0 se
         // for exatamente 0%.
-        <div className="mx-3 mb-2 flex shrink-0 items-center gap-1.5" title={`${withTaskCount} de ${total} com tarefa pendente`}>
-          <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-neutral-200/70 dark:bg-neutral-800/70">
+        <div className="relative z-10 mx-3 mb-2 flex shrink-0 items-center gap-1.5" title={`${withTaskCount} de ${total} com tarefa pendente`}>
+          <div
+            className={`h-1.5 min-w-0 flex-1 overflow-hidden rounded-full ${
+              blackNovember ? "bg-violet-100 dark:bg-violet-500/10" : "bg-neutral-200/70 dark:bg-neutral-800/70"
+            }`}
+          >
             <div
               className={`h-full rounded-full ${healthColor}`}
               style={{ width: `${healthPct > 0 ? Math.max(healthPct, 4) : 0}%` }}
             />
           </div>
-          <span className="shrink-0 text-[10px] font-medium tabular-nums text-neutral-400 dark:text-neutral-500">{healthPct}%</span>
+          <span
+            className={`shrink-0 text-[10px] font-medium tabular-nums ${
+              blackNovember ? "text-violet-500 dark:text-violet-400/70" : "text-neutral-400 dark:text-neutral-500"
+            }`}
+          >
+            {healthPct}%
+          </span>
         </div>
       )}
       {/* overscroll-y-contain (não overscroll-contain nos dois eixos):
@@ -1514,7 +1563,7 @@ const StageColumn = memo(function StageColumn({
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="scrollbar-thin min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain px-2 pb-4"
+        className="scrollbar-thin relative z-10 min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain px-2 pb-4"
       >
         {deals.length === 0 && (
           <p className="px-2 py-6 text-center text-xs text-neutral-400 dark:text-neutral-500">Nenhum negócio</p>
@@ -1528,6 +1577,7 @@ const StageColumn = memo(function StageColumn({
               <DealCard
                 deal={deal}
                 stageId={stage.id}
+                blackNovember={blackNovember}
                 selectionMode={selectionMode}
                 selected={selectedIds.has(deal.id)}
                 onToggleSelect={onToggleSelect}
@@ -1573,6 +1623,7 @@ const DealCard = memo(function DealCard({
   deal,
   stageId,
   overlay,
+  blackNovember = false,
   selectionMode = false,
   selected = false,
   onToggleSelect,
@@ -1580,6 +1631,7 @@ const DealCard = memo(function DealCard({
   deal: Deal;
   stageId?: string;
   overlay?: boolean;
+  blackNovember?: boolean;
   selectionMode?: boolean;
   selected?: boolean;
   onToggleSelect?: (stageId: string, dealId: string, shiftKey: boolean) => void;
@@ -1600,12 +1652,20 @@ const DealCard = memo(function DealCard({
 
   const content = (
     <div
-      className={`relative rounded-lg border bg-white p-3 text-sm shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-all duration-200 ease-smooth hover:-translate-y-0.5 hover:shadow-md dark:bg-neutral-900 ${
-        stale
-          ? "border-neutral-200 border-l-2 border-l-amber-500/70 dark:border-neutral-800 dark:border-l-amber-500/50"
-          : "border-neutral-200 dark:border-neutral-800"
-      } ${isDragging ? "opacity-40" : ""} ${
-        selected ? "ring-2 ring-neutral-900 dark:ring-white" : ""
+      className={`relative rounded-lg border p-3 text-sm shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-all duration-200 ease-smooth hover:-translate-y-0.5 hover:shadow-md ${
+        blackNovember
+          ? stale
+            ? "border-violet-200/80 border-l-2 border-l-amber-500/70 bg-white dark:border-violet-500/20 dark:border-l-amber-500/60 dark:bg-[#222129]"
+            : "border-violet-200/80 bg-white dark:border-violet-500/20 dark:bg-[#222129]"
+          : stale
+            ? "border-neutral-200 border-l-2 border-l-amber-500/70 bg-white dark:border-neutral-800 dark:border-l-amber-500/50 dark:bg-neutral-900"
+            : "border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900"
+      } ${blackNovember ? "pipeline-black-november-card" : ""} ${isDragging ? "opacity-40" : ""} ${
+        selected
+          ? blackNovember
+            ? "ring-2 ring-violet-600 dark:ring-violet-400"
+            : "ring-2 ring-neutral-900 dark:ring-white"
+          : ""
       }`}
     >
       {selectionMode && stageId && onToggleSelect && (

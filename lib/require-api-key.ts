@@ -25,5 +25,5 @@ export async function requireApiKey(req: Request) {
     prisma.apiKey.update({ where: { id: apiKey.id }, data: { lastUsedAt: new Date() } }),
   ).catch(() => {});
 
-  return { ok: true as const, organizationId: apiKey.organizationId, apiKeyId: apiKey.id };
+  return { ok: true as const, organizationId: apiKey.organizationId, apiKeyId: apiKey.id, apiKeyName: apiKey.name };
 }

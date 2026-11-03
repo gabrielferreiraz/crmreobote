@@ -40,8 +40,10 @@ const APP_SHELL_ROUTES = ["/whatsapp/conversas", "/whatsapp/central", "/processo
 // mesma estrutura de tela inteira de Atendimentos; a lista ainda pode ser
 // redimensionada dentro dessa área. Comissões também é uma mesa operacional:
 // resumo, pendências e lista usam colunas lado a lado, por isso a tela
-// principal aproveita toda a largura disponível.
-const FULL_WIDTH_ROUTES = ["/pipeline", "/tabelas", "/agenda", "/whatsapp/central", "/whatsapp/conversas", "/whatsapp/campanhas", "/comissoes", "/comissoes/vendas"];
+// principal aproveita toda a largura disponível. Clientes também é uma mesa
+// de dados com muitas colunas; o limite de 1500px só desperdiçava espaço nas
+// laterais e forçava a tabela a comprimir informação.
+const FULL_WIDTH_ROUTES = ["/pipeline", "/clientes", "/tabelas", "/agenda", "/lista-50", "/whatsapp/central", "/whatsapp/conversas", "/whatsapp/campanhas", "/comissoes", "/comissoes/vendas"];
 
 // Editor de planilha (/planilhas/[id]): igual ao Excel, a grade ocupa a tela
 // inteira e rola por dentro — tela fixa (app shell), sem teto de largura e
@@ -51,6 +53,7 @@ const isSheetEditor = (pathname: string) => /^\/planilhas\/[^/]+$/.test(pathname
 export function AppMain({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const sheetEditor = isSheetEditor(pathname);
+  const isLista50 = pathname === "/lista-50";
   const isAppShell = APP_SHELL_ROUTES.some((route) => pathname === route) || sheetEditor;
   const isFullWidth =
     FULL_WIDTH_ROUTES.some((route) => pathname === route) || pathname.startsWith("/whatsapp/campanhas/") || sheetEditor;
@@ -58,7 +61,7 @@ export function AppMain({ children }: { children: React.ReactNode }) {
 
   return (
     <main
-      className={`min-h-0 flex-1 overflow-x-hidden ${sheetEditor ? "px-2 pt-2 lg:px-4 lg:pt-3" : "px-4 lg:px-8 lg:pt-8"} ${
+      className={`min-h-0 flex-1 overflow-x-hidden ${isLista50 ? "bg-[#0a0a0c]" : ""} ${sheetEditor ? "px-2 pt-2 lg:px-4 lg:pt-3" : "px-4 lg:px-8 lg:pt-8"} ${
         sheetEditor ? "" : hasFlushMobileStickyHeader ? "pt-0" : "pt-4"
       } ${
         isAppShell
