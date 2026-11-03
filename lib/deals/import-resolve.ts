@@ -31,7 +31,8 @@ export type ImportField =
   | "grossValue"
   | "creditType"
   | "stage"
-  | "owner";
+  | "owner"
+  | "description";
 
 const FIELD_META: Record<ImportField, { candidates: string[]; required: boolean; label: string }> = {
   contact: { required: true, label: "Contato", candidates: ["contato", "cliente", "nome do contato", "nome"] },
@@ -49,6 +50,11 @@ const FIELD_META: Record<ImportField, { candidates: string[]; required: boolean;
   creditType: { required: false, label: "Tipo de crédito", candidates: ["tipo de credito", "tipo", "credittype"] },
   stage: { required: false, label: "Etapa", candidates: ["etapa", "stage"] },
   owner: { required: false, label: "Responsável", candidates: ["responsavel", "vendedor", "owner"] },
+  description: {
+    required: false,
+    label: "Descrição",
+    candidates: ["descricao", "descrição", "description", "obs", "observacao", "observação", "observacoes", "observações", "notas", "nota", "detalhes"],
+  },
 };
 
 export const IMPORT_FIELDS = Object.keys(FIELD_META) as ImportField[];
@@ -117,6 +123,7 @@ export type ResolvedRow = {
   ownerName: string | null;
   value: number | null;
   grossValue: number | null;
+  description: string | null;
   issues: { code: RowIssueCode; message: string }[];
 };
 
@@ -133,6 +140,14 @@ export type ImportPlanSummary = {
   ownerFallbacks: number;
   valueParseFailures: number;
   grossValueParseFailures: number;
+  /** Quantas linhas vieram com a célula deste campo em branco (coluna
+   * ausente do arquivo conta pra todas as linhas) — não é erro, só o sinal
+   * pra tela oferecer "escolher um valor pra usar nessas linhas" com as
+   * opções reais do CRM, em vez de preencher em silêncio. */
+  blankStageCells: number;
+  blankOwnerCells: number;
+  blankSourceCells: number;
+  blankCreditTypeCells: number;
 };
 
 export type ImportPlan = {
@@ -163,6 +178,7 @@ export type ImportPlan = {
       value?: number;
       grossValue?: number;
       creditType?: string;
+      description?: string;
     }[];
   };
 };
@@ -299,6 +315,15 @@ export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
   let ownerFallbacks = 0;
   let valueParseFailures = 0;
   let grossValueParseFailures = 0;
+  // Célula vazia (não "valor não reconhecido") nesses 4 campos — é o que
+  // decide se a tela oferece "escolher um valor pra usar nessas linhas"
+  // (ver DEFAULTABLE_FIELDS em deal-import-dialog.tsx). Conta tanto coluna
+  // ausente (toda linha cai aqui) quanto célula em branco numa coluna que
+  // existe — nunca bloqueia nada, só informa que dá pra ajudar.
+  let blankStageCells = 0;
+  let blankOwnerCells = 0;
+  let blankSourceCells = 0;
+  let blankCreditTypeCells = 0;
 
   for (let i = 0; i < input.dataRows.length; i++) {
     const row = input.dataRows[i];
@@ -309,7 +334,7 @@ export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
     if (!contactName) {
       skippedNoContact += 1;
       issues.push({ code: "NO_CONTACT_NAME", message: "Sem nome de contato — linha ignorada" });
-      rows.push({ rowNumber, willImport: false, contactName: null, contactStatus: null, dealName: null, stageName: null, ownerName: null, value: null, grossValue: null, issues });
+      rows.push({ rowNumber, willImport: false, contactName: null, contactStatus: null, dealName: null, stageName: null, ownerName: null, value: null, grossValue: null, description: null, issues });
       rowContactRefs.push(null);
       continue;
     }
@@ -332,14 +357,16 @@ export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
           message: `${issue.field === "whatsapp" ? "WhatsApp" : "Celular"} "${issue.raw}" — ${issue.message}`,
         });
       }
-      rows.push({ rowNumber, willImport: false, contactName, contactStatus: null, dealName: null, stageName: null, ownerName: null, value: null, grossValue: null, issues });
+      rows.push({ rowNumber, willImport: false, contactName, contactStatus: null, dealName: null, stageName: null, ownerName: null, value: null, grossValue: null, description: null, issues });
       rowContactRefs.push(null);
       continue;
     }
     const phone = phones.phone ?? undefined;
     const whatsapp = phones.whatsapp ?? undefined;
     const email = cell(row, "email") || undefined;
-    const source = cell(row, "source") || input.fieldDefaults?.source || undefined;
+    const sourceRaw = cell(row, "source");
+    if (!sourceRaw) blankSourceCells += 1;
+    const source = sourceRaw || input.fieldDefaults?.source || undefined;
     const phoneNormalized = phones.phoneNormalized;
     const whatsappNormalized = phones.whatsappNormalized;
 
@@ -358,6 +385,7 @@ export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
     }
 
     const stageNameRaw = cell(row, "stage");
+    if (!stageNameRaw) blankStageCells += 1;
     let stageId = input.fieldDefaults?.stage && input.stages.some((s) => s.id === input.fieldDefaults!.stage) ? input.fieldDefaults.stage : defaultStageId;
     let stageName = input.stages.find((s) => s.id === stageId)?.name ?? null;
     if (stageNameRaw) {
@@ -372,6 +400,7 @@ export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
     }
 
     const ownerNameRaw = cell(row, "owner");
+    if (!ownerNameRaw) blankOwnerCells += 1;
     let ownerId = ownerNameRaw ? (memberByEmail.get(ownerNameRaw.toLowerCase()) ?? memberByName.get(normalizeHeader(ownerNameRaw))) : undefined;
     if (!ownerId) {
       if (ownerNameRaw) {
@@ -397,8 +426,17 @@ export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
       issues.push({ code: "GROSS_VALUE_UNREADABLE", message: `Valor bruto "${grossValueRaw}" não reconhecido — negócio criado sem valor bruto` });
     }
 
+    const creditTypeRaw = cell(row, "creditType");
+    if (!creditTypeRaw) blankCreditTypeCells += 1;
+
     const dealNameRaw = cell(row, "dealName");
     const dealName = dealNameRaw || buildDealName(contactName, source);
+
+    // Mesmo teto de `dealInputSchema.description` (POST /api/v1/deals) —
+    // texto livre, sem validação de formato, só um limite contra célula
+    // gigante acidental (cabeçalho errado apontando pra outra coluna etc.).
+    const descriptionRaw = cell(row, "description").slice(0, 5000);
+    const description = descriptionRaw || null;
 
     // Já tem negócio aberto nesse funil pra esse mesmo contato (no banco, ou
     // criado por uma linha ANTERIOR deste mesmo arquivo)? Não cria outro.
@@ -412,7 +450,7 @@ export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
     if (alreadyHasDeal) {
       duplicateDeals += 1;
       issues.push({ code: "DUPLICATE_DEAL", message: "Esse contato já tem negócio aberto neste funil — negócio não duplicado" });
-      rows.push({ rowNumber, willImport: false, contactName, contactStatus, dealName, stageName, ownerName, value: value ?? null, grossValue: grossValue ?? null, issues });
+      rows.push({ rowNumber, willImport: false, contactName, contactStatus, dealName, stageName, ownerName, value: value ?? null, grossValue: grossValue ?? null, description, issues });
       rowContactRefs.push(ref.kind === "existing" ? { kind: "existing", id: ref.id } : { kind: "new", pendingIndex: ref.pendingIndex });
       continue;
     }
@@ -421,10 +459,10 @@ export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
     else newContactPendingIndexWithDeal.add(ref.pendingIndex);
 
     toCreate += 1;
-    rows.push({ rowNumber, willImport: true, contactName, contactStatus, dealName, stageName, ownerName, value: value ?? null, grossValue: grossValue ?? null, issues });
+    rows.push({ rowNumber, willImport: true, contactName, contactStatus, dealName, stageName, ownerName, value: value ?? null, grossValue: grossValue ?? null, description, issues });
     rowContactRefs.push(ref.kind === "existing" ? { kind: "existing", id: ref.id } : { kind: "new", pendingIndex: ref.pendingIndex });
-    const creditType = cell(row, "creditType") || input.fieldDefaults?.creditType || undefined;
-    dealPlans.push({ rowIndex: i, stageId, ownerId, name: dealName, value, grossValue, creditType });
+    const creditType = creditTypeRaw || input.fieldDefaults?.creditType || undefined;
+    dealPlans.push({ rowIndex: i, stageId, ownerId, name: dealName, value, grossValue, creditType, description: description ?? undefined });
   }
 
   const summary: ImportPlanSummary = {
@@ -439,6 +477,10 @@ export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
     ownerFallbacks,
     valueParseFailures,
     grossValueParseFailures,
+    blankStageCells,
+    blankOwnerCells,
+    blankSourceCells,
+    blankCreditTypeCells,
   };
 
   return {

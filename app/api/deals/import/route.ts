@@ -7,6 +7,7 @@ import { runWithTenant, setTenantOnTx } from "@/lib/tenant-context";
 import { rateLimitOrResponse } from "@/lib/rate-limit";
 import { linkOrphanThreadsForContact } from "@/lib/whatsapp/threads";
 import { resolveImportPlan, type ImportField } from "@/lib/deals/import-resolve";
+import { MAX_DEAL_IMPORT_FILE_SIZE_BYTES, MAX_DEAL_IMPORT_ROWS, DEAL_IMPORT_TRANSACTION_OPTIONS } from "@/lib/deals/import-limits";
 import { logAudit } from "@/lib/audit-log";
 import { getClientIp } from "@/lib/rate-limit";
 import { publishDealsEvent } from "@/lib/deals/live-events";
@@ -14,8 +15,8 @@ import { readFormData, bodyErrorResponse, BODY_LIMITS } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
-const MAX_ROWS = 1000;
+const MAX_FILE_SIZE = MAX_DEAL_IMPORT_FILE_SIZE_BYTES;
+const MAX_ROWS = MAX_DEAL_IMPORT_ROWS;
 
 export async function POST(req: Request) {
   const { organizationId, userId: sessionUserId, session } = await requireSession();
@@ -54,7 +55,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Pipeline inválido" }, { status: 400 });
   }
   if (file.size > MAX_FILE_SIZE) {
-    return NextResponse.json({ error: "Arquivo maior que 5MB" }, { status: 400 });
+    return NextResponse.json({ error: `Arquivo maior que ${Math.round(MAX_FILE_SIZE / (1024 * 1024))}MB` }, { status: 400 });
   }
   let columnOverrides: Partial<Record<ImportField, number>> | undefined;
   if (typeof columnOverridesRaw === "string" && columnOverridesRaw) {
@@ -303,6 +304,7 @@ export async function POST(req: Request) {
         value?: number;
         grossValue?: number;
         creditType?: string;
+        description?: string;
         importBatchId: string;
       }[] = [];
 
@@ -320,6 +322,7 @@ export async function POST(req: Request) {
           value: dealPlan.value,
           grossValue: dealPlan.grossValue,
           creditType: dealPlan.creditType,
+          description: dealPlan.description,
           importBatchId: batch.id,
         });
       }
@@ -361,7 +364,7 @@ export async function POST(req: Request) {
         .filter((e): e is { data: (typeof newContacts)[number]; id: string } => !!e.id);
 
       return { newContactsForThreadLink, importBatchId: batch.id, actualCreated };
-    });
+    }, DEAL_IMPORT_TRANSACTION_OPTIONS);
 
     // Fora da transação de propósito — não precisa ser atômico com a
     // criação, e linkOrphanThreadsForContact usa o cliente prisma normal

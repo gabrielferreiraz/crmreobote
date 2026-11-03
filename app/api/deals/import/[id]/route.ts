@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma, prismaRaw } from "@/lib/prisma";
 import { requireRole } from "@/lib/require-role";
 import { runWithTenant, setTenantOnTx } from "@/lib/tenant-context";
+import { DEAL_IMPORT_TRANSACTION_OPTIONS } from "@/lib/deals/import-limits";
 
 export const dynamic = "force-dynamic";
 
@@ -121,7 +122,7 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
       }
 
       await tx.importBatch.update({ where: { id }, data: { deletedAt: new Date() } });
-    });
+    }, DEAL_IMPORT_TRANSACTION_OPTIONS);
 
     return NextResponse.json({ ok: true, dealsDeleted: dealIds.length });
   });

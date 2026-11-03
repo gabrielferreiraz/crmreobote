@@ -484,6 +484,7 @@ export function PipelineView({
           currentUserId={currentUserId}
           stages={stages}
           creditTypes={creditTypes}
+          leadSources={leadSources}
           onClose={() => setImportOpen(false)}
           onImported={() => {
             router.refresh();

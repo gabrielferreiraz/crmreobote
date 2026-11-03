@@ -5,12 +5,13 @@ import { parseSpreadsheet, spreadsheetParseFailure } from "@/lib/parse-spreadshe
 import { runWithTenant } from "@/lib/tenant-context";
 import { rateLimitOrResponse } from "@/lib/rate-limit";
 import { resolveImportPlan, type ImportField } from "@/lib/deals/import-resolve";
+import { MAX_DEAL_IMPORT_FILE_SIZE_BYTES, MAX_DEAL_IMPORT_ROWS } from "@/lib/deals/import-limits";
 import { readFormData, bodyErrorResponse, BODY_LIMITS } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
-const MAX_ROWS = 1000;
+const MAX_FILE_SIZE = MAX_DEAL_IMPORT_FILE_SIZE_BYTES;
+const MAX_ROWS = MAX_DEAL_IMPORT_ROWS;
 // Nunca grava nada — só lê e resolve em memória — então pode ser bem mais
 // generoso que a cota de commit de verdade (5/hora, ver /api/deals/import):
 // quem está ajustando o mapeamento de coluna até acertar pode analisar
@@ -50,7 +51,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Pipeline inválido" }, { status: 400 });
   }
   if (file.size > MAX_FILE_SIZE) {
-    return NextResponse.json({ error: "Arquivo maior que 5MB" }, { status: 400 });
+    return NextResponse.json({ error: `Arquivo maior que ${Math.round(MAX_FILE_SIZE / (1024 * 1024))}MB` }, { status: 400 });
   }
   let columnOverrides: Partial<Record<ImportField, number>> | undefined;
   if (typeof columnOverridesRaw === "string" && columnOverridesRaw) {

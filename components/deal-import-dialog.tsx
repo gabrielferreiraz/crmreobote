@@ -11,7 +11,7 @@ import { sortSelfFirst } from "@/lib/sort-self-first";
 import { useFileDrop } from "@/lib/use-file-drop";
 import { trackUse } from "@/lib/feature-usage/track";
 
-type ImportField = "contact" | "phone" | "whatsapp" | "email" | "source" | "dealName" | "value" | "grossValue" | "creditType" | "stage" | "owner";
+type ImportField = "contact" | "phone" | "whatsapp" | "email" | "source" | "dealName" | "value" | "grossValue" | "creditType" | "stage" | "owner" | "description";
 
 type ColumnDetection = { field: ImportField; label: string; required: boolean; index: number; headerLabel: string | null };
 type RowIssue = { code: string; message: string };
@@ -25,6 +25,7 @@ type ResolvedRow = {
   ownerName: string | null;
   value: number | null;
   grossValue: number | null;
+  description: string | null;
   issues: RowIssue[];
 };
 type ImportPlanSummary = {
@@ -39,6 +40,10 @@ type ImportPlanSummary = {
   ownerFallbacks: number;
   valueParseFailures: number;
   grossValueParseFailures: number;
+  blankStageCells: number;
+  blankOwnerCells: number;
+  blankSourceCells: number;
+  blankCreditTypeCells: number;
 };
 type PreviewResponse = {
   rawHeaderRow: string[];
@@ -52,9 +57,20 @@ type ImportResult = ImportPlanSummary & { total: number; created: number; skippe
 
 type Step = "pick" | "analyzing" | "preview" | "importing" | "done";
 
-/** Campos que fazem sentido ter UM valor só aplicado a toda a planilha quando a coluna correspondente não existe no arquivo (ver fieldDefaults). */
+/** Campos que fazem sentido ter UM valor só aplicado a toda linha cuja célula veio vazia — coluna ausente do arquivo ou célula em branco numa coluna que existe (ver fieldDefaults). */
 type DefaultableField = "owner" | "stage" | "source" | "creditType";
 const DEFAULTABLE_FIELDS: DefaultableField[] = ["owner", "stage", "source", "creditType"];
+
+/** Onde achar, no resumo, quantas linhas vieram com a célula deste campo em branco — é o sinal pra oferecer a escolha, nunca um bloqueio (ver blankStageCells etc. em lib/deals/import-resolve.ts). */
+const BLANK_COUNT_FIELD: Record<DefaultableField, keyof ImportPlanSummary> = {
+  owner: "blankOwnerCells",
+  stage: "blankStageCells",
+  source: "blankSourceCells",
+  creditType: "blankCreditTypeCells",
+};
+
+/** Opção especial do Select de Origem — "não é nenhuma dessas, deixa eu digitar". */
+const OTHER_SOURCE_OPTION = "__outra__";
 
 /** Quantas linhas a tabela de prévia mostra antes do "Mostrar mais" — ver showAllRows. */
 const PREVIEW_ROWS_COLLAPSED = 5;
@@ -155,6 +171,7 @@ export function DealImportDialog({
   currentUserId,
   stages,
   creditTypes,
+  leadSources,
   onClose,
   onImported,
 }: {
@@ -169,6 +186,10 @@ export function DealImportDialog({
   currentUserId: string;
   stages: { id: string; name: string }[];
   creditTypes: { id: string; label: string }[];
+  /** Origens cadastradas em Configurações — mesma lista usada no cadastro
+   * manual de cliente/negócio, oferecida aqui como sugestão pronta em vez de
+   * só um campo de texto livre (quem quiser algo fora da lista ainda digita). */
+  leadSources: { label: string }[];
   onClose: () => void;
   onImported: () => void;
 }) {
@@ -191,11 +212,14 @@ export function DealImportDialog({
   // tela de prévia (ver Select abaixo) quando isso for o que se quer de
   // verdade.
   const [fieldDefaults, setFieldDefaults] = useState<Partial<Record<DefaultableField, string>>>({ owner: currentUserId });
-  // Rascunho local do campo "Origem" (texto livre, não Select) — digitar
-  // não deve disparar uma reanálise no servidor a cada tecla; só confirma
-  // (e reanalisa) ao sair do campo. Os outros 3 campos são Select (uma
-  // escolha discreta), reanalisam na hora sem esse problema.
+  // Origem é um Select com as origens já cadastradas (ver leadSources) +
+  // "Outra (digitar)" — escolher essa opção revela o campo de texto livre
+  // abaixo. sourceDraft é o rascunho desse texto: digitar não deve disparar
+  // uma reanálise no servidor a cada tecla, só confirma (e reanalisa) ao
+  // sair do campo. Os outros 3 campos (owner/stage/creditType) são Select
+  // com escolha discreta, reanalisam na hora sem esse problema.
   const [sourceDraft, setSourceDraft] = useState("");
+  const [sourceCustom, setSourceCustom] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [showIssueRows, setShowIssueRows] = useState(false);
   // Grade completa de mapeamento (10 campos) escondida por padrão — na
@@ -245,6 +269,7 @@ export function DealImportDialog({
     const initialFieldDefaults = { owner: currentUserId };
     setFieldDefaults(initialFieldDefaults);
     setSourceDraft("");
+    setSourceCustom(false);
     runPreview(picked, {}, initialFieldDefaults);
   }
 
@@ -275,6 +300,18 @@ export function DealImportDialog({
     else delete next[field];
     setFieldDefaults(next);
     if (file) runPreview(file, overrides, next);
+  }
+
+  /** Select de Origem: uma das origens cadastradas, "Nenhuma" ou "Outra (digitar)" — nesse último caso só troca pro campo de texto, sem gravar nada até a pessoa digitar e sair do campo (ver sourceDraft). */
+  function updateSourceSelect(value: string) {
+    if (value === OTHER_SOURCE_OPTION) {
+      setSourceCustom(true);
+      setSourceDraft("");
+      updateFieldDefault("source", "");
+      return;
+    }
+    setSourceCustom(false);
+    updateFieldDefault("source", value);
   }
 
   async function confirmImport() {
@@ -370,9 +407,13 @@ export function DealImportDialog({
 
     const headline = importHeadline(s, hasBlockingIssue);
     const HeadlineIcon = headline.icon;
-    const hasMissingDefaultableColumn = preview.columns.some(
-      (col) => col.index === -1 && DEFAULTABLE_FIELDS.includes(col.field as DefaultableField),
-    );
+    // Campos com pelo menos uma célula em branco (coluna ausente OU célula
+    // vazia numa coluna que existe, ver blankStageCells etc.) — é o gatilho
+    // pra oferecer "escolher um valor pra usar nessas linhas" com as opções
+    // reais do CRM. Nunca bloqueia: sem resposta, cada linha segue com o
+    // comportamento automático de sempre (rodízio, 1ª etapa, sem origem).
+    const blankDefaultableFields = DEFAULTABLE_FIELDS.filter((field) => (s[BLANK_COUNT_FIELD[field]] as number) > 0);
+    const hasMissingDefaultableColumn = blankDefaultableFields.length > 0;
     // WhatsApp é o único campo usado pra reconhecer contato já existente E
     // pra poder mandar mensagem pro lead depois (ver lib/deals/import-resolve.ts)
     // — diferente dos outros opcionais (telefone, e-mail, valor, nome do
@@ -475,60 +516,77 @@ export function DealImportDialog({
           </div>
         )}
 
-        {/* Campo sem coluna correspondente na planilha — pedido direto,
-            sempre visível quando se aplica (é uma decisão que precisa de
-            resposta, não fica escondido atrás do "Ajustar colunas"). */}
+        {/* Campo com alguma célula em branco (coluna ausente ou só algumas
+            linhas vazias) — nunca trava a importação (sem resposta, segue o
+            automático de sempre: rodízio, 1ª etapa, sem origem), só ajuda a
+            decidir em vez de preencher em silêncio. Sempre visível quando se
+            aplica, não escondido atrás de "Ajustar colunas". */}
         {hasMissingDefaultableColumn && (
           <div className="mb-4 rounded-lg border border-neutral-200 p-3 dark:border-neutral-800">
             <p className="mb-2 text-xs text-neutral-500 dark:text-neutral-400">
-              Não veio na planilha — escolha o valor pra usar em <strong>todos</strong> os negócios:
+              Algumas linhas vieram sem um desses dados — não precisa mudar a planilha: escolha um valor pra usar nelas
+              (opcional, sem escolher nada elas seguem automáticas).
             </p>
             <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-              {preview.columns
-                .filter((col) => col.index === -1 && DEFAULTABLE_FIELDS.includes(col.field as DefaultableField))
-                .map((col) => {
-                  const field = col.field as DefaultableField;
-                  return (
-                    <div key={field} className="flex items-center justify-between gap-2">
-                      <span className="text-xs text-neutral-500 dark:text-neutral-400">{col.label}</span>
-                      {field === "owner" ? (
-                        <Select
-                          value={fieldDefaults.owner ?? currentUserId}
-                          onChange={(v) => updateFieldDefault("owner", v)}
-                          className="w-40 py-1 text-xs"
-                          options={[
-                            { value: "", label: "Distribuir automaticamente" },
-                            ...orderedMembers.map((m) => ({ value: m.id, label: m.id === currentUserId ? "Eu" : m.name })),
-                          ]}
-                        />
-                      ) : field === "stage" ? (
-                        <Select
-                          value={fieldDefaults.stage ?? ""}
-                          onChange={(v) => updateFieldDefault("stage", v)}
-                          className="w-40 py-1 text-xs"
-                          options={[{ value: "", label: "Etapa padrão" }, ...stages.map((s) => ({ value: s.id, label: s.name }))]}
-                        />
-                      ) : field === "creditType" ? (
-                        <Select
-                          value={fieldDefaults.creditType ?? ""}
-                          onChange={(v) => updateFieldDefault("creditType", v)}
-                          className="w-40 py-1 text-xs"
-                          options={[{ value: "", label: "Nenhum" }, ...creditTypes.map((c) => ({ value: c.label, label: c.label }))]}
-                        />
-                      ) : (
-                        <input
-                          value={sourceDraft}
-                          onChange={(e) => setSourceDraft(e.target.value)}
-                          onBlur={() => {
-                            if (sourceDraft !== (fieldDefaults.source ?? "")) updateFieldDefault("source", sourceDraft);
-                          }}
-                          placeholder="Ex.: Feira XPTO"
-                          className="field-input w-40 py-1 text-xs"
-                        />
-                      )}
-                    </div>
-                  );
-                })}
+              {blankDefaultableFields.map((field) => {
+                const col = preview.columns.find((c) => c.field === field);
+                const blankCount = s[BLANK_COUNT_FIELD[field]] as number;
+                return (
+                  <div key={field} className="flex items-center justify-between gap-2">
+                    <span className="text-xs text-neutral-500 dark:text-neutral-400">
+                      {col?.label ?? field}
+                      <span className="text-neutral-400 dark:text-neutral-500"> ({blankCount} sem valor)</span>
+                    </span>
+                    {field === "owner" ? (
+                      <Select
+                        value={fieldDefaults.owner ?? currentUserId}
+                        onChange={(v) => updateFieldDefault("owner", v)}
+                        className="w-40 py-1 text-xs"
+                        options={[
+                          { value: "", label: "Distribuir automaticamente" },
+                          ...orderedMembers.map((m) => ({ value: m.id, label: m.id === currentUserId ? "Eu" : m.name })),
+                        ]}
+                      />
+                    ) : field === "stage" ? (
+                      <Select
+                        value={fieldDefaults.stage ?? ""}
+                        onChange={(v) => updateFieldDefault("stage", v)}
+                        className="w-40 py-1 text-xs"
+                        options={[{ value: "", label: "Etapa padrão" }, ...stages.map((s) => ({ value: s.id, label: s.name }))]}
+                      />
+                    ) : field === "creditType" ? (
+                      <Select
+                        value={fieldDefaults.creditType ?? ""}
+                        onChange={(v) => updateFieldDefault("creditType", v)}
+                        className="w-40 py-1 text-xs"
+                        options={[{ value: "", label: "Nenhum" }, ...creditTypes.map((c) => ({ value: c.label, label: c.label }))]}
+                      />
+                    ) : sourceCustom ? (
+                      <input
+                        value={sourceDraft}
+                        onChange={(e) => setSourceDraft(e.target.value)}
+                        onBlur={() => {
+                          if (sourceDraft !== (fieldDefaults.source ?? "")) updateFieldDefault("source", sourceDraft);
+                        }}
+                        placeholder="Digite a origem"
+                        autoFocus
+                        className="field-input w-40 py-1 text-xs"
+                      />
+                    ) : (
+                      <Select
+                        value={fieldDefaults.source ?? ""}
+                        onChange={updateSourceSelect}
+                        className="w-40 py-1 text-xs"
+                        options={[
+                          { value: "", label: "Nenhuma origem padrão" },
+                          ...leadSources.map((src) => ({ value: src.label, label: src.label })),
+                          { value: OTHER_SOURCE_OPTION, label: "Outra (digitar)" },
+                        ]}
+                      />
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
@@ -603,6 +661,7 @@ export function DealImportDialog({
                   <th className="px-2 py-1.5 font-medium">Responsável</th>
                   <th className="px-2 py-1.5 font-medium">Valor líquido</th>
                   <th className="px-2 py-1.5 font-medium">Valor bruto</th>
+                  <th className="px-2 py-1.5 font-medium">Descrição</th>
                   <th className="px-2 py-1.5 font-medium">Aviso</th>
                 </tr>
               </thead>
@@ -622,6 +681,9 @@ export function DealImportDialog({
                     <td className="px-2 py-1.5 text-neutral-600 dark:text-neutral-400">{r.ownerName ?? "—"}</td>
                     <td className="px-2 py-1.5 tabular-nums text-neutral-600 dark:text-neutral-400">{r.value != null ? formatCurrency(r.value) : "—"}</td>
                     <td className="px-2 py-1.5 tabular-nums text-neutral-600 dark:text-neutral-400">{r.grossValue != null ? formatCurrency(r.grossValue) : "—"}</td>
+                    <td className="max-w-40 truncate px-2 py-1.5 text-neutral-600 dark:text-neutral-400" title={r.description ?? undefined}>
+                      {r.description ?? "—"}
+                    </td>
                     <td className="px-2 py-1.5">
                       {r.issues.length > 0 && (
                         <span
@@ -713,9 +775,9 @@ export function DealImportDialog({
     <Modal onClose={onClose}>
       <h2 className="mb-1 text-lg font-semibold text-neutral-900 dark:text-neutral-100">Importar negócios</h2>
       <p className="mb-2 text-sm text-neutral-500 dark:text-neutral-400">
-        Arquivo .csv ou .xlsx com colunas: contato (obrigatório), whatsapp, telefone/celular, email, origem, negocio, valor,
-        etapa, responsavel, tipo de credito. O nome da coluna pode variar — se não reconhecermos, você aponta manualmente na
-        próxima tela.
+        Arquivo .csv ou .xlsx com colunas: contato (obrigatório), whatsapp, telefone/celular, email, origem, negocio
+        (opcional — sem ele, o nome é gerado sozinho), valor liquido, valor bruto, etapa, responsavel, tipo de credito,
+        descricao. O nome da coluna pode variar — se não reconhecermos, você aponta manualmente na próxima tela.
       </p>
       {/* Pedido explícito: deixar claro ANTES de escolher o arquivo que
           isso só cria negócio novo, nunca atualiza um que já existe — quem
@@ -759,7 +821,7 @@ export function DealImportDialog({
 
       <div className="mt-3 flex items-start gap-1.5 text-xs text-neutral-400 dark:text-neutral-500">
         <Info className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
-        Até 1000 linhas por arquivo, 5MB.
+        Até 5000 linhas por arquivo, 25MB.
       </div>
 
       <div className="flex justify-end gap-2 pt-4">
