@@ -18,6 +18,16 @@ const MAX_LEADS_PER_SUBMIT = 200;
 // lib/rate-limit.ts — aceitável aqui pelo mesmo motivo.
 const emVoo = new Set<string>();
 
+// Deal.value é Decimal(12,2): 10 dígitos inteiros. Acima disso o Postgres
+// estoura com erro genérico de overflow; barrar aqui dá mensagem clara.
+const MAX_DEAL_VALUE = 9_999_999_999.99;
+
+/** Valor do negócio: ausente é válido (nem todo lead tem valor estimado). */
+function isValidValor(v: unknown): boolean {
+  if (v === undefined || v === null) return true;
+  return typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= MAX_DEAL_VALUE;
+}
+
 function isValidLead(v: unknown): v is Lista50LeadInput {
   if (!v || typeof v !== "object") return false;
   const lead = v as Record<string, unknown>;
@@ -26,8 +36,8 @@ function isValidLead(v: unknown): v is Lista50LeadInput {
     typeof lead.whatsapp === "string" &&
     (lead.circulo === undefined || typeof lead.circulo === "string") &&
     (lead.interesse === undefined || typeof lead.interesse === "string") &&
-    (lead.temperatura === undefined || typeof lead.temperatura === "string") &&
-    (lead.observacao === undefined || typeof lead.observacao === "string")
+    (lead.observacao === undefined || typeof lead.observacao === "string") &&
+    isValidValor(lead.valor)
   );
 }
 

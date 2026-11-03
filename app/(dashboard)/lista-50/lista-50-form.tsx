@@ -11,6 +11,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { parseBrazilianCurrency } from "@/lib/format";
 import type { Lista50Progress } from "@/lib/lista-50";
 import { Lista50SupervisorPanel } from "./lista-50-supervisor-panel";
 import { Lista50AdminToggle } from "./lista-50-admin-toggle";
@@ -34,8 +35,7 @@ const TOTAL_GOAL = 50;
 const LINHAS_INICIAIS = 10;
 
 const CIRCULOS = ["Círculo", "Família", "Trabalho", "Esporte", "Igreja", "Outro"] as const;
-const INTERESSES = ["Indefinido", "Alto", "Médio", "Baixo"] as const;
-const TEMPERATURAS = ["Morno", "Quente", "Frio"] as const;
+const INTERESSES = ["Indefinido", "Alto", "Médio", "Baixo"]
 
 type Linha = {
   /** Chave estável: o índice muda quando uma linha do meio é removida. */
@@ -44,12 +44,12 @@ type Linha = {
   whatsapp: string;
   circulo: string;
   interesse: string;
-  temperatura: string;
   observacao: string;
+  valorLista: string;
 };
 
 function novaLinha(id: number): Linha {
-  return { id, nome: "", whatsapp: "", circulo: CIRCULOS[0], interesse: INTERESSES[0], temperatura: TEMPERATURAS[0], observacao: "" };
+  return { id, nome: "", whatsapp: "", circulo: CIRCULOS[0], interesse: INTERESSES[0], observacao: "", valorLista: "" };
 }
 
 /** (67) 99999-9999 — só dígitos por baixo, o formato é de exibição. */
@@ -224,8 +224,10 @@ export function Lista50Form({
             whatsapp: l.whatsapp,
             circulo: l.circulo,
             interesse: l.interesse,
-            temperatura: l.temperatura,
             observacao: l.observacao.trim() || undefined,
+            // Vira o valor do negócio no pipeline. Vazio fica sem valor (e
+            // não zero, que afirmaria um negócio de R$ 0,00).
+            valor: parseBrazilianCurrency(l.valorLista),
           })),
         }),
       });
@@ -264,10 +266,10 @@ export function Lista50Form({
         <p className="mb-8 max-w-md text-sm text-gray-400">
           {scheduledFor
             ? // `scheduledFor` é sempre meia-noite UTC do dia escolhido (chave de
-              // calendário, igual a `startsOn` em lib/lista-50.ts) — formatar com
-              // fuso de Campo Grande aqui RECUARIA 1 dia (a mesma pegadinha da
-              // coluna DATE do Postgres). Formata em UTC, sem conversão nenhuma.
-              `A campanha Novembro Black começa em ${scheduledFor.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" })}.`
+            // calendário, igual a `startsOn` em lib/lista-50.ts) — formatar com
+            // fuso de Campo Grande aqui RECUARIA 1 dia (a mesma pegadinha da
+            // coluna DATE do Postgres). Formata em UTC, sem conversão nenhuma.
+            `A campanha Novembro Black começa em ${scheduledFor.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" })}.`
             : "A campanha Novembro Black não está no ar agora. Ela é sazonal — volta quando a próxima temporada começar."}
         </p>
         {canManageCampaign && (
@@ -455,8 +457,21 @@ export function Lista50Form({
                       <th className="min-w-[170px] px-3 py-3">WhatsApp</th>
                       <th className="min-w-[130px] px-3 py-3">Círculo</th>
                       <th className="min-w-[130px] px-3 py-3">Interesse</th>
-                      <th className="min-w-[130px] px-3 py-3">Temperatura</th>
                       <th className="min-w-[230px] px-3 py-3">Observação</th>
+                      <th className="min-w-[170px] px-3">
+                        <span className="inline-flex items-center gap-1.5">
+                          Valor
+                          {/* `title` além do texto visível: quem navega por
+                              teclado ou leitor de tela não passa o mouse. */}
+                          <span
+                            title="Informe o valor líquido do crédito."
+                            className="inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-[#ffcc00]/50 text-[10px] font-bold text-[#ffcc00]"
+                          >
+                            ?<span className="sr-only">Informe o valor líquido do crédito.</span>
+                          </span>
+                          <span className="font-normal normal-case tracking-normal text-gray-500">(líquido)</span>
+                        </span>
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-800/60 text-sm">
@@ -489,9 +504,6 @@ export function Lista50Form({
                         <td className="px-2 py-2.5">
                           <Selecao valor={linha.interesse} opcoes={INTERESSES} rotulo={`Interesse do contato ${index + 1}`} onChange={(v) => alterar(linha.id, "interesse", v)} />
                         </td>
-                        <td className="px-2 py-2.5">
-                          <Selecao valor={linha.temperatura} opcoes={TEMPERATURAS} rotulo={`Temperatura do contato ${index + 1}`} onChange={(v) => alterar(linha.id, "temperatura", v)} />
-                        </td>
                         <td className="relative px-2 py-2.5">
                           <input
                             value={linha.observacao}
@@ -508,6 +520,14 @@ export function Lista50Form({
                           >
                             <X className="h-3.5 w-3.5" strokeWidth={2.5} />
                           </button>
+                        </td>
+                        <td className="relative p2.5x-2 py-">
+                          <input
+                            value={linha.valorLista}
+                            onChange={(e) => alterar(linha.id, "valorLista", e.target.value)}
+                            placeholder="R$ 500.000.00"
+                            className="w-full rounded-md border border-[#2e3340] bg-[#181a20] py-2 pl-3 pr-8 text-sm text-gray-100 outline-none focus:border-[#ffcc00] focus:ring-1 focus:ring-[#ffcc00]/30"
+                          />
                         </td>
                       </tr>
                     ))}

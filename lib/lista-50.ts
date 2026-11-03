@@ -164,8 +164,9 @@ export type Lista50LeadInput = {
   whatsapp: string;
   circulo?: string;
   interesse?: string;
-  temperatura?: string;
   observacao?: string;
+  /** Valor estimado do negócio, digitado na coluna "Valor" da lista. */
+  valor?: number;
 };
 
 export type Lista50SubmitResult = {
@@ -185,7 +186,6 @@ function buildDealDescription(lead: Lista50LeadInput): string | undefined {
   const partes: string[] = [];
   if (lead.circulo) partes.push(`Círculo: ${lead.circulo}`);
   if (lead.interesse) partes.push(`Interesse: ${lead.interesse}`);
-  if (lead.temperatura) partes.push(`Temperatura: ${lead.temperatura}`);
   const cabecalho = partes.join(" · ");
   const observacao = lead.observacao?.trim();
   const texto = cabecalho && observacao ? `${cabecalho}\nObservação: ${observacao}` : cabecalho || observacao || undefined;
@@ -211,7 +211,7 @@ const phoneLocks = new Map<string, Promise<unknown>>();
 function withPhoneLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
   const prior = phoneLocks.get(key) ?? Promise.resolve();
   const task = prior.then(fn, fn);
-  const guarded = task.catch(() => {});
+  const guarded = task.catch(() => { });
   phoneLocks.set(key, guarded);
   guarded.finally(() => {
     if (phoneLocks.get(key) === guarded) phoneLocks.delete(key);
@@ -310,6 +310,10 @@ export async function submitLista50Leads(
             lista50: true,
             name: buildDealName(nome, LISTA_50_DEAL_SOURCE),
             description: buildDealDescription(lead),
+            // Coluna "Valor" da lista. Sem valor fica null (não 0), que no
+            // pipeline é "ainda não estimado" em vez de "negócio de R$ 0,00"
+            // — a soma de valor por etapa trata os dois de forma diferente.
+            value: lead.valor === undefined ? null : Math.round(lead.valor * 100) / 100,
           },
         });
         return { kind: "created" as const };
