@@ -45,6 +45,18 @@ function MessageContent({ message }: { message: Message }) {
           Imagem expirada
         </p>
       );
+    case "VIDEO":
+      return message.mediaUrl ? (
+        <div className="space-y-1">
+          <video controls playsInline preload="metadata" src={message.mediaUrl} className="max-h-72 max-w-full rounded-md bg-black" />
+          {message.body && <p className="whitespace-pre-wrap">{message.body}</p>}
+        </div>
+      ) : (
+        <p className="flex items-center gap-1.5 text-xs italic opacity-60">
+          <ImageOff className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+          Vídeo expirado
+        </p>
+      );
     case "AUDIO":
       return message.mediaUrl ? (
         <audio controls src={message.mediaUrl} className="h-8 w-56 max-w-full" />

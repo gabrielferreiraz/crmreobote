@@ -21,6 +21,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { sendWhatsAppMessageToContact, WhatsAppSendError } from "@/lib/whatsapp/send";
 import { sendPushToUser } from "@/lib/push";
 import { renderTemplate, type ScriptStep } from "@/lib/campaigns/spintax";
+import { stepMessageType } from "@/lib/campaigns/script-steps";
 import { brazilGreeting } from "@/lib/timezone";
 
 export async function sendDueMeetingReminders(): Promise<{ checked: number; sent: number; failed: number }> {
@@ -93,7 +94,7 @@ export async function sendDueMeetingReminders(): Promise<{ checked: number; sent
             contactId: task.contact.id,
             ownerId: task.ownerId,
             text: message,
-            type: step.type === "IMAGE" ? "IMAGE" : "TEXT",
+            type: stepMessageType(step.type),
             mediaUrl: step.mediaUrl,
           });
 

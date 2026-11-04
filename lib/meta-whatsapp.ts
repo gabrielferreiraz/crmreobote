@@ -86,12 +86,12 @@ export async function sendTextMessage(
   return toSendResult(data);
 }
 
-/** Imagem por link (mesma ideia do Evolution — a Meta baixa a URL informada), não pelo fluxo de upload por media_id. */
+/** Imagem/vídeo por link (mesma ideia do Evolution — a Meta baixa a URL informada), não pelo fluxo de upload por media_id. */
 export async function sendMediaMessage(
   phoneNumberId: string,
   accessToken: string,
   to: string,
-  params: { mediatype: "image"; media: string; caption?: string },
+  params: { mediatype: "image" | "video"; media: string; caption?: string },
   replyToWamid?: string,
 ): Promise<SendResult> {
   const data = await request<{ messages?: { id?: string }[] }>(`/${phoneNumberId}/messages`, accessToken, {
@@ -100,8 +100,9 @@ export async function sendMediaMessage(
       messaging_product: "whatsapp",
       recipient_type: "individual",
       to,
-      type: "image",
-      image: { link: params.media, caption: params.caption },
+      // A Cloud API nomeia o objeto da mídia pelo próprio tipo.
+      type: params.mediatype,
+      [params.mediatype]: { link: params.media, caption: params.caption },
       ...(replyToWamid ? { context: { message_id: replyToWamid } } : {}),
     }),
   });

@@ -22,6 +22,7 @@ import { buildDealName } from "@/lib/deal-name";
 import { publishDealsEvent } from "@/lib/deals/live-events";
 import { resolveAutomationActions, type AutomationActionEntry } from "@/lib/automations/actions";
 import { randomStepDelayMs } from "@/lib/campaigns/step-delay";
+import { stepMessageType } from "@/lib/campaigns/script-steps";
 
 /** Resultado de uma ação executada — vira o `success`/`detail` gravados em AutomationExecution, exibidos no "Ver detalhes" do histórico. */
 export type ActionResult = {
@@ -561,7 +562,7 @@ export async function performAction(
           organizationId: entity.organizationId,
           threadId: thread.id,
           text: steps[0].text,
-          type: steps[0].type === "IMAGE" ? "IMAGE" : "TEXT",
+          type: stepMessageType(steps[0].type),
           mediaUrl: steps[0].mediaUrl,
           automationRuleId: rule.id,
         });
@@ -576,7 +577,7 @@ export async function performAction(
                   organizationId: entity.organizationId,
                   threadId: thread.id,
                   text: steps[i + 1].text,
-                  type: steps[i + 1].type === "IMAGE" ? "IMAGE" : "TEXT",
+                  type: stepMessageType(steps[i + 1].type),
                   mediaUrl: steps[i + 1].mediaUrl,
                   automationRuleId: rule.id,
                 });

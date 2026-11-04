@@ -5,7 +5,7 @@ import { MessageSquare } from "lucide-react";
 export type BulkScriptOption = {
   id: string;
   name: string;
-  steps: { text: string; delayAfterSec: number; type?: "TEXT" | "IMAGE"; mediaUrl?: string }[];
+  steps: { text: string; delayAfterSec: number; type?: "TEXT" | "IMAGE" | "VIDEO"; mediaUrl?: string }[];
 };
 
 /** Seletor de scripts compartilhado pelos envios em massa de Clientes e Pipeline. */

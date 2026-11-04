@@ -9,6 +9,7 @@
 
 const TYPE_LABEL: Record<string, string> = {
   IMAGE: "📷 Imagem",
+  VIDEO: "🎬 Vídeo",
   AUDIO: "🎵 Áudio",
   CONTACT: "👤 Contato",
   PIX: "💰 Pix",

@@ -69,15 +69,16 @@ export function validateSteps(
     if (!text) return { ok: false, error: "Toda etapa precisa ter uma mensagem ou legenda" };
     const delayRaw = Number(record?.delayAfterSec);
     const delayAfterSec = Number.isFinite(delayRaw) ? Math.min(MAX_DELAY_SEC, Math.max(0, Math.round(delayRaw))) : 0;
-    const type = record?.type === "IMAGE" ? "IMAGE" : "TEXT";
+    const type = record?.type === "IMAGE" ? "IMAGE" : record?.type === "VIDEO" ? "VIDEO" : "TEXT";
     const mediaUrl = typeof record?.mediaUrl === "string" ? record.mediaUrl : undefined;
-    if (type === "IMAGE") {
-      if (!mediaUrl) return { ok: false, error: "Escolha uma imagem para esta etapa" };
+    if (type === "IMAGE" || type === "VIDEO") {
+      const rotulo = type === "IMAGE" ? "imagem" : "vídeo";
+      if (!mediaUrl) return { ok: false, error: `Escolha um${type === "IMAGE" ? "a" : ""} ${rotulo} para esta etapa` };
       if (!organizationId || !mediaUrl.startsWith(`whatsapp-media/${organizationId}/`)) {
-        return { ok: false, error: "A imagem precisa ter sido enviada por esta organização" };
+        return { ok: false, error: `O arquivo de ${rotulo} precisa ter sido enviado por esta organização` };
       }
     }
-    steps.push({ text, delayAfterSec, ...(type === "IMAGE" ? { type, mediaUrl } : {}) });
+    steps.push({ text, delayAfterSec, ...(type === "IMAGE" || type === "VIDEO" ? { type, mediaUrl } : {}) });
   }
   return { ok: true, steps };
 }

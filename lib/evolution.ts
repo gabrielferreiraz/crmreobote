@@ -472,13 +472,13 @@ export async function getIncomingMediaBase64(
 }
 
 /**
- * Imagem via link direto (sem upload próprio) — o Evolution baixa a mídia da
- * URL informada e reenvia pro WhatsApp.
+ * Imagem ou vídeo via link direto (sem upload próprio) — o Evolution baixa a
+ * mídia da URL informada e reenvia pro WhatsApp.
  */
 export async function sendMediaMessage(
   instanceName: string,
   number: string,
-  params: { mediatype: "image"; media: string; caption?: string },
+  params: { mediatype: "image" | "video"; media: string; caption?: string; mimetype?: string; fileName?: string },
   quoted?: MessageRef,
 ): Promise<SendResult> {
   const data = await request<{ key?: { id?: string }; message?: unknown }>(
@@ -490,9 +490,18 @@ export async function sendMediaMessage(
         mediatype: params.mediatype,
         media: params.media,
         caption: params.caption,
+        // Vídeo precisa dos dois: o Baileys monta o videoMessage a partir do
+        // mimetype, e sem fileName o Evolution rejeita o corpo. Imagem passava
+        // sem eles, então nunca tinham sido enviados.
+        mimetype: params.mimetype,
+        fileName: params.fileName,
         quoted,
       }),
     },
+    // Vídeo é pesado: o Evolution baixa o arquivo da nossa URL e só então
+    // sobe pro WhatsApp, tudo dentro desta requisição. Os 15s padrão (que
+    // bastam pra imagem) estouram fácil num mp4 de alguns MB.
+    params.mediatype === "video" ? { timeoutMs: 120_000 } : undefined,
   );
   return toSendResult(data);
 }

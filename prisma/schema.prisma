@@ -676,6 +676,7 @@ enum WhatsAppMessageDirection {
 enum WhatsAppMessageType {
   TEXT
   IMAGE
+  VIDEO
   AUDIO
   CONTACT
   PIX

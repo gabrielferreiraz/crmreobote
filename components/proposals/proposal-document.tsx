@@ -675,7 +675,9 @@ function QuotasTable({ quotas }: { quotas: ProposalQuotaDTO[] }) {
   const first = quotas[0];
 
   return (
-    <table className="w-full table-fixed border-collapse text-[9.5px] tabular-nums">
+    // 13px no corpo: é o tamanho em que a linha mais larga ("R$ 2.816.326,00")
+    // ainda cabe na coluna dentro da margem de 12mm da folha.
+    <table className="w-full table-fixed border-collapse text-[13px] tabular-nums">
       <thead>
         <tr className="bg-[#1f3864] text-white">
           <Th className="w-[11%]">Grupo</Th>
@@ -714,11 +716,13 @@ function QuotasTable({ quotas }: { quotas: ProposalQuotaDTO[] }) {
 }
 
 function Th({ children, className = "" }: { children?: React.ReactNode; className?: string }) {
-  return <th className={`border border-slate-300 px-1.5 py-1.5 text-[9px] font-bold uppercase tracking-wide ${className}`}>{children}</th>;
+  // Cabeçalho sem `uppercase` e com menos espaçamento entre letras: em caixa
+  // alta, "Parcelas Iniciais" neste tamanho não cabe mais na coluna.
+  return <th className={`border border-slate-300 px-2 py-2 text-[12px] font-bold tracking-tight ${className}`}>{children}</th>;
 }
 
 function Td({ children, className = "" }: { children?: React.ReactNode; className?: string }) {
-  return <td className={`border border-slate-300 px-1.5 py-1.5 text-slate-700 ${className}`}>{children}</td>;
+  return <td className={`border border-slate-300 px-2 py-2 text-slate-700 ${className}`}>{children}</td>;
 }
 
 function DetailRow({

@@ -16,11 +16,21 @@ export function normalizeSteps(steps: unknown): string {
       return {
         text: typeof r.text === "string" ? r.text.trim() : "",
         delayAfterSec: Number(r.delayAfterSec) || 0,
-        type: r.type === "IMAGE" ? "IMAGE" : "TEXT",
-        mediaUrl: r.type === "IMAGE" && typeof r.mediaUrl === "string" ? r.mediaUrl : "",
+        type: r.type === "IMAGE" || r.type === "VIDEO" ? r.type : "TEXT",
+        mediaUrl: (r.type === "IMAGE" || r.type === "VIDEO") && typeof r.mediaUrl === "string" ? r.mediaUrl : "",
       };
     }),
   );
+}
+
+/**
+ * Tipo da etapa -> tipo da WhatsAppMessage. Uma função só pra todos os pontos
+ * de disparo (campanha, automação, lembrete, teste, envio na conversa): antes
+ * cada um fazia `type === "IMAGE" ? "IMAGE" : "TEXT"` na mão, e quando VIDEO
+ * apareceu o vídeo virou texto puro em todos eles de uma vez.
+ */
+export function stepMessageType(type: unknown): "TEXT" | "IMAGE" | "VIDEO" {
+  return type === "IMAGE" || type === "VIDEO" ? type : "TEXT";
 }
 
 function joinedText(steps: unknown): string {

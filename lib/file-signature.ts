@@ -28,6 +28,10 @@ const SIGNATURE_CHECKS: Record<string, (buffer: Buffer) => boolean> = {
   "audio/ogg": (b) => matchesAscii(b, 0, "OggS"),
   "audio/mpeg": (b) => matchesAscii(b, 0, "ID3") || isMpegFrameSync(b),
   "audio/mp4": (b) => matchesAscii(b, 4, "ftyp"),
+  // Mesma caixa "ftyp" do audio/mp4 — os dois são contêineres MP4; o que
+  // separa um do outro são as faixas lá dentro, e isso o WhatsApp é quem
+  // resolve. Aqui a checagem só garante que é mesmo um MP4.
+  "video/mp4": (b) => matchesAscii(b, 4, "ftyp"),
   "audio/wav": (b) => matchesAscii(b, 0, "RIFF") && matchesAscii(b, 8, "WAVE"),
 };
 

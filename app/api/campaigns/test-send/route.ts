@@ -9,6 +9,7 @@ import { validateSteps } from "@/lib/campaigns/scripts";
 import { rateLimitOrResponse } from "@/lib/rate-limit";
 import { readJsonObjectOrError } from "@/lib/read-body";
 import { randomStepDelayMs } from "@/lib/campaigns/step-delay";
+import { stepMessageType } from "@/lib/campaigns/script-steps";
 
 export const dynamic = "force-dynamic";
 
@@ -81,7 +82,7 @@ export async function POST(req: Request) {
           organizationId: access.organizationId,
           threadId: thread.id,
           text: steps[i].text,
-          type: steps[i].type === "IMAGE" ? "IMAGE" : "TEXT",
+          type: stepMessageType(steps[i].type),
           mediaUrl: steps[i].mediaUrl,
         });
         if (i < steps.length - 1 && steps[i].delayAfterSec > 0) {

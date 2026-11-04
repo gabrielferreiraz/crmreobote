@@ -27,6 +27,7 @@ import { PAUSE_REASON } from "@/lib/campaigns/pause-reasons";
 import { enqueueWebhookEvent, buildDealWebhookPayload } from "@/lib/webhooks/enqueue";
 import type { $Enums, Contact } from "@/app/generated/prisma/client";
 import { randomStepDelayMs } from "@/lib/campaigns/step-delay";
+import { stepMessageType } from "@/lib/campaigns/script-steps";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -496,7 +497,7 @@ async function sendToRecipient(
       organizationId,
       threadId: thread.id,
       text: steps[0].text,
-      type: steps[0].type === "IMAGE" ? "IMAGE" : "TEXT",
+      type: stepMessageType(steps[0].type),
       mediaUrl: steps[0].mediaUrl,
       campaignId: campaign.id,
       simulateTypingFirst: true,
@@ -526,7 +527,7 @@ async function sendToRecipient(
           organizationId,
           threadId: thread.id,
           text: steps[i + 1].text,
-          type: steps[i + 1].type === "IMAGE" ? "IMAGE" : "TEXT",
+          type: stepMessageType(steps[i + 1].type),
           mediaUrl: steps[i + 1].mediaUrl,
           campaignId: campaign.id,
           simulateTypingFirst: true,

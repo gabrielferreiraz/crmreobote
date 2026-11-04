@@ -106,8 +106,23 @@ function buildEvolutionMediaUrl(mediaKey: string): string {
   if (!mediaKey.startsWith("whatsapp-media/")) throw new WhatsAppSendError("Mídia inválida");
   const appUrl = process.env.NEXTAUTH_URL?.replace(/\/$/, "");
   if (!appUrl) throw new WhatsAppSendError("NEXTAUTH_URL não configurado");
+  // Quem baixa este endereço é o Evolution, de um servidor na nuvem — endereço
+  // local nunca vai funcionar. Pior: o isURL dele exige domínio com TLD, então
+  // "localhost" volta como 400 "Owned media must be a url or base64", que faz
+  // parecer problema no arquivo. Em dev, .env.local aponta NEXTAUTH_URL pro
+  // localhost, então todo envio de mídia cai aqui.
+  if (!/^https?:\/\/[^/]*\.[^./]+(?::\d+)?$/.test(appUrl)) {
+    throw new WhatsAppSendError(
+      `Não dá pra enviar mídia com NEXTAUTH_URL="${appUrl}": o WhatsApp baixa o arquivo deste endereço e precisa de um domínio público. Teste o envio de mídia no ambiente publicado.`,
+    );
+  }
   const token = signMediaKey(mediaKey);
   return `${appUrl}/api/whatsapp/media-file/${token}/${mediaKey}`;
+}
+
+/** Nome do arquivo que o WhatsApp mostra — último trecho da chave do bucket (`.../<hash>.mp4`). */
+function mediaFileName(mediaKey: string): string {
+  return mediaKey.split("/").pop() || "video.mp4";
 }
 
 export type WhatsAppOutgoingMessage = {
@@ -231,13 +246,14 @@ export async function sendWhatsAppMessage(params: WhatsAppOutgoingMessage): Prom
       const phoneNumberId = instance.metaPhoneNumberId;
 
       switch (type) {
-        case "IMAGE": {
-          if (!mediaUrl) throw new WhatsAppSendError("Imagem é obrigatória");
+        case "IMAGE":
+        case "VIDEO": {
+          if (!mediaUrl) throw new WhatsAppSendError(type === "VIDEO" ? "Vídeo é obrigatório" : "Imagem é obrigatória");
           const result = await metaWhatsApp.sendMediaMessage(
             phoneNumberId,
             accessToken,
             fullNumber,
-            { mediatype: "image", media: buildEvolutionMediaUrl(mediaUrl), caption: text },
+            { mediatype: type === "VIDEO" ? "video" : "image", media: buildEvolutionMediaUrl(mediaUrl), caption: text },
             replyToWamid,
           );
           externalId = result.externalId;
@@ -278,12 +294,20 @@ export async function sendWhatsAppMessage(params: WhatsAppOutgoingMessage): Prom
       }
     } else {
       switch (type) {
-        case "IMAGE": {
-          if (!mediaUrl) throw new WhatsAppSendError("Imagem é obrigatória");
+        case "IMAGE":
+        case "VIDEO": {
+          if (!mediaUrl) throw new WhatsAppSendError(type === "VIDEO" ? "Vídeo é obrigatório" : "Imagem é obrigatória");
           const result = await sendMediaMessage(
             instance.instanceName,
             fullNumber,
-            { mediatype: "image", media: buildEvolutionMediaUrl(mediaUrl), caption: text },
+            {
+              mediatype: type === "VIDEO" ? "video" : "image",
+              media: buildEvolutionMediaUrl(mediaUrl),
+              caption: text,
+              // Só no vídeo: a imagem já funciona sem isso há tempos e não vale
+              // mexer. Ver o comentário em sendMediaMessage.
+              ...(type === "VIDEO" ? { mimetype: "video/mp4", fileName: mediaFileName(mediaUrl) } : {}),
+            },
             quoted,
           );
           externalId = result.externalId;
@@ -336,6 +360,10 @@ export async function sendWhatsAppMessage(params: WhatsAppOutgoingMessage): Prom
     }
   } catch (err) {
     if (err instanceof WhatsAppSendError) throw err;
+    // A mensagem pro usuário é genérica de propósito (pode conter detalhe
+    // interno do provedor), mas sem log aqui a causa real se perdia: só
+    // sobrava "Falha ao enviar" na tela, sem nada no servidor dizendo por quê.
+    console.error(`[wa:send] falha ao enviar ${type} na conversa ${threadId} (instância ${instance.instanceName})`, err);
     throw new WhatsAppSendError("Falha ao enviar a mensagem pelo WhatsApp. Tente novamente.");
   }
 

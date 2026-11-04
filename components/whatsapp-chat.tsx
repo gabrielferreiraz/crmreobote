@@ -54,7 +54,7 @@ import { trackUse } from "@/lib/feature-usage/track";
 // lib/view-transition.ts pra onde a implementação de fato mora agora).
 export { withViewTransition };
 
-type MessageType = "TEXT" | "IMAGE" | "AUDIO" | "CONTACT" | "PIX" | "BUTTONS" | "LIST" | "STICKER" | "CALL";
+type MessageType = "TEXT" | "IMAGE" | "VIDEO" | "AUDIO" | "CONTACT" | "PIX" | "BUTTONS" | "LIST" | "STICKER" | "CALL";
 
 type MessageMetadata = {
   name?: string;
@@ -1516,6 +1516,20 @@ function MessageContent({ message }: { message: Message }) {
             <p className="flex items-center gap-1.5 text-xs italic opacity-60">
               <ImageOff className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
               Imagem expirada
+            </p>
+          )}
+          {message.body && <p className="whitespace-pre-wrap">{message.body}</p>}
+        </div>
+      );
+    case "VIDEO":
+      return (
+        <div className="space-y-1">
+          {message.mediaUrl ? (
+            <video controls playsInline preload="metadata" src={message.mediaUrl} className="max-h-72 w-56 max-w-full rounded-md bg-black" />
+          ) : (
+            <p className="flex items-center gap-1.5 text-xs italic opacity-60">
+              <ImageOff className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+              Vídeo expirado
             </p>
           )}
           {message.body && <p className="whitespace-pre-wrap">{message.body}</p>}

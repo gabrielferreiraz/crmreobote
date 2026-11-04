@@ -4,7 +4,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Plus, Trash2, Loader2, ArrowLeft, X, Shuffle, MessageCircleMore, Pencil, Globe2, Lock, ImagePlus, Image as ImageIcon, Timer } from "lucide-react";
+import { Plus, Trash2, Loader2, ArrowLeft, X, Shuffle, MessageCircleMore, Pencil, Globe2, Lock, ImagePlus, Image as ImageIcon, Timer, Video } from "lucide-react";
 import { VariablePills } from "@/components/variable-pills";
 import { Switch } from "@/components/switch";
 import { LoadingDots } from "@/components/loading-dots";
@@ -27,8 +27,18 @@ const NEW_VERSION_SUGGESTION_RATIO = 0.35;
 
 function imagePreviewUrl(step: Step): string | undefined {
   if (step.previewUrl) return step.previewUrl;
-  if (step.type === "IMAGE" && step.mediaUrl) return `/api/whatsapp/media-preview/${step.mediaUrl}`;
+  if ((step.type === "IMAGE" || step.type === "VIDEO") && step.mediaUrl) return `/api/whatsapp/media-preview/${step.mediaUrl}`;
   return undefined;
+}
+
+/** id do <input type="file"> de vídeo da etapa — o botão o aciona por getElementById. */
+function videoInputId(idx: number): string {
+  return `script-step-video-${idx}`;
+}
+
+/** Etapas que carregam arquivo; a mensagem de texto vira legenda do anexo. */
+function isMediaStep(step: Step): boolean {
+  return step.type === "IMAGE" || step.type === "VIDEO";
 }
 
 const TOKEN_LABEL = new Map<string, string>([
@@ -376,7 +386,9 @@ export function ScriptEditor({
     setSteps((prev) => prev.map((s, i) => (i === idx ? { ...s, delayAfterSec: clamped } : s)));
   }
 
-  async function uploadStepImage(idx: number, file: File) {
+  /** `kind` decide só o rótulo do erro e o tipo gravado — o envio é o mesmo. */
+  async function uploadStepImage(idx: number, file: File, kind: "IMAGE" | "VIDEO" = "IMAGE") {
+    const rotulo = kind === "IMAGE" ? "a imagem" : "o vídeo";
     setError(null);
     setUploadingStep(idx);
     try {
@@ -384,15 +396,15 @@ export function ScriptEditor({
       formData.set("file", file);
       const res = await fetch("/api/whatsapp/media", { method: "POST", body: formData });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.key) throw new Error(data.error ?? "Não foi possível enviar a imagem");
+      if (!res.ok || !data.key) throw new Error(data.error ?? `Não foi possível enviar ${rotulo}`);
 
       const previewUrl = URL.createObjectURL(file);
-      // Trocou a imagem: a prévia anterior (blob local) não serve mais — libera a memória dela.
+      // Trocou o arquivo: a prévia anterior (blob local) não serve mais — libera a memória dela.
       const previous = steps[idx]?.previewUrl;
       if (previous) URL.revokeObjectURL(previous);
-      setSteps((prev) => prev.map((step, i) => (i === idx ? { ...step, type: "IMAGE", mediaUrl: data.key, previewUrl } : step)));
+      setSteps((prev) => prev.map((step, i) => (i === idx ? { ...step, type: kind, mediaUrl: data.key, previewUrl } : step)));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Não foi possível enviar a imagem");
+      setError(err instanceof Error ? err.message : `Não foi possível enviar ${rotulo}`);
     } finally {
       setUploadingStep(null);
     }
@@ -765,7 +777,7 @@ export function ScriptEditor({
     [rawStepsKey, variationSeed],
   );
   const totalChars = steps.reduce((sum, s) => sum + s.text.length, 0);
-  const canSubmit = !!name.trim() && steps.length > 0 && steps.every((s) => s.text.trim().length > 0 && (s.type !== "IMAGE" || !!s.mediaUrl));
+  const canSubmit = !!name.trim() && steps.length > 0 && steps.every((s) => s.text.trim().length > 0 && (!isMediaStep(s) || !!s.mediaUrl));
 
   /** Grava o script (POST novo / PUT existente). `choice` só existe depois do diálogo de salvar. Devolve a mensagem de erro, ou null se deu certo. */
   async function persist(choice?: ScriptSaveChoice): Promise<string | null> {
@@ -1035,39 +1047,85 @@ export function ScriptEditor({
                           </button>
                         )}
                       </div>
-                      {step.type === "IMAGE" ? (
+                      {isMediaStep(step) ? (
                         <div className="flex items-center gap-3 rounded-lg border border-neutral-200 bg-neutral-50 p-2.5 dark:border-neutral-800 dark:bg-neutral-900/60">
                           {imagePreviewUrl(step) ? (
-                            <img src={imagePreviewUrl(step)} alt="Imagem do script" className="h-14 w-14 rounded-md object-cover" />
+                            step.type === "VIDEO" ? (
+                              // `muted` + `playsInline`: sem isso o iOS abre o
+                              // vídeo em tela cheia ao tocar, no meio da edição.
+                              <video
+                                src={imagePreviewUrl(step)}
+                                controls
+                                muted
+                                playsInline
+                                preload="metadata"
+                                className="h-14 w-20 rounded-md bg-black object-cover"
+                              />
+                            ) : (
+                              <img src={imagePreviewUrl(step)} alt="Imagem do script" className="h-14 w-14 rounded-md object-cover" />
+                            )
                           ) : (
                             <div className="flex h-14 w-14 items-center justify-center rounded-md bg-neutral-200 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
-                              <ImageIcon className="h-5 w-5" strokeWidth={2} />
+                              {step.type === "VIDEO" ? <Video className="h-5 w-5" strokeWidth={2} /> : <ImageIcon className="h-5 w-5" strokeWidth={2} />}
                             </div>
                           )}
                           <div className="min-w-0 flex-1">
-                            <p className="text-sm font-medium text-neutral-800 dark:text-neutral-100">Imagem adicionada</p>
+                            <p className="text-sm font-medium text-neutral-800 dark:text-neutral-100">
+                              {step.type === "VIDEO" ? "Vídeo adicionado" : "Imagem adicionada"}
+                            </p>
                             <p className="text-xs text-neutral-500 dark:text-neutral-400">A mensagem abaixo será enviada como legenda.</p>
                           </div>
-                          <button type="button" onClick={() => removeStepImage(idx)} className="icon-btn shrink-0" aria-label={`Remover imagem da mensagem ${idx + 1}`}>
+                          <button
+                            type="button"
+                            onClick={() => removeStepImage(idx)}
+                            className="icon-btn shrink-0"
+                            aria-label={`Remover ${step.type === "VIDEO" ? "vídeo" : "imagem"} da mensagem ${idx + 1}`}
+                          >
                             <X className="h-3.5 w-3.5" strokeWidth={2} />
                           </button>
                         </div>
                       ) : (
-                        <label className="inline-flex w-fit cursor-pointer items-center gap-1.5 rounded-md border border-neutral-200 px-2.5 py-1.5 text-xs font-medium text-neutral-600 transition-colors hover:border-neutral-300 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:border-neutral-600 dark:hover:bg-neutral-800">
-                          {uploadingStep === idx ? <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} /> : <ImagePlus className="h-3.5 w-3.5" strokeWidth={2} />}
-                          {uploadingStep === idx ? "Enviando imagem" : "Adicionar imagem"}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <label className="inline-flex w-fit cursor-pointer items-center gap-1.5 rounded-md border border-neutral-200 px-2.5 py-1.5 text-xs font-medium text-neutral-600 transition-colors hover:border-neutral-300 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:border-neutral-600 dark:hover:bg-neutral-800">
+                            {uploadingStep === idx ? <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} /> : <ImagePlus className="h-3.5 w-3.5" strokeWidth={2} />}
+                            {uploadingStep === idx ? "Enviando imagem" : "Adicionar imagem"}
+                            <input
+                              type="file"
+                              accept="image/jpeg,image/png,image/webp"
+                              className="sr-only"
+                              disabled={uploadingStep !== null}
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                e.currentTarget.value = "";
+                                if (file) void uploadStepImage(idx, file);
+                              }}
+                            />
+                          </label>
+
+                          {/* Só abre o seletor de arquivo — quem grava no banco é
+                              o "Salvar" do script, no fim do formulário. */}
+                          <button
+                            type="button"
+                            disabled={uploadingStep !== null}
+                            onClick={() => document.getElementById(videoInputId(idx))?.click()}
+                            className="inline-flex w-fit items-center gap-1.5 rounded-md border border-neutral-200 px-2.5 py-1.5 text-xs font-medium text-neutral-600 transition-colors hover:border-neutral-300 hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:border-neutral-600 dark:hover:bg-neutral-800"
+                          >
+                            {uploadingStep === idx ? <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} /> : <Video className="h-3.5 w-3.5" strokeWidth={2} />}
+                            {uploadingStep === idx ? "Enviando vídeo" : "Adicionar vídeo"}
+                          </button>
                           <input
+                            id={videoInputId(idx)}
                             type="file"
-                            accept="image/jpeg,image/png,image/webp"
+                            accept="video/mp4"
                             className="sr-only"
                             disabled={uploadingStep !== null}
                             onChange={(e) => {
                               const file = e.target.files?.[0];
                               e.currentTarget.value = "";
-                              if (file) void uploadStepImage(idx, file);
+                              if (file) void uploadStepImage(idx, file, "VIDEO");
                             }}
                           />
-                        </label>
+                        </div>
                       )}
                       <div className="relative">
                         <div

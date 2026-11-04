@@ -218,6 +218,7 @@ const CHAT_MEDIA_ALLOWED_TYPES: Record<string, string> = {
   "audio/mpeg": "mp3",
   "audio/mp4": "m4a",
   "audio/wav": "wav",
+  "video/mp4": "mp4",
 };
 const CHAT_MEDIA_MAX_SIZE = 16 * 1024 * 1024; // 16MB — mesmo teto que o próprio WhatsApp aplica
 

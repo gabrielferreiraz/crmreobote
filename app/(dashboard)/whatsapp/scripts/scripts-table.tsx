@@ -5,12 +5,12 @@ import { requestJson } from "@/lib/client-request";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { FileText, Plus, Pencil, Trash2, Copy, Search, MessagesSquare, Globe2, Lock, Image as ImageIcon } from "lucide-react";
+import { FileText, Plus, Pencil, Trash2, Copy, Search, MessagesSquare, Globe2, Lock, Image as ImageIcon, Video } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { SAMPLE_CONTACT_VARS } from "@/lib/campaigns/spintax";
 
-type ScriptStep = { text: string; delayAfterSec: number; type?: "TEXT" | "IMAGE"; mediaUrl?: string };
+type ScriptStep = { text: string; delayAfterSec: number; type?: "TEXT" | "IMAGE" | "VIDEO"; mediaUrl?: string };
 type ScriptUsage = { campaignId: string; campaignName: string; status: "DRAFT" | "RUNNING" | "PAUSED" | "DONE" };
 
 type Script = {
@@ -236,6 +236,12 @@ export function ScriptsTable({
                     <span className="inline-flex items-center gap-1" title="Este script envia imagem com legenda">
                       <ImageIcon className="h-3 w-3" strokeWidth={2} />
                       Imagem
+                    </span>
+                  )}
+                  {s.steps.some((step) => step.type === "VIDEO") && (
+                    <span className="inline-flex items-center gap-1" title="Este script envia vídeo com legenda">
+                      <Video className="h-3 w-3" strokeWidth={2} />
+                      Vídeo
                     </span>
                   )}
                   {s.steps.length > 1 && (

@@ -10,6 +10,7 @@ import { brazilGreeting } from "@/lib/timezone";
 import type { Contact } from "@/app/generated/prisma/client";
 import { scriptAccessWhere } from "@/lib/campaigns/scripts";
 import { randomStepDelayMs } from "@/lib/campaigns/step-delay";
+import { stepMessageType } from "@/lib/campaigns/script-steps";
 
 export const dynamic = "force-dynamic";
 
@@ -88,7 +89,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ threadI
             organizationId,
             threadId,
             text: steps[i].text,
-            type: steps[i].type === "IMAGE" ? "IMAGE" : "TEXT",
+            type: stepMessageType(steps[i].type),
             mediaUrl: steps[i].mediaUrl,
             sentByUserId: userId,
           });

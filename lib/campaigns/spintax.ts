@@ -88,7 +88,7 @@ export function stepDelayLabel(seconds: number): string {
 export type ScriptStep = {
   text: string;
   delayAfterSec: number;
-  type?: "TEXT" | "IMAGE";
+  type?: "TEXT" | "IMAGE" | "VIDEO";
   mediaUrl?: string;
 };
 

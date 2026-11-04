@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { ArrowLeft, Video, Phone as PhoneIcon, MoreVertical, CheckCheck } from "lucide-react";
 
-type PreviewStep = { text: string; type?: "TEXT" | "IMAGE"; imagePreviewUrl?: string };
+type PreviewStep = { text: string; type?: "TEXT" | "IMAGE" | "VIDEO"; imagePreviewUrl?: string };
 
 const GAP_MS = 650;
 const LOOP_PAUSE_MS = 2600;
@@ -99,6 +99,12 @@ export function WhatsAppPhonePreview({
 function SentBubble({ step }: { step: PreviewStep }) {
   return (
     <div className="animate-bubble-in ml-auto max-w-[82%] rounded-lg rounded-tr-sm bg-[#d9fdd3] px-2.5 py-1.5 shadow-sm dark:bg-[#005c4b]">
+      {step.type === "VIDEO" &&
+        (step.imagePreviewUrl ? (
+          <video src={step.imagePreviewUrl} muted playsInline preload="metadata" className="mb-1.5 max-h-44 w-full rounded-md bg-black object-cover" />
+        ) : (
+          <div className="mb-1.5 flex h-28 items-center justify-center rounded-md bg-black/10 text-[11px] text-neutral-600 dark:bg-white/10 dark:text-neutral-200">Vídeo</div>
+        ))}
       {step.type === "IMAGE" &&
         (step.imagePreviewUrl ? (
           <img src={step.imagePreviewUrl} alt="Prévia da imagem" className="mb-1.5 max-h-44 w-full rounded-md object-cover" />
