@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Pencil, Loader2 } from "lucide-react";
+import { BriefcaseBusiness, ChevronDown, Loader2, MapPin, MessageCircle, Pencil, Tag, UserRound, X } from "lucide-react";
 import { Modal } from "@/components/modal";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
@@ -95,6 +95,9 @@ export function ContactEditForm({
   const [tags, setTags] = useState((contact.tags ?? []).join(", "));
   const [responsavelId, setResponsavelId] = useState(contact.responsavelId ?? "");
   const [customFieldValues, setCustomFieldValues] = useState<CustomFieldFormValues>(contact.customFieldValues ?? {});
+  const [addressOpen, setAddressOpen] = useState(
+    Boolean(contact.zipCode || contact.address || contact.addressNumber || contact.addressComplement || contact.neighborhood || contact.city || contact.state),
+  );
   const [loading, setLoading] = useState(false);
   const [errorData, setErrorData] = useState<{ message: string; type?: ErrorType; details?: string } | null>(null);
   // 409 de telefone/WhatsApp já usado por OUTRO contato (ver PUT
@@ -269,135 +272,206 @@ export function ContactEditForm({
 
   return (
     <>
-      <h2 className="mb-4 text-lg font-semibold text-neutral-900 dark:text-neutral-100">Editar contato</h2>
-      {/* 3 colunas em vez de 2 (modal ficou mais largo, ver maxWidth no
-          EditContactDialog abaixo) — a mesma quantidade de campos cabe em
-          bem menos linhas, então o formulário cresce pros lados em vez de
-          rolar tanto pra baixo. */}
-      <form onSubmit={handleSubmit} className="space-y-3">
-        <Field
-          id="edit-contact-name"
-          label="Nome *"
-          value={name}
-          onChange={(v) => {
-            setName(v);
-            setNameError(null);
-          }}
-          error={nameError}
-          autoFocus
-        />
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <Field label="E-mail" value={email} onChange={setEmail} type="email" />
-          <PhoneInput
-            label="Celular"
-            value={phone}
-            onChange={(v) => { setPhone(v); setPhoneError(null); }}
-            error={phoneError}
-          />
-          <PhoneInput
-            label="WhatsApp"
-            value={whatsapp}
-            onChange={(v) => { setWhatsapp(v); setWhatsappError(null); }}
-            error={whatsappError}
-          />
-        </div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <Field label="Empresa" value={company} onChange={setCompany} />
-          <div className="space-y-1">
-            <label className="field-label">Cargo *</label>
-            <Select
-              id="edit-contact-job-title"
-              value={jobTitle}
-              onChange={(v) => {
-                setJobTitle(v);
-                setJobTitleError(null);
-              }}
-              invalid={!!jobTitleError}
-              describedBy="edit-contact-job-title-error"
-              placeholder="Selecione o cargo"
-              options={optionsWithLegacyValue(jobTitles, contact.jobTitle)}
-            />
-            {jobTitleError && <FieldError id="edit-contact-job-title-error">{jobTitleError}</FieldError>}
+      <div className="flex max-h-[90dvh] min-h-0 flex-col">
+        <header className="flex shrink-0 items-center justify-between gap-4 border-b border-neutral-200 px-5 py-4 dark:border-neutral-800 sm:px-6">
+          <div className="min-w-0">
+            <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Editar contato</h2>
+            <p className="truncate text-sm text-neutral-500 dark:text-neutral-400">{contact.name}</p>
           </div>
-          <div className="space-y-1">
-            <label className="field-label">Origem</label>
-            <Select
-              value={source}
-              onChange={setSource}
-              options={[{ value: "", label: "—" }, ...sources.map((s) => ({ value: s.label, label: s.label }))]}
-            />
-          </div>
-        </div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <div
-            ref={responsavelFieldRef}
-            className={`-m-1.5 space-y-1 rounded-lg p-1.5 transition-colors duration-700 ${
-              highlightResponsavel ? "bg-brand/10 ring-2 ring-brand/40 dark:bg-brand/15" : "ring-2 ring-transparent"
-            }`}
-          >
-            <label className="field-label">Responsável</label>
-            <Select
-              value={responsavelId}
-              onChange={setResponsavelId}
-              options={[{ value: "", label: "Ninguém" }, ...members.map((m) => ({ value: m.id, label: m.name }))]}
-            />
-          </div>
-          <BirthDateInput
-            value={birthDate}
-            onChange={(v) => { setBirthDate(v); setBirthDateError(null); }}
-            error={birthDateError}
-          />
-          <div className="space-y-1">
-            <div className="flex items-center justify-between gap-2">
-              <label className="field-label">CEP</label>
-              {cepAutofill.loading && (
-                <span className="inline-flex items-center gap-1 text-[11px] text-neutral-400 dark:text-neutral-500">
-                  <Loader2 className="h-3 w-3 animate-spin" strokeWidth={2.5} />
-                  Buscando
-                </span>
+          <button type="button" onClick={onCancel} className="btn-ghost h-9 w-9 p-0" aria-label="Fechar edição">
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </header>
+
+        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+          <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6">
+            <div className="space-y-7">
+              <section aria-labelledby="contact-identification-title" className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <UserRound className="h-4 w-4 text-brand" aria-hidden="true" />
+                  <h3 id="contact-identification-title" className="font-semibold text-neutral-900 dark:text-neutral-100">Identificação</h3>
+                </div>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="sm:col-span-2">
+                    <Field
+                      id="edit-contact-name"
+                      label="Nome *"
+                      value={name}
+                      onChange={(value) => {
+                        setName(value);
+                        setNameError(null);
+                      }}
+                      error={nameError}
+                      autoFocus
+                    />
+                  </div>
+                  <div
+                    ref={responsavelFieldRef}
+                    className={`-m-1.5 space-y-1 rounded-md p-1.5 transition-colors duration-700 ${
+                      highlightResponsavel ? "bg-brand/10 ring-2 ring-brand/40 dark:bg-brand/15" : "ring-2 ring-transparent"
+                    }`}
+                  >
+                    <label className="field-label">Responsável</label>
+                    <Select
+                      value={responsavelId}
+                      onChange={setResponsavelId}
+                      options={[{ value: "", label: "Ninguém" }, ...members.map((member) => ({ value: member.id, label: member.name }))]}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="field-label">Origem</label>
+                    <Select
+                      value={source}
+                      onChange={setSource}
+                      options={[{ value: "", label: "—" }, ...sources.map((item) => ({ value: item.label, label: item.label }))]}
+                    />
+                  </div>
+                </div>
+              </section>
+
+              <section aria-labelledby="contact-work-title" className="space-y-4 border-t border-neutral-200 pt-5 dark:border-neutral-800">
+                <div className="flex items-center gap-2">
+                  <BriefcaseBusiness className="h-4 w-4 text-brand" aria-hidden="true" />
+                  <h3 id="contact-work-title" className="font-semibold text-neutral-900 dark:text-neutral-100">Perfil profissional</h3>
+                </div>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <Field label="Empresa" value={company} onChange={setCompany} />
+                  <div className="space-y-1">
+                    <label className="field-label">Cargo *</label>
+                    <Select
+                      id="edit-contact-job-title"
+                      value={jobTitle}
+                      onChange={(value) => {
+                        setJobTitle(value);
+                        setJobTitleError(null);
+                      }}
+                      invalid={!!jobTitleError}
+                      describedBy="edit-contact-job-title-error"
+                      placeholder="Selecione o cargo"
+                      options={optionsWithLegacyValue(jobTitles, contact.jobTitle)}
+                    />
+                    {jobTitleError && <FieldError id="edit-contact-job-title-error">{jobTitleError}</FieldError>}
+                  </div>
+                </div>
+              </section>
+
+              <section aria-labelledby="contact-channels-title" className="space-y-4 border-t border-neutral-200 pt-5 dark:border-neutral-800">
+                <div className="flex items-center gap-2">
+                  <MessageCircle className="h-4 w-4 text-brand" aria-hidden="true" />
+                  <h3 id="contact-channels-title" className="font-semibold text-neutral-900 dark:text-neutral-100">Contato</h3>
+                </div>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <PhoneInput
+                    label="WhatsApp"
+                    value={whatsapp}
+                    onChange={(value) => {
+                      setWhatsapp(value);
+                      setWhatsappError(null);
+                    }}
+                    error={whatsappError}
+                  />
+                  <PhoneInput
+                    label="Celular"
+                    value={phone}
+                    onChange={(value) => {
+                      setPhone(value);
+                      setPhoneError(null);
+                    }}
+                    error={phoneError}
+                  />
+                  <Field label="E-mail" value={email} onChange={setEmail} type="email" />
+                  <BirthDateInput
+                    value={birthDate}
+                    onChange={(value) => {
+                      setBirthDate(value);
+                      setBirthDateError(null);
+                    }}
+                    error={birthDateError}
+                  />
+                </div>
+              </section>
+
+              <section className="border-y border-neutral-200 dark:border-neutral-800">
+                <button
+                  type="button"
+                  onClick={() => setAddressOpen((current) => !current)}
+                  className="flex w-full items-center gap-3 py-4 text-left"
+                  aria-expanded={addressOpen}
+                  aria-controls="contact-address-fields"
+                >
+                  <MapPin className="h-4 w-4 shrink-0 text-brand" aria-hidden="true" />
+                  <span className="font-semibold text-neutral-900 dark:text-neutral-100">Endereço</span>
+                  <span className="min-w-0 flex-1 truncate text-right text-sm text-neutral-500 dark:text-neutral-400">
+                    {city ? `${city}${state ? ` · ${state}` : ""}` : "Não informado"}
+                  </span>
+                  <ChevronDown className={`h-4 w-4 shrink-0 text-neutral-400 transition-transform ${addressOpen ? "rotate-180" : ""}`} aria-hidden="true" />
+                </button>
+
+                {addressOpen && (
+                  <div id="contact-address-fields" className="grid grid-cols-1 gap-4 pb-5 sm:grid-cols-3">
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <label className="field-label">CEP</label>
+                        {cepAutofill.loading && (
+                          <span className="inline-flex items-center gap-1 text-xs text-neutral-400 dark:text-neutral-500">
+                            <Loader2 className="h-3 w-3 animate-spin" strokeWidth={2.5} />
+                            Buscando
+                          </span>
+                        )}
+                      </div>
+                      <input value={zipCode} onChange={(event) => setZipCode(event.target.value)} className="field-input" />
+                      {cepAutofill.error && <p className="text-xs text-amber-600 dark:text-amber-400">{cepAutofill.error}</p>}
+                    </div>
+                    <Field label="Cidade" value={city} onChange={setCity} />
+                    <div className="space-y-1">
+                      <label className="field-label">Estado</label>
+                      <Select value={state} onChange={setState} placeholder="Selecione o estado" options={[{ value: "", label: "—" }, ...ESTADOS_BR]} />
+                    </div>
+                    <Field label="Endereço" value={address} onChange={setAddress} />
+                    <Field label="Número" value={addressNumber} onChange={setAddressNumber} />
+                    <Field label="Bairro" value={neighborhood} onChange={setNeighborhood} />
+                    <div className="sm:col-span-3">
+                      <Field label="Complemento" value={addressComplement} onChange={setAddressComplement} />
+                    </div>
+                  </div>
+                )}
+              </section>
+
+              <section aria-labelledby="contact-extra-title" className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <Tag className="h-4 w-4 text-brand" aria-hidden="true" />
+                  <h3 id="contact-extra-title" className="font-semibold text-neutral-900 dark:text-neutral-100">Complementos</h3>
+                </div>
+                <Field label="Tags (separadas por vírgula)" value={tags} onChange={setTags} />
+                {customFields.length > 0 && (
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <CustomFieldsFieldset definitions={customFields} values={customFieldValues} onChange={setCustomFieldValues} />
+                  </div>
+                )}
+              </section>
+
+              {conflictData && (
+                <ContactConflictNotice conflict={conflictData} onUpdateExisting={handleUpdateExisting} updatingExisting={updatingExisting} />
               )}
             </div>
-            <input value={zipCode} onChange={(e) => setZipCode(e.target.value)} className="field-input" />
-            {cepAutofill.error && <p className="text-xs text-amber-600 dark:text-amber-400">{cepAutofill.error}</p>}
           </div>
-        </div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <Field label="Cidade" value={city} onChange={setCity} />
-          <Field label="Endereço" value={address} onChange={setAddress} />
-          <div className="space-y-1">
-            <label className="field-label">Estado</label>
-            <Select value={state} onChange={setState} placeholder="Selecione o estado" options={[{ value: "", label: "—" }, ...ESTADOS_BR]} />
-          </div>
-        </div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <Field label="Número" value={addressNumber} onChange={setAddressNumber} />
-          <Field label="Complemento" value={addressComplement} onChange={setAddressComplement} />
-          <Field label="Bairro" value={neighborhood} onChange={setNeighborhood} />
-        </div>
-        <Field label="Tags (separadas por vírgula)" value={tags} onChange={setTags} />
-        <CustomFieldsFieldset definitions={customFields} values={customFieldValues} onChange={setCustomFieldValues} />
 
-        {conflictData && (
-          <ContactConflictNotice conflict={conflictData} onUpdateExisting={handleUpdateExisting} updatingExisting={updatingExisting} />
-        )}
-
-        <div className="flex justify-end gap-2 pt-2">
-          <button type="button" onClick={onCancel} className="btn-ghost">
-            Cancelar
-          </button>
-          <button type="submit" disabled={loading} className="btn-primary">
-            {loading && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
-            {loading ? (
-              <span className="inline-flex items-center gap-1">
-                Salvando
-                <LoadingDots />
-              </span>
-            ) : (
-              "Salvar"
-            )}
-          </button>
-        </div>
-      </form>
+          <footer className="flex shrink-0 items-center justify-end gap-2 border-t border-neutral-200 bg-white px-5 py-4 dark:border-neutral-800 dark:bg-neutral-950 sm:px-6">
+            <button type="button" onClick={onCancel} className="btn-ghost">Cancelar</button>
+            <button type="submit" disabled={loading} className="btn-primary min-w-28">
+              {loading && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
+              {loading ? (
+                <span className="inline-flex items-center gap-1">
+                  Salvando
+                  <LoadingDots />
+                </span>
+              ) : (
+                "Salvar"
+              )}
+            </button>
+          </footer>
+        </form>
+      </div>
 
       {errorData && (
         <ErrorDialog
@@ -453,7 +527,11 @@ export function EditContactDialog({
       </button>
 
       {open && (
-        <Modal onClose={() => setOpen(false)} maxWidth="max-w-2xl">
+        <Modal
+          onClose={() => setOpen(false)}
+          maxWidth="max-w-4xl"
+          panelClassName="!overflow-hidden !p-0 !pb-0"
+        >
           <ContactEditForm
             contact={contact}
             sources={sources}

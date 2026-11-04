@@ -130,13 +130,13 @@ export function ClientPaymentsView({
   const done = total - counts.pending;
 
   return (
-    <div className={`mx-auto max-w-4xl space-y-5 transition-opacity ${navigating ? "pointer-events-none opacity-60" : ""}`} aria-busy={navigating}>
+    <div className={`mx-auto max-w-5xl space-y-6 transition-opacity ${navigating ? "pointer-events-none opacity-60" : ""}`} aria-busy={navigating}>
       <div className="space-y-2">
         <div className="flex items-center gap-2">
           <Link href={month === currentMonth ? "/comissoes" : `/comissoes?mes=${month}`} className="icon-btn" aria-label="Voltar para Comissões">
             <ArrowLeft className="h-4 w-4" strokeWidth={2} />
           </Link>
-          <h1 className="text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Quem pagou a parcela</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Quem pagou a parcela</h1>
         </div>
         <p className="text-sm text-neutral-600 dark:text-neutral-400">
           Marque com o ✓ os clientes que pagaram a parcela de {monthName}. A comissão do mês só é paga depois disso. Quem está no débito automático já vem
@@ -232,7 +232,7 @@ export function ClientPaymentsView({
                 const isBusy = busy.has(row.saleId);
                 const checked = row.state === "PAID";
                 return (
-                  <li key={row.saleId} className="flex flex-wrap items-start gap-3 px-4 py-3">
+                  <li key={row.saleId} className="flex flex-wrap items-start gap-4 px-5 py-4">
                     <button
                       type="button"
                       role="checkbox"

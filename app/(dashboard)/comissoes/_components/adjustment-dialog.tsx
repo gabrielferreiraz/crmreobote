@@ -66,9 +66,9 @@ export function AdjustmentDialog({
   }
 
   return (
-    <Modal onClose={() => !saving && onClose()} maxWidth="max-w-lg">
-      <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Lançar ajuste</h2>
-      <form onSubmit={submit} className="mt-5 space-y-6">
+    <Modal onClose={() => !saving && onClose()} maxWidth="max-w-xl">
+      <h2 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100">Lançar ajuste</h2>
+      <form onSubmit={submit} className="mt-6 space-y-7">
         <Question title="Para quem">
           <Select value={beneficiaryId} onChange={setBeneficiaryId} options={members.map((m) => ({ value: m.id, label: m.name }))} placeholder="Escolha a pessoa" ariaLabel="Pessoa" />
         </Question>

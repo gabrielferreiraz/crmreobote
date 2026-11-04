@@ -4,8 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Briefcase, Loader2, MessageCircle, Search } from "lucide-react";
 import { useDesktopViewport } from "@/lib/use-desktop-viewport";
+import { CampaignQueue, type CampaignQueueData } from "./campaign-queue";
 
 type RecipientStatus = "PENDING" | "SENDING" | "SENT" | "FAILED" | "SKIPPED";
+type RecipientView = "pending" | "sent" | "replied" | "failed" | "all";
 
 type Recipient = {
   id: string;
@@ -153,15 +155,23 @@ function FollowUpCell({
 export function RecipientsTable({
   campaignId,
   initialPage,
-  repliedTotal,
   initialStatusFilter = "ALL",
   initialOnlyReplied = false,
+  queue = null,
+  counts,
 }: {
   campaignId: string;
   initialPage: RecipientPage;
-  repliedTotal: number;
   initialStatusFilter?: RecipientStatus | "ALL";
   initialOnlyReplied?: boolean;
+  queue?: CampaignQueueData | null;
+  counts: {
+    pending: number;
+    sent: number;
+    failed: number;
+    replied: number;
+    total: number;
+  };
 }) {
   const desktop = useDesktopViewport();
   const [search, setSearch] = useState("");
@@ -175,6 +185,29 @@ export function RecipientsTable({
   const [error, setError] = useState<string | null>(null);
   const firstQuery = useRef(true);
   const activeQuery = useRef("");
+  const activeView: RecipientView = onlyReplied
+    ? "replied"
+    : statusFilter === "PENDING"
+      ? "pending"
+      : statusFilter === "SENT"
+        ? "sent"
+        : statusFilter === "FAILED"
+          ? "failed"
+          : "all";
+  const showingManagedQueue = activeView === "pending" && queue !== null;
+
+  function selectView(view: RecipientView) {
+    setOnlyReplied(view === "replied");
+    setStatusFilter(
+      view === "pending"
+        ? "PENDING"
+        : view === "sent"
+          ? "SENT"
+          : view === "failed"
+            ? "FAILED"
+            : "ALL",
+    );
+  }
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(search.trim()), 300);
@@ -242,42 +275,52 @@ export function RecipientsTable({
   }
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-0 flex-1 sm:max-w-xs">
-          <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-neutral-400" strokeWidth={2} />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar nome ou telefone"
-            className="field-input w-full pl-9 text-base"
-          />
+    <div className="space-y-4">
+      <div className="overflow-x-auto border-b border-neutral-200 dark:border-neutral-800">
+        <div className="flex min-w-max items-center gap-5" role="tablist" aria-label="Situação dos contatos">
+          {([
+            ["pending", "Pendentes", counts.pending],
+            ["sent", "Enviados", counts.sent],
+            ["replied", "Respostas", counts.replied],
+            ["failed", "Falhas", counts.failed],
+            ["all", "Todos", counts.total],
+          ] as const).map(([view, label, count]) => {
+            const selected = activeView === view;
+            return (
+              <button
+                key={view}
+                type="button"
+                role="tab"
+                aria-selected={selected}
+                onClick={() => selectView(view)}
+                className={`border-b-2 py-2.5 text-base font-medium transition-colors ${
+                  selected
+                    ? "border-brand text-neutral-950 dark:text-white"
+                    : "border-transparent text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
+                }`}
+              >
+                {label} <span className="ml-1 text-sm font-normal tabular-nums text-neutral-400 dark:text-neutral-500">{count}</span>
+              </button>
+            );
+          })}
         </div>
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as RecipientStatus | "ALL")}
-          className="field-input w-auto text-base"
-        >
-          <option value="ALL">Todos os status</option>
-          <option value="PENDING">Pendente</option>
-          <option value="SENDING">Enviando</option>
-          <option value="SENT">Enviada</option>
-          <option value="FAILED">Falhou</option>
-          <option value="SKIPPED">Pulada</option>
-        </select>
-        <button
-          type="button"
-          onClick={() => setOnlyReplied((v) => !v)}
-          aria-pressed={onlyReplied}
-          className={`rounded-md border px-3 py-2 text-base font-medium transition-colors ${
-            onlyReplied
-              ? "border-neutral-900 bg-neutral-900 text-white dark:border-white dark:bg-white dark:text-neutral-900"
-              : "border-neutral-300 text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
-          }`}
-        >
-          Só quem respondeu ({repliedTotal})
-        </button>
       </div>
+
+      {showingManagedQueue ? (
+        <CampaignQueue campaignId={campaignId} initial={queue} />
+      ) : (
+        <>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative min-w-0 flex-1 sm:max-w-xs">
+              <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-neutral-400" strokeWidth={2} />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Buscar nome ou telefone"
+                className="field-input w-full pl-9 text-base"
+              />
+            </div>
+          </div>
 
       {error && <p className="text-base text-red-600 dark:text-red-400">{error}</p>}
 
@@ -406,6 +449,8 @@ export function RecipientsTable({
             </button>
           )}
         </div>
+      )}
+        </>
       )}
     </div>
   );

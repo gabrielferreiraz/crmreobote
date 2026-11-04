@@ -164,12 +164,12 @@ export function AdministratorDialog({
   return (
     <Modal
       onClose={() => !saving && onClose()}
-      maxWidth="max-w-3xl"
+      maxWidth="max-w-4xl"
       panelClassName="!flex !h-[90vh] !flex-col !overflow-hidden !p-0"
     >
-      <header className="flex shrink-0 items-start justify-between gap-4 border-b border-neutral-200 px-5 py-4 dark:border-neutral-800">
+      <header className="flex shrink-0 items-start justify-between gap-4 border-b border-neutral-200 px-7 py-5 dark:border-neutral-800">
         <div className="min-w-0">
-          <h2 className="truncate text-lg font-semibold text-neutral-900 dark:text-neutral-100">
+          <h2 className="truncate text-xl font-semibold text-neutral-900 dark:text-neutral-100">
             {initial.id ? `Editar ${initial.name}` : "Cadastrar administradora"}
           </h2>
           <p className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400">
@@ -198,8 +198,8 @@ export function AdministratorDialog({
       </header>
 
       <form ref={formRef} onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
-        <div className="scrollbar-thin min-h-0 flex-1 divide-y divide-neutral-200 overflow-y-auto px-5 dark:divide-neutral-800">
-        <section className="py-6">
+        <div className="scrollbar-thin min-h-0 flex-1 divide-y divide-neutral-200 overflow-y-auto px-7 dark:divide-neutral-800">
+        <section className="py-7">
           <FormSectionHeading number={1} title="Identificação" description="Comece pelo nome da administradora." />
           <Question title="Nome da administradora" required>
             <input
@@ -234,7 +234,7 @@ export function AdministratorDialog({
           )}
         </section>
 
-        <section className="py-6">
+        <section className="py-7">
           <FormSectionHeading
             number={2}
             title="Comissão da corretora"
@@ -307,13 +307,13 @@ export function AdministratorDialog({
           </div>
         </section>
 
-        <section className="py-6">
+        <section className="py-7">
           <FormSectionHeading
             number={3}
             title="Repasse e pagamento"
             description="Defina quando e em quais condições o consultor recebe."
           />
-          <div className="grid gap-6 sm:grid-cols-2">
+          <div className="grid gap-8 sm:grid-cols-2">
 
         <Question title="1ª parcela">
           <Choices
@@ -415,7 +415,7 @@ export function AdministratorDialog({
         )}
         </div>
 
-        <footer className="flex shrink-0 flex-col gap-3 border-t border-neutral-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between dark:border-neutral-800">
+        <footer className="flex shrink-0 flex-col gap-3 border-t border-neutral-200 px-7 py-4 sm:flex-row sm:items-center sm:justify-between dark:border-neutral-800">
           <p
             className={`flex min-w-0 items-center gap-1.5 text-sm ${
               pendingItems.length > 0

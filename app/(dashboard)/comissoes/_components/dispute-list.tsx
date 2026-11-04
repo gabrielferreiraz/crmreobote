@@ -20,15 +20,15 @@ export function DisputeList({ disputes }: { disputes: OpenDispute[] }) {
   if (disputes.length === 0) return null;
 
   return (
-    <section className="card space-y-2 rounded-lg p-4 ring-1 ring-red-500/20">
-      <h2 className="flex items-center gap-2 text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+    <section className="card space-y-3 rounded-lg p-5 ring-1 ring-red-500/20">
+      <h2 className="flex items-center gap-2 text-base font-semibold text-neutral-900 dark:text-neutral-100">
         <MessageCircleQuestion className="h-5 w-5 text-red-500" strokeWidth={2} />
         Contestações
         <span className="text-xs font-medium text-red-600 dark:text-red-400">{disputes.length}</span>
       </h2>
       <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
         {disputes.map((d) => (
-          <li key={d.id} className="flex flex-wrap items-start justify-between gap-3 py-3">
+          <li key={d.id} className="flex flex-wrap items-start justify-between gap-3 py-4">
             <div className="min-w-0 flex-1 space-y-1">
               <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{d.requesterName}</p>
               <p className="text-xs text-neutral-500 dark:text-neutral-400">

@@ -8,6 +8,7 @@ import { normalizePhoneNumber } from "@/lib/phone-normalize";
 import { validateSteps } from "@/lib/campaigns/scripts";
 import { rateLimitOrResponse } from "@/lib/rate-limit";
 import { readJsonObjectOrError } from "@/lib/read-body";
+import { randomStepDelayMs } from "@/lib/campaigns/step-delay";
 
 export const dynamic = "force-dynamic";
 
@@ -84,7 +85,7 @@ export async function POST(req: Request) {
           mediaUrl: steps[i].mediaUrl,
         });
         if (i < steps.length - 1 && steps[i].delayAfterSec > 0) {
-          await sleep(steps[i].delayAfterSec * 1000);
+          await sleep(randomStepDelayMs(steps[i].delayAfterSec));
         }
       }
     } catch (err) {

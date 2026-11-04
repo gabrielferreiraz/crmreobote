@@ -22,6 +22,7 @@
  */
 import { BRAZIL_UTC_OFFSET_HOURS, brazilDateKey, brazilStartOfDay, getBrazilParts } from "@/lib/timezone";
 import { nextAllowedSendWindow, type CampaignWindowConfig } from "@/lib/campaigns/estimate";
+import { averageStepDelaySec } from "@/lib/campaigns/step-delay";
 
 /** Quantos intervalos reais precisa ter pra confiar mais neles que no modelo. */
 export const MIN_OBSERVED_GAPS = 8;
@@ -137,7 +138,7 @@ export function expectedScriptProcessingSec(messageTemplates: unknown): number {
   let totalWeight = 0;
   for (const variant of messageTemplates as { steps?: unknown; weight?: unknown }[]) {
     const steps = Array.isArray(variant?.steps) ? (variant.steps as { delayAfterSec?: unknown }[]) : [];
-    const waits = steps.slice(0, -1).reduce((sum, s) => sum + (typeof s?.delayAfterSec === "number" ? Math.max(0, s.delayAfterSec) : 0), 0);
+    const waits = steps.slice(0, -1).reduce((sum, s) => sum + (typeof s?.delayAfterSec === "number" ? averageStepDelaySec(Math.max(0, s.delayAfterSec)) : 0), 0);
     const weight = typeof variant?.weight === "number" && variant.weight > 0 ? variant.weight : 1;
     weighted += waits * weight;
     totalWeight += weight;

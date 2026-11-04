@@ -119,8 +119,7 @@ export function ConversationsMobile({
             onClose={() => setQuickAddOpen(false)}
             suggestedName={selected.whatsappName ?? ""}
             phoneFormatted={formatBrazilianPhone(selected.phoneNormalized) ?? selected.phoneNormalized}
-            ownerId={selected.ownerId}
-            ownerName={selected.ownerName}
+            currentUserId={currentUserId ?? ""}
             existingContactId={selected.contactId ?? undefined}
             onCreated={(result) => handleDealAdded(selected.threadId, result)}
           />

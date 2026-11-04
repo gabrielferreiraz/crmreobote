@@ -211,9 +211,9 @@ export function ManagerMonth({
   }
 
   return (
-    <div className={`w-full space-y-4 transition-opacity lg:space-y-5 ${navigating ? "pointer-events-none opacity-60" : ""}`} aria-busy={navigating}>
+    <div className={`w-full space-y-5 transition-opacity lg:space-y-6 ${navigating ? "pointer-events-none opacity-60" : ""}`} aria-busy={navigating}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Comissões</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Comissões</h1>
         <div className="scrollbar-thin flex w-full items-center gap-2 overflow-x-auto pb-1 sm:w-auto sm:pb-0">
           <Link href={`/comissoes/clientes?mes=${month}`} className="btn-secondary shrink-0" title="Conferir quem pagou a parcela">
             <CheckCircle2 className="h-4 w-4" strokeWidth={2} />
@@ -312,7 +312,7 @@ export function ManagerMonth({
             </div>
           </div>
 
-          <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 ${expectedRevenue > 0 ? "xl:grid-cols-4" : "xl:grid-cols-3"}`}>
+          <div className={`grid grid-cols-1 gap-4 sm:grid-cols-2 ${expectedRevenue > 0 ? "xl:grid-cols-4" : "xl:grid-cols-3"}`}>
             <StatTile
               icon={Wallet}
               tone="brand"

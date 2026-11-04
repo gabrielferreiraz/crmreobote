@@ -129,6 +129,43 @@ export type ContactConflictPayload = {
   ownedByMe: boolean;
 };
 
+/**
+ * Mesma avaliação de findDuplicateContact, mas quando o contactId já é
+ * conhecido (ex.: conversa de WhatsApp já vinculada a um Contact, ver
+ * QuickAddDealPanel) — não precisa buscar por telefone, só confere de quem é
+ * e se dá pra assumir. Sem throttle (CONFLICT_LOOKUPS_PER_HOUR): aqui não
+ * tem busca por número que permita varrer a base, o id já é conhecido pelo
+ * chamador (geralmente porque ele já está vendo a conversa/contato).
+ */
+export async function loadContactOwnership(
+  organizationId: string,
+  contactId: string,
+): Promise<DuplicateContact | null> {
+  const existing = await prisma.contact.findFirst({
+    where: { id: contactId, organizationId },
+    include: { responsavel: { select: { name: true } } },
+  });
+  if (!existing) return null;
+
+  const claim = await evaluateLeadClaim(organizationId, existing.id, existing.responsavelId);
+
+  return {
+    message: "",
+    contactId: existing.id,
+    contactName: existing.name,
+    createdAt: existing.createdAt,
+    responsavelId: existing.responsavelId,
+    responsavelName: existing.responsavel?.name ?? null,
+    responsavelActive: claim.ownerActive,
+    claimReason: claim.claimReason,
+    lostAt: claim.lostAt,
+    phone: existing.phone,
+    phoneNormalized: existing.phoneNormalized,
+    whatsapp: existing.whatsapp,
+    whatsappNormalized: existing.whatsappNormalized,
+  };
+}
+
 export function buildConflictPayload(duplicate: DuplicateContact, viewerUserId: string | null): ContactConflictPayload {
   const ownedByMe = !!viewerUserId && duplicate.responsavelId === viewerUserId;
   return {

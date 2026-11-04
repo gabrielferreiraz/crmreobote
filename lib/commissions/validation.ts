@@ -224,3 +224,83 @@ export function parseRuleInput(body: Record<string, unknown>, opts: { partial: b
   }
   return { ok: true, data };
 }
+
+// ─── Bônus por meta batida ───────────────────────────────────────────
+
+export type BonusTierInput = {
+  thresholdPercent: number;
+  rewardType: "FIXED" | "PERCENT";
+  rewardValue: number;
+};
+
+export type BonusRuleInput = {
+  beneficiaryRole?: "SELLER" | "SUPERVISOR" | "MANAGER";
+  userId?: string | null;
+  active?: boolean;
+  tiers?: BonusTierInput[];
+};
+
+function parseBonusTier(raw: unknown): Result<BonusTierInput> {
+  if (!raw || typeof raw !== "object") return { ok: false, error: "Faixa inválida" };
+  const t = raw as Record<string, unknown>;
+
+  const thresholdRaw = typeof t.thresholdPercent === "string" ? Number(t.thresholdPercent.replace(",", ".")) : t.thresholdPercent;
+  if (typeof thresholdRaw !== "number" || !Number.isFinite(thresholdRaw) || thresholdRaw <= 0 || thresholdRaw > 9999) {
+    return { ok: false, error: "O % da meta de cada faixa deve ser maior que 0" };
+  }
+  const thresholdPercent = Math.round(thresholdRaw * 100) / 100;
+
+  if (t.rewardType !== "FIXED" && t.rewardType !== "PERCENT") return { ok: false, error: "Escolha o tipo do prêmio de cada faixa" };
+  const rewardType = t.rewardType;
+
+  const valueRaw = typeof t.rewardValue === "string" ? Number(t.rewardValue.replace(",", ".")) : t.rewardValue;
+  if (typeof valueRaw !== "number" || !Number.isFinite(valueRaw) || valueRaw <= 0) {
+    return { ok: false, error: "Informe o valor do prêmio de cada faixa" };
+  }
+  if (rewardType === "PERCENT" && valueRaw > 100) return { ok: false, error: "O percentual extra de uma faixa deve ser até 100" };
+  if (rewardType === "FIXED" && valueRaw > 10_000_000) return { ok: false, error: "Valor da faixa muito alto" };
+  const rewardValue = Math.round(valueRaw * 10000) / 10000;
+
+  return { ok: true, data: { thresholdPercent, rewardType, rewardValue } };
+}
+
+/**
+ * Regra de bônus por meta. `tiers` sempre vem COMPLETA (substitui as faixas
+ * atuais) — mesmo espírito de `tables` em parseAdministratorInput: mais
+ * simples de garantir "não duas faixas com o mesmo %" do que editar faixa a
+ * faixa.
+ */
+export function parseBonusRuleInput(body: Record<string, unknown>, opts: { partial: boolean }): Result<BonusRuleInput> {
+  const data: BonusRuleInput = {};
+  const nullableId = (v: unknown) => (v === null || v === "" ? null : typeof v === "string" ? v : undefined);
+
+  if (body.beneficiaryRole !== undefined || !opts.partial) {
+    const role = body.beneficiaryRole ?? "SELLER";
+    if (role !== "SELLER" && role !== "SUPERVISOR" && role !== "MANAGER") return { ok: false, error: "Quem recebe: opção inválida" };
+    data.beneficiaryRole = role;
+  }
+  if (body.userId !== undefined) {
+    const v = nullableId(body.userId);
+    if (v === undefined) return { ok: false, error: "Opção inválida" };
+    data.userId = v;
+  }
+  if (body.active !== undefined) {
+    if (typeof body.active !== "boolean") return { ok: false, error: "Opção inválida" };
+    data.active = body.active;
+  }
+  if (body.tiers !== undefined || !opts.partial) {
+    if (!Array.isArray(body.tiers) || body.tiers.length === 0) return { ok: false, error: "Cadastre pelo menos uma faixa de meta" };
+    if (body.tiers.length > 10) return { ok: false, error: "No máximo 10 faixas por regra" };
+    const tiers: BonusTierInput[] = [];
+    for (const raw of body.tiers) {
+      const parsed = parseBonusTier(raw);
+      if (!parsed.ok) return parsed;
+      tiers.push(parsed.data);
+    }
+    const thresholds = tiers.map((t) => t.thresholdPercent);
+    if (new Set(thresholds).size !== thresholds.length) return { ok: false, error: "Duas faixas não podem ter o mesmo % da meta" };
+    data.tiers = tiers.sort((a, b) => a.thresholdPercent - b.thresholdPercent);
+  }
+
+  return { ok: true, data };
+}

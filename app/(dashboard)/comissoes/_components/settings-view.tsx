@@ -16,6 +16,7 @@ import { RuleDialog, type RuleForm } from "./rule-dialog";
 import { Choices, Question } from "./question";
 import { Sentence } from "./sentence";
 import { parseWholeNumber, WholeNumberInput } from "./whole-number-input";
+import { BonusStep, type BonusRule } from "./bonus-step";
 
 type Administrator = AdministratorForm & { id: string; salesCount: number };
 /** "Na prática" de uma categoria (title null = administradora sem categorias diferentes). */
@@ -57,6 +58,8 @@ export function SettingsView({
   members,
   creditTypes,
   isOwner,
+  bonusRules,
+  individualGoals,
 }: {
   currentMonth: string;
   startMonth: string | null;
@@ -67,6 +70,8 @@ export function SettingsView({
   members: Member[];
   creditTypes: string[];
   isOwner: boolean;
+  bonusRules: BonusRule[];
+  individualGoals: { userId: string; value: number }[];
 }) {
   const router = useRouter();
   const [admDialog, setAdmDialog] = useState<AdministratorForm | null>(null);
@@ -130,7 +135,7 @@ export function SettingsView({
           <Link href="/comissoes" className="icon-btn" aria-label="Voltar para Comissões">
             <ArrowLeft className="h-4 w-4" strokeWidth={2} />
           </Link>
-          <h1 className="text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Configurar comissões</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Configurar comissões</h1>
         </div>
         <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
           Consultores só veem depois do passo 3.
@@ -139,7 +144,7 @@ export function SettingsView({
 
       {rulesChanged && <RecalculateBanner onDone={() => setRulesChanged(false)} />}
 
-      <div className="grid items-start gap-5 xl:grid-cols-2">
+      <div className="grid items-start gap-6 xl:grid-cols-2">
         {/* Passo 1 */}
         <Step number={1} done={activeAdministrators.length > 0} title="Administradoras">
         {administrators.length === 0 ? (
@@ -255,6 +260,8 @@ export function SettingsView({
         )}
         </Step>
       </div>
+
+      <BonusStep currentMonth={currentMonth} rules={bonusRules} initialGoals={individualGoals} members={members} />
 
       <div className="mx-auto w-full max-w-3xl space-y-5">
         {/* Passo 3 */}
@@ -374,7 +381,7 @@ function RuleGroup({
 
 function Step({ number, done, title, children }: { number?: number; done?: boolean; title: string; children: React.ReactNode }) {
   return (
-    <section className="card min-w-0 space-y-4 p-5">
+    <section className="card min-w-0 space-y-5 p-6">
       <div className="flex items-center gap-3">
         {number != null && (
           <span

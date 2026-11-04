@@ -66,11 +66,11 @@ export function CloseMonthDialog({ month, entries, onClose }: { month: string; e
   }
 
   return (
-    <Modal onClose={() => !paying && onClose()} maxWidth="max-w-lg">
-      <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Fechar {formatMonthLong(month).toLowerCase()}</h2>
+    <Modal onClose={() => !paying && onClose()} maxWidth="max-w-xl">
+      <h2 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100">Fechar {formatMonthLong(month).toLowerCase()}</h2>
 
       {step === "held" && (
-        <div className="mt-4 space-y-4">
+        <div className="mt-5 space-y-4">
           {waitingSales > 0 && (
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-500/10 dark:text-amber-100">
               <p>{waitingSales === 1 ? "1 venda sem conferir — fica de fora." : `${waitingSales} vendas sem conferir — ficam de fora.`}</p>
@@ -111,7 +111,7 @@ export function CloseMonthDialog({ month, entries, onClose }: { month: string; e
       )}
 
       {step === "review" && (
-        <div className="mt-4 space-y-4">
+        <div className="mt-5 space-y-4">
           {byPerson.length === 0 ? (
             <p className="text-sm text-neutral-700 dark:text-neutral-300">Nada pronto para pagar.</p>
           ) : (
@@ -119,7 +119,7 @@ export function CloseMonthDialog({ month, entries, onClose }: { month: string; e
               <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">Quanto cada um recebe:</p>
               <ul className="max-h-72 divide-y divide-neutral-100 overflow-y-auto rounded-xl border border-neutral-200 dark:divide-neutral-800 dark:border-neutral-800">
                 {byPerson.map((p) => (
-                  <li key={p.name} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+                  <li key={p.name} className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm">
                     <span className="truncate text-neutral-800 dark:text-neutral-200">{p.name}</span>
                     <span className="shrink-0 font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">{formatCurrency(p.total)}</span>
                   </li>
@@ -146,7 +146,7 @@ export function CloseMonthDialog({ month, entries, onClose }: { month: string; e
       )}
 
       {step === "done" && result && (
-        <div className="mt-4 space-y-4">
+        <div className="mt-5 space-y-4">
           <div className="flex items-start gap-3 rounded-xl bg-emerald-50 px-4 py-3 text-emerald-900 dark:bg-emerald-500/10 dark:text-emerald-100">
             <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" strokeWidth={2} />
             <p className="text-sm">

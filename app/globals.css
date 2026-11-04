@@ -1937,9 +1937,11 @@ input[type="radio"] {
   .contact-detail .contact-quick-action {
     min-height: 2.75rem;
     justify-content: flex-start;
+    border: 0;
     border-radius: 0;
     background: transparent;
     padding: 0;
+    box-shadow: none;
   }
 
   .contact-detail .contact-quick-action:hover {

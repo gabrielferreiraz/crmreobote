@@ -60,7 +60,7 @@ export function SaleFields({
   const needsClientInstallment = table?.revenueMode === "CLIENT_INSTALLMENT_TABLE" || value.clientInstallment !== "";
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-5">
       {showClient && (
         <div className="space-y-1">
           <label className="field-label" htmlFor="sale-client">
@@ -93,7 +93,7 @@ export function SaleFields({
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 gap-4">
         <div className="space-y-1">
           <label className="field-label">Valor líquido da venda</label>
           <CurrencyInput value={value.netValue} onChange={(v) => set("netValue", v)} />
@@ -111,7 +111,7 @@ export function SaleFields({
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 gap-4">
         <div className="space-y-1">
           <label className="field-label">Quem vendeu</label>
           <Select
@@ -158,7 +158,7 @@ export function SaleFields({
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 gap-4">
         <div className="space-y-1">
           <label className="field-label" htmlFor="sale-group">
             Grupo

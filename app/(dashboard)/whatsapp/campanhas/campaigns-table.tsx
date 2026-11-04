@@ -20,17 +20,15 @@ import {
   Pencil,
   X,
   Users,
-  Smartphone,
-  MessageSquare,
   Clock,
   Search,
   Radio,
   Hourglass,
   CircleCheckBig,
   Eye,
-  Info,
   TriangleAlert,
   Unplug,
+  ChevronDown,
 } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { Badge, type BadgeTone } from "@/components/badge";
@@ -160,12 +158,7 @@ function foldForSearch(value: string): string {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 }
 
-/** Separador "·" entre as métricas da linha de progresso. */
-const DOT = (
-  <span aria-hidden="true" className="text-neutral-300 dark:text-neutral-600">
-    ·
-  </span>
-);
+const WEEKDAY_LABELS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
 /** PIPELINE_BULK/LEAD_CAPTURE sem filtro de público de verdade (lista montada
  * por seleção manual, ver DuplicateCampaignButton) — "Nenhum critério
@@ -241,41 +234,6 @@ function CampaignProgressBar({
   );
 }
 
-/** Indicador compacto da faixa de resumo. */
-function StatCard({
-  icon: Icon,
-  label,
-  value,
-  suffix,
-  hint,
-  sealClass,
-  valueClass = "text-neutral-900 dark:text-neutral-100",
-}: {
-  icon: LucideIcon;
-  label: string;
-  value: string;
-  suffix?: string;
-  hint: string;
-  sealClass: string;
-  valueClass?: string;
-}) {
-  return (
-    <div className="flex min-w-0 items-center gap-3 bg-white px-4 py-3.5 dark:bg-neutral-950">
-      <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md ${sealClass}`}>
-        <Icon className="h-4 w-4" strokeWidth={2} />
-      </span>
-      <div className="min-w-0">
-        <p className="text-xs text-neutral-500 dark:text-neutral-400">{label}</p>
-        <p className={`text-lg font-semibold tabular-nums ${valueClass}`}>
-          {value}
-          {suffix && <span className="ml-1 text-sm font-normal text-neutral-400 dark:text-neutral-500">{suffix}</span>}
-        </p>
-        <p className="truncate text-[11px] text-neutral-400 dark:text-neutral-500">{hint}</p>
-      </div>
-    </div>
-  );
-}
-
 export function CampaignsTable({
   initialCampaigns,
   instances,
@@ -305,6 +263,7 @@ export function CampaignsTable({
   // "Concluídas" ficam a um clique pra quem quer rever o que já rodou.
   const [statusFilter, setStatusFilter] = useState<"active" | "done" | "all">("active");
   const [search, setSearch] = useState("");
+  const [expandedCampaignId, setExpandedCampaignId] = useState<string | null>(null);
   // Cópia local da lista, só pra dar resposta IMEDIATA ao clique (ver
   // setStatus/deleteCampaign abaixo). O servidor continua sendo a verdade:
   // quando um payload novo chegar (router.refresh, navegação, RSC cache novo),
@@ -475,29 +434,16 @@ export function CampaignsTable({
       return b.createdAt.localeCompare(a.createdAt);
     });
 
-    let sent = 0;
-    let replied = 0;
-    let failed = 0;
     let running = 0;
-    let paused = 0;
     for (const c of filtered) {
-      sent += c.counts.sent;
-      replied += c.counts.replied;
-      failed += c.counts.failed;
       if (c.status === "RUNNING") running += 1;
-      if (c.status === "PAUSED") paused += 1;
     }
 
     return {
       visibleCampaigns: filtered,
-      summary: { count: filtered.length, sent, replied, failed, running, paused },
+      summary: { running },
     };
   }, [rows, statusFilter, deferredSearch]);
-
-  const hasStoppable = useMemo(
-    () => visibleCampaigns.some((c) => c.status === "RUNNING" || c.status === "PAUSED"),
-    [visibleCampaigns],
-  );
 
   return (
     <div className="space-y-3">
@@ -569,52 +515,6 @@ export function CampaignsTable({
         </p>
       )}
 
-      {rows.length > 0 && visibleCampaigns.length > 0 && (
-        <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-neutral-200 bg-neutral-200 lg:grid-cols-4 dark:border-neutral-800 dark:bg-neutral-800">
-          <StatCard
-            icon={Megaphone}
-            label="Campanhas"
-            value={fmtNumber(summary.count)}
-            hint={
-              summary.running > 0
-                ? `${fmtNumber(summary.running)} rodando agora`
-                : summary.paused > 0
-                  ? `${fmtNumber(summary.paused)} pausada${summary.paused === 1 ? "" : "s"}`
-                  : "nenhuma rodando agora"
-            }
-            sealClass="bg-brand-light text-brand dark:bg-brand-light dark:text-brand"
-          />
-          <StatCard
-            icon={Send}
-            label="Mensagens enviadas"
-            value={fmtNumber(summary.sent)}
-            hint="já saíram pelo WhatsApp"
-            sealClass="bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-400"
-          />
-          <StatCard
-            icon={MessageSquare}
-            label="Respostas"
-            value={fmtNumber(summary.replied)}
-            suffix={summary.sent > 0 ? `(${fmtPercent(summary.replied, summary.sent)})` : undefined}
-            hint="pessoas que responderam"
-            sealClass="bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400"
-            valueClass="text-emerald-600 dark:text-emerald-400"
-          />
-          <StatCard
-            icon={TriangleAlert}
-            label="Falhas"
-            value={fmtNumber(summary.failed)}
-            hint={summary.failed > 0 ? "não conseguiram ser enviadas" : "nenhuma falha até agora"}
-            sealClass={
-              summary.failed > 0
-                ? "bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-400"
-                : "bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400"
-            }
-            valueClass={summary.failed > 0 ? "text-red-600 dark:text-red-400" : "text-neutral-900 dark:text-neutral-100"}
-          />
-        </div>
-      )}
-
       {rows.length === 0 ? (
         <div className="rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950">
           <EmptyState
@@ -651,23 +551,6 @@ export function CampaignsTable({
             </div>
           </div>
 
-          {/* Explicação de "Pausar" vs "Parar" — os dois ficam lado a lado na
-              linha e a diferença (um tem volta, o outro não) só aparecia
-              depois de clicar e ler o aviso de confirmação. Usuário pouco
-              técnico precisa saber ANTES de clicar. Só aparece quando existe
-              campanha com um dos dois botões à vista. */}
-          {hasStoppable && (
-            <div className="flex items-start gap-2 border-b border-neutral-100 bg-neutral-50 px-3 py-2.5 text-xs text-neutral-500 dark:border-neutral-800/70 dark:bg-neutral-900/50 dark:text-neutral-400">
-              <Info className="mt-px h-3.5 w-3.5 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
-              <span>
-                <strong className="font-medium text-neutral-700 dark:text-neutral-300">Pausar</strong> interrompe os
-                envios e dá para retomar depois.{" "}
-                <strong className="font-medium text-neutral-700 dark:text-neutral-300">Parar</strong> encerra a
-                campanha de vez.
-              </span>
-            </div>
-          )}
-
           {visibleCampaigns.length === 0 ? (
             <p className="p-4 text-center text-sm text-neutral-400 dark:text-neutral-500">
               {deferredSearch.trim()
@@ -678,223 +561,193 @@ export function CampaignsTable({
             </p>
           ) : (
             <div className="divide-y divide-neutral-100 dark:divide-neutral-800/70">
-              {visibleCampaigns.map((c) => {
-                const total = c.counts.pending + c.counts.sent + c.counts.failed + c.counts.skipped;
-                const { sent, pending, failed, skipped, replied } = c.counts;
-                const meta = STATUS_META[c.status];
+              {visibleCampaigns.map((campaign) => {
+                const total = campaign.counts.pending + campaign.counts.sent + campaign.counts.failed + campaign.counts.skipped;
+                const { sent, pending, failed, skipped, replied } = campaign.counts;
+                const meta = STATUS_META[campaign.status];
                 const StatusIcon = meta.icon;
-                const creatorDiffers = Boolean(c.createdByName) && c.createdByName !== c.instanceName;
-                const replySuffix = sent > 0 ? ` (${fmtPercent(replied, sent)})` : "";
+                const expanded = expandedCampaignId === campaign.id;
+                const replyRate = sent > 0 ? fmtPercent(replied, sent) : "0%";
 
                 return (
-                  <div
-                    key={c.id}
-                    className="grid items-start gap-x-6 p-4 transition-colors hover:bg-neutral-50/70 lg:grid-cols-[minmax(260px,0.8fr)_minmax(360px,1.2fr)] dark:hover:bg-neutral-900/40"
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div className="min-w-0 flex-1">
-                        <Link
-                          href={`/whatsapp/campanhas/${c.id}`}
-                          className="text-[15px] font-semibold text-neutral-900 hover:underline dark:text-neutral-100"
-                        >
-                          {c.name}
-                        </Link>
-                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-neutral-500 dark:text-neutral-400">
-                          <span className="inline-flex min-w-0 items-center gap-1.5" title="Público desta campanha">
-                            <Users className="h-3.5 w-3.5 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
-                            <span className="truncate">{audienceDisplay(c)}</span>
-                          </span>
-                          <span className="inline-flex min-w-0 items-center gap-1.5" title="WhatsApp que faz os envios">
-                            <Smartphone className="h-3.5 w-3.5 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
-                            <span className="truncate">{c.instanceName}</span>
-                          </span>
-                          {creatorDiffers && (
-                            <span className="min-w-0 truncate" title="Quem criou a campanha">
-                              criada por {c.createdByName}
-                            </span>
-                          )}
+                  <article key={campaign.id} className="p-4 transition-colors hover:bg-neutral-50/60 dark:hover:bg-neutral-900/30">
+                    <div className="grid gap-4 lg:grid-cols-[minmax(260px,0.9fr)_minmax(300px,1fr)_auto] lg:items-center">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Link href={`/whatsapp/campanhas/${campaign.id}`} className="min-w-0 truncate font-semibold text-neutral-900 hover:text-brand dark:text-neutral-100">
+                            {campaign.name}
+                          </Link>
+                          <Badge tone={meta.tone}>
+                            <StatusIcon className="h-3 w-3" strokeWidth={2.5} />
+                            {meta.label}
+                          </Badge>
                         </div>
-                      </div>
-                      <div className="flex shrink-0 flex-col items-end gap-1">
-                        <Badge tone={meta.tone}>
-                          <StatusIcon className="h-3 w-3" strokeWidth={2.5} />
-                          {meta.label}
-                        </Badge>
-                        {c.status === "PAUSED" && c.pausedReason && (
-                          <Badge tone="warning" size="sm" title={PAUSE_REASON_BADGE[c.pausedReason].hint}>
-                            <Unplug className="h-2.5 w-2.5" strokeWidth={2.5} />
-                            {PAUSE_REASON_BADGE[c.pausedReason].label}
-                          </Badge>
+                        <p className="mt-1 truncate text-sm text-neutral-500 dark:text-neutral-400">
+                          Para: {audienceDisplay(campaign)}
+                        </p>
+                        {campaign.status === "PAUSED" && campaign.pausedReason && (
+                          <p className="mt-1 inline-flex items-center gap-1.5 text-xs font-medium text-amber-700 dark:text-amber-400" title={PAUSE_REASON_BADGE[campaign.pausedReason].hint}>
+                            <Unplug className="h-3 w-3" strokeWidth={2.5} />
+                            {PAUSE_REASON_BADGE[campaign.pausedReason].label}
+                          </p>
                         )}
-                        {isInFollowUpPhase(c, pending, total) && (
-                          <Badge tone="brand" size="sm" title="Todas as mensagens iniciais já saíram; falta só o reenvio de quem não respondeu">
-                            <Clock className="h-2.5 w-2.5" strokeWidth={2.5} />
+                        {isInFollowUpPhase(campaign, pending, total) && (
+                          <p className="mt-1 inline-flex items-center gap-1.5 text-xs font-medium text-brand">
+                            <Clock className="h-3 w-3" strokeWidth={2.5} />
                             Aguardando reenvio
-                          </Badge>
+                          </p>
                         )}
                       </div>
-                    </div>
 
-                    <div className="mt-3 lg:mt-0 lg:self-center">
-                      <div className="flex items-center gap-2.5">
-                        <CampaignProgressBar sent={sent} failed={failed} total={total} status={c.status} />
-                        <span className="w-11 shrink-0 text-right text-xs font-medium tabular-nums text-neutral-500 dark:text-neutral-400">
-                          {fmtPercent(sent, total)}
-                        </span>
-                      </div>
-                      <p className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-neutral-500 dark:text-neutral-400">
-                        {total === 0 ? (
-                          <span>Nenhum destinatário na lista ainda</span>
-                        ) : (
-                          <>
-                            <span className="tabular-nums">
-                              <strong className="font-semibold text-neutral-700 dark:text-neutral-200">{fmtNumber(sent)}</strong>{" "}
-                              de{" "}
-                              <strong className="font-semibold text-neutral-700 dark:text-neutral-200">{fmtNumber(total)}</strong>{" "}
-                              enviadas
-                            </span>
-                            {pending > 0 && (
-                              <>
-                                {DOT}
-                                <span className="tabular-nums">faltam {fmtNumber(pending)}</span>
-                              </>
-                            )}
-                            {replied > 0 && (
-                              <>
-                                {DOT}
-                                <span className="font-medium tabular-nums text-emerald-600 dark:text-emerald-400">
-                                  {fmtNumber(replied)} resposta{replied === 1 ? "" : "s"}
-                                  {replySuffix}
-                                </span>
-                              </>
-                            )}
-                            {failed > 0 && (
-                              <>
-                                {DOT}
-                                <span className="font-medium tabular-nums text-red-600 dark:text-red-400">
-                                  {fmtNumber(failed)} falha{failed === 1 ? "" : "s"}
-                                </span>
-                              </>
-                            )}
-                            {skipped > 0 && (
-                              <>
-                                {DOT}
-                                <span className="tabular-nums">{fmtNumber(skipped)} ignorados</span>
-                              </>
-                            )}
-                          </>
-                        )}
-                      </p>
-                    </div>
-
-                    {/* Ações em três níveis de destaque, de propósito: sólido =
-                        a ação esperada agora (retomar/pausar), cinza com rótulo
-                        = navegação/edição, vermelho = o que não tem volta
-                        (parar/excluir). Antes os botões tinham todos o mesmo
-                        peso visual e ficavam no meio da linha sem hierarquia. */}
-                    <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-neutral-100 pt-3 lg:col-span-2 dark:border-neutral-800">
-                      {/* Sem spinner no próprio botão de status: a resposta é
-                          otimista (ver setStatus), então o botão já VIRA o
-                          outro (Pausar → Retomar) no mesmo quadro do clique —
-                          um spinner no botão recém-criado indicaria a ação
-                          errada. O "salvando…" no fim da linha é o sinal de
-                          que a confirmação do servidor ainda está a caminho. */}
-                      {c.canManage && (c.status === "DRAFT" || c.status === "PAUSED") && (
-                        <button
-                          type="button"
-                          disabled={busyId === c.id}
-                          onClick={() => setStatus(c, "RUNNING")}
-                          className="btn-secondary btn-sm"
-                          title={c.status === "PAUSED" ? "Volta a enviar de onde parou" : "Começa a enviar a lista"}
-                        >
-                          <Play className="h-3.5 w-3.5" strokeWidth={2.5} />
-                          {c.status === "PAUSED" ? "Retomar" : "Iniciar"}
-                        </button>
-                      )}
-                      {c.canManage && c.status === "RUNNING" && (
-                        <button
-                          type="button"
-                          disabled={busyId === c.id}
-                          onClick={() => setStatus(c, "PAUSED")}
-                          className="btn-secondary btn-sm"
-                          title="Interrompe os envios; dá para retomar depois"
-                        >
-                          <Pause className="h-3.5 w-3.5" strokeWidth={2.5} />
-                          Pausar
-                        </button>
-                      )}
-
-                      <Link
-                        href={`/whatsapp/campanhas/${c.id}`}
-                        className="icon-btn-labeled"
-                        title="Abrir a lista de pessoas e o desempenho"
-                      >
-                        <Eye className="h-3.5 w-3.5" strokeWidth={2} />
-                        Ver detalhes
-                      </Link>
-
-                      {c.canManage && c.status === "DRAFT" && (
-                        <button
-                          type="button"
-                          disabled={loadingEditId === c.id}
-                          onClick={() => openEdit(c.id)}
-                          className="icon-btn-labeled"
-                          title="Editar a configuração desta campanha"
-                        >
-                          {loadingEditId === c.id ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2.5} />
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2.5">
+                          <CampaignProgressBar sent={sent} failed={failed} total={total} status={campaign.status} />
+                          <span className="w-11 shrink-0 text-right text-xs font-medium tabular-nums text-neutral-500 dark:text-neutral-400">
+                            {fmtPercent(sent, total)}
+                          </span>
+                        </div>
+                        <p className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-sm text-neutral-500 dark:text-neutral-400">
+                          {total > 0 ? (
+                            <span><strong className="font-semibold text-neutral-800 dark:text-neutral-200">{fmtNumber(sent)}</strong> de {fmtNumber(total)} receberam</span>
                           ) : (
-                            <Pencil className="h-3.5 w-3.5" strokeWidth={2} />
+                            <span>Nenhum contato selecionado</span>
                           )}
-                          Editar
-                        </button>
-                      )}
+                          {replied > 0 && <span className="font-medium text-emerald-600 dark:text-emerald-400">{fmtNumber(replied)} responderam</span>}
+                          {failed > 0 && <span className="font-medium text-red-600 dark:text-red-400">{fmtNumber(failed)} não enviados</span>}
+                        </p>
+                      </div>
 
-                      {c.canManage && (
-                        <DuplicateCampaignButton
-                          campaignId={c.id}
-                          hasAudienceFilter={hasAudienceFilter(c.audienceFilter)}
-                          labeled
-                          size="sm"
-                          onDuplicated={() => router.refresh()}
-                        />
-                      )}
-
-                      <span className="ml-auto" />
-
-                      {busyId === c.id && (
-                        <span className="flex items-center gap-1 text-[11px] text-neutral-400 dark:text-neutral-500">
-                          <Loader2 className="h-3 w-3 animate-spin" strokeWidth={2.5} />
-                          salvando
-                        </span>
-                      )}
-
-                      {c.canManage && (c.status === "RUNNING" || c.status === "PAUSED") && (
+                      <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                        {campaign.canManage && (campaign.status === "DRAFT" || campaign.status === "PAUSED") && (
+                          <button
+                            type="button"
+                            disabled={busyId === campaign.id}
+                            onClick={() => setStatus(campaign, "RUNNING")}
+                            className="btn-secondary btn-sm"
+                          >
+                            <Play className="h-3.5 w-3.5" strokeWidth={2.5} />
+                            {campaign.status === "PAUSED" ? "Retomar" : "Iniciar"}
+                          </button>
+                        )}
+                        {campaign.canManage && campaign.status === "RUNNING" && (
+                          <button
+                            type="button"
+                            disabled={busyId === campaign.id}
+                            onClick={() => setStatus(campaign, "PAUSED")}
+                            className="btn-secondary btn-sm"
+                          >
+                            <Pause className="h-3.5 w-3.5" strokeWidth={2.5} />
+                            Pausar
+                          </button>
+                        )}
+                        <Link href={`/whatsapp/campanhas/${campaign.id}`} className="btn-secondary btn-sm">
+                          <Eye className="h-3.5 w-3.5" strokeWidth={2} />
+                          Abrir
+                        </Link>
                         <button
                           type="button"
-                          disabled={busyId === c.id}
-                          onClick={() => setCampaignToStop(c)}
-                          className="icon-btn-labeled text-red-500 hover:bg-red-50 hover:text-red-600 dark:text-red-400 dark:hover:bg-red-500/10 dark:hover:text-red-300"
-                          title="Encerra a campanha de vez — quem ainda não recebeu nunca vai receber"
+                          onClick={() => setExpandedCampaignId((current) => (current === campaign.id ? null : campaign.id))}
+                          className="btn-ghost btn-sm min-w-36"
+                          aria-expanded={expanded}
+                          aria-controls={`campaign-information-${campaign.id}`}
                         >
-                          <StopCircle className="h-3.5 w-3.5" strokeWidth={2} />
-                          Parar
+                          {expanded ? "Ocultar" : "Ver informações"}
+                          <ChevronDown className={`h-3.5 w-3.5 transition-transform ${expanded ? "rotate-180" : ""}`} strokeWidth={2} />
                         </button>
-                      )}
-                      {c.canManage && (
-                        <button
-                          type="button"
-                          disabled={busyId === c.id}
-                          onClick={() => setCampaignToDelete(c)}
-                          className="icon-btn text-red-500 hover:bg-red-50 hover:text-red-600 dark:text-red-400 dark:hover:bg-red-500/10 dark:hover:text-red-300"
-                          aria-label="Excluir campanha"
-                          title="Excluir campanha"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
-                        </button>
-                      )}
+                        {busyId === campaign.id && <Loader2 className="h-4 w-4 animate-spin text-neutral-400" aria-label="Salvando" />}
+                      </div>
                     </div>
-                  </div>
+
+                    {expanded && (
+                      <div id={`campaign-information-${campaign.id}`} className="mt-4 border-t border-neutral-200 pt-4 dark:border-neutral-800">
+                        <div className="grid gap-5 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+                          <section>
+                            <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">Resultados</h3>
+                            <dl className="mt-3 grid grid-cols-2 gap-x-5 gap-y-3 sm:grid-cols-5 xl:grid-cols-2">
+                              {[
+                                ["Enviadas", fmtNumber(sent)],
+                                ["Pendentes", fmtNumber(pending)],
+                                ["Respostas", `${fmtNumber(replied)} · ${replyRate}`],
+                                ["Falhas", fmtNumber(failed)],
+                                ["Ignorados", fmtNumber(skipped)],
+                              ].map(([label, value]) => (
+                                <div key={label}>
+                                  <dt className="text-xs text-neutral-500 dark:text-neutral-400">{label}</dt>
+                                  <dd className="mt-0.5 font-medium tabular-nums text-neutral-900 dark:text-neutral-100">{value}</dd>
+                                </div>
+                              ))}
+                            </dl>
+                          </section>
+
+                          <section>
+                            <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">Configuração</h3>
+                            <dl className="mt-3 grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
+                              <div>
+                                <dt className="text-xs text-neutral-500 dark:text-neutral-400">WhatsApp</dt>
+                                <dd className="mt-0.5 font-medium text-neutral-800 dark:text-neutral-200">{campaign.instanceName}</dd>
+                              </div>
+                              <div>
+                                <dt className="text-xs text-neutral-500 dark:text-neutral-400">Criada por</dt>
+                                <dd className="mt-0.5 font-medium text-neutral-800 dark:text-neutral-200">{campaign.createdByName}</dd>
+                              </div>
+                              <div>
+                                <dt className="text-xs text-neutral-500 dark:text-neutral-400">Intervalo entre envios</dt>
+                                <dd className="mt-0.5 font-medium tabular-nums text-neutral-800 dark:text-neutral-200">{campaign.delayMinSec}s a {campaign.delayMaxSec}s</dd>
+                              </div>
+                              <div>
+                                <dt className="text-xs text-neutral-500 dark:text-neutral-400">Horário</dt>
+                                <dd className="mt-0.5 font-medium tabular-nums text-neutral-800 dark:text-neutral-200">{campaign.windowStartHour}h às {campaign.windowEndHour}h</dd>
+                              </div>
+                              <div>
+                                <dt className="text-xs text-neutral-500 dark:text-neutral-400">Dias</dt>
+                                <dd className="mt-0.5 font-medium text-neutral-800 dark:text-neutral-200">{campaign.allowedWeekdays.map((day) => WEEKDAY_LABELS[day]).join(", ")}</dd>
+                              </div>
+                              <div>
+                                <dt className="text-xs text-neutral-500 dark:text-neutral-400">Limite diário</dt>
+                                <dd className="mt-0.5 font-medium text-neutral-800 dark:text-neutral-200">{campaign.dailyCap ? fmtNumber(campaign.dailyCap) : "Sem limite"}</dd>
+                              </div>
+                              <div>
+                                <dt className="text-xs text-neutral-500 dark:text-neutral-400">Reenvio</dt>
+                                <dd className="mt-0.5 font-medium text-neutral-800 dark:text-neutral-200">{campaign.followUpEnabled ? `Após ${campaign.followUpDelayHours}h` : "Desativado"}</dd>
+                              </div>
+                              <div className="sm:col-span-2">
+                                <dt className="text-xs text-neutral-500 dark:text-neutral-400">Público</dt>
+                                <dd className="mt-0.5 font-medium text-neutral-800 dark:text-neutral-200">{audienceDisplay(campaign)}</dd>
+                              </div>
+                            </dl>
+                          </section>
+                        </div>
+
+                        {campaign.canManage && (
+                          <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-neutral-200 pt-3 dark:border-neutral-800">
+                            {campaign.status === "DRAFT" && (
+                              <button type="button" disabled={loadingEditId === campaign.id} onClick={() => openEdit(campaign.id)} className="icon-btn-labeled">
+                                {loadingEditId === campaign.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Pencil className="h-3.5 w-3.5" />}
+                                Editar
+                              </button>
+                            )}
+                            <DuplicateCampaignButton
+                              campaignId={campaign.id}
+                              hasAudienceFilter={hasAudienceFilter(campaign.audienceFilter)}
+                              labeled
+                              size="sm"
+                              onDuplicated={() => router.refresh()}
+                            />
+                            <span className="ml-auto" />
+                            {(campaign.status === "RUNNING" || campaign.status === "PAUSED") && (
+                              <button type="button" disabled={busyId === campaign.id} onClick={() => setCampaignToStop(campaign)} className="icon-btn-labeled text-red-500 hover:text-red-600 dark:text-red-400">
+                                <StopCircle className="h-3.5 w-3.5" />
+                                Parar definitivamente
+                              </button>
+                            )}
+                            <button type="button" disabled={busyId === campaign.id} onClick={() => setCampaignToDelete(campaign)} className="icon-btn text-red-500 hover:text-red-600 dark:text-red-400" aria-label="Excluir campanha" title="Excluir campanha">
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </article>
                 );
               })}
             </div>

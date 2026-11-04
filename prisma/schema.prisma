@@ -162,6 +162,10 @@ model Organization {
   commissionRevenues     CommissionRevenue[]
   commissionTables       CommissionTable[]
   commissionClientPayments CommissionClientPayment[]
+  commissionIndividualGoals CommissionIndividualGoal[]
+  commissionBonusRules      CommissionBonusRule[]
+  commissionBonusTiers      CommissionBonusTier[]
+  commissionBonusAwards     CommissionBonusAward[]
 }
 
 // ─── Usuários ────────────────────────────────────────────────────────
@@ -254,6 +258,10 @@ model User {
   commissionEntriesPaid       CommissionEntry[]         @relation("CommissionEntryPaidBy")
   commissionDisputesOpened    CommissionDispute[]       @relation("CommissionDisputeRequester")
   commissionDisputesResolved  CommissionDispute[]       @relation("CommissionDisputeResolvedBy")
+  commissionIndividualGoals     CommissionIndividualGoal[] @relation("CommissionIndividualGoalUser")
+  commissionIndividualGoalsSet  CommissionIndividualGoal[] @relation("CommissionIndividualGoalUpdatedBy")
+  commissionBonusRules          CommissionBonusRule[]      @relation("CommissionBonusRuleUser")
+  commissionBonusAwards         CommissionBonusAward[]     @relation("CommissionBonusAwardBeneficiary")
 }
 
 // ─── Google Agenda (OAuth por usuário)───────────────────────────────
@@ -2374,6 +2382,7 @@ model CommissionEntry {
   rule         CommissionRule? @relation(fields: [ruleId], references: [id], onDelete: SetNull)
   paidBy       User?           @relation("CommissionEntryPaidBy", fields: [paidById], references: [id], onDelete: SetNull)
   disputes     CommissionDispute[]
+  bonusAward   CommissionBonusAward?
 
   @@index([organizationId, paymentMonth])
   @@index([organizationId, beneficiaryId, paymentMonth])
@@ -2465,6 +2474,114 @@ model CommissionDispute {
 
   @@index([organizationId, status])
   @@index([entryId])
+}
+
+// Meta individual de vendas (R$), por pessoa e por mês — base de comparação
+// do bônus por meta batida (ver CommissionBonusRule). Diferente de
+// MonthlyGoal (uma meta só, da empresa inteira, usada no Início/TV): aqui é
+// POR PESSOA, só existe pra quem o Financeiro cadastrar, e só serve pro
+// cálculo de bônus (não aparece no ranking nem no Início).
+model CommissionIndividualGoal {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String
+  year           Int
+  month          Int // 1-12
+  value          Decimal  @db.Decimal(14, 2)
+  updatedAt      DateTime @updatedAt
+  updatedById    String
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation("CommissionIndividualGoalUser", fields: [userId], references: [id], onDelete: Cascade)
+  updatedBy    User         @relation("CommissionIndividualGoalUpdatedBy", fields: [updatedById], references: [id])
+
+  @@unique([organizationId, userId, year, month])
+  @@index([organizationId, year, month])
+}
+
+enum CommissionBonusRewardType {
+  // Valor fixo em reais (CommissionBonusTier.rewardValue é R$).
+  FIXED
+  // Percentual extra em cima do total vendido no mês por essa pessoa
+  // (CommissionBonusTier.rewardValue é %, ex. 0.5000 = 0,5%).
+  PERCENT
+}
+
+// Regra de bônus por meta batida — mesmo "quem recebe" de CommissionRule
+// (função + abrangência), mas em vez de comissão por venda, paga um prêmio
+// quando a pessoa bate um percentual da PRÓPRIA meta individual
+// (CommissionIndividualGoal) no mês. Várias faixas (tiers) por regra: o
+// cálculo aplica só a faixa mais alta atingida, nunca soma faixas
+// (lib/commissions/bonus.ts).
+model CommissionBonusRule {
+  id              String                    @id @default(cuid())
+  organizationId  String
+  beneficiaryRole CommissionBeneficiaryRole @default(SELLER)
+  // Null = qualquer pessoa nesse papel com meta individual cadastrada.
+  userId          String?
+  active          Boolean                   @default(true)
+  createdAt       DateTime                  @default(now())
+  updatedAt       DateTime                  @updatedAt
+
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User?                  @relation("CommissionBonusRuleUser", fields: [userId], references: [id], onDelete: Cascade)
+  tiers        CommissionBonusTier[]
+  awards       CommissionBonusAward[]
+
+  @@index([organizationId, active])
+}
+
+// Um degrau da regra de bônus — ex. "100% da meta = R$ 1.000" ou "120% da
+// meta = +0,5% nas vendas do mês".
+model CommissionBonusTier {
+  id               String                    @id @default(cuid())
+  // Redundante com rule.organizationId de propósito — mesmo padrão de toda
+  // tabela filha neste schema (ex. CommissionTable, filha de
+  // ConsortiumAdministrator): RLS nunca depende só do JOIN com o pai, senão
+  // uma consulta que esquecer de filtrar pelo pai vaza linha de outra
+  // organização.
+  organizationId   String
+  ruleId           String
+  // % da meta individual, ex. 100.00 = bateu a meta cheia, 150.00 = 50% acima.
+  thresholdPercent Decimal                   @db.Decimal(6, 2)
+  rewardType       CommissionBonusRewardType
+  // R$ se rewardType = FIXED, % se rewardType = PERCENT.
+  rewardValue      Decimal                   @db.Decimal(12, 4)
+  createdAt        DateTime                  @default(now())
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  rule         CommissionBonusRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@index([ruleId])
+  @@index([organizationId])
+}
+
+// Registro de UM bônus já concedido — garante que calcular de novo o mesmo
+// mês nunca duplica o pagamento (ver @@unique abaixo) e vira o histórico de
+// "quem ganhou o quê e por quê" (lib/commissions/bonus.ts). `entryId` aponta
+// pro CommissionEntry (kind ADJUSTMENT) que de fato leva o valor pro
+// consultor ver/receber — o award em si nunca aparece sozinho pro consultor,
+// só o lançamento.
+model CommissionBonusAward {
+  id              String   @id @default(cuid())
+  organizationId  String
+  ruleId          String
+  tierId          String
+  beneficiaryId   String
+  // "YYYY-MM", mesma convenção de CommissionEntry.paymentMonth.
+  month           String
+  achievedPercent Decimal  @db.Decimal(6, 2)
+  amount          Decimal  @db.Decimal(12, 2)
+  entryId         String?  @unique
+  createdAt       DateTime @default(now())
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  rule         CommissionBonusRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  beneficiary  User                @relation("CommissionBonusAwardBeneficiary", fields: [beneficiaryId], references: [id])
+  entry        CommissionEntry?    @relation(fields: [entryId], references: [id], onDelete: SetNull)
+
+  @@unique([ruleId, beneficiaryId, month])
+  @@index([organizationId, month])
 }
 
 // ─── Propostas comerciais ───────────────────────────────────────────

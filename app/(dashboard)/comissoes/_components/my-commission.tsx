@@ -48,15 +48,15 @@ export function MyCommission({
   const [disputeEntry, setDisputeEntry] = useState<EntryView | null>(null);
 
   return (
-    <div className="mx-auto max-w-3xl space-y-5">
-      <h1 className="text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Minha comissão</h1>
+    <div className="mx-auto max-w-4xl space-y-6">
+      <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Minha comissão</h1>
 
       <Hero thisMonth={thisMonth} currentMonth={currentMonth} todayDay={todayDay} payDay={payDay} />
 
       {(held.length > 0 || future.length > 0) && (
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-2">
           {held.length > 0 && (
-            <p className="card flex items-start gap-3 p-4 text-sm text-neutral-700 dark:text-neutral-300">
+            <p className="card flex items-start gap-3 p-5 text-sm text-neutral-700 dark:text-neutral-300">
               <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" strokeWidth={2} />
               <span>
                 <strong className="font-semibold text-neutral-900 dark:text-neutral-100">{formatCurrency(sum(held))}</strong> travados ({held.length})
@@ -64,7 +64,7 @@ export function MyCommission({
             </p>
           )}
           {future.length > 0 && (
-            <p className="card flex items-start gap-3 p-4 text-sm text-neutral-700 dark:text-neutral-300">
+            <p className="card flex items-start gap-3 p-5 text-sm text-neutral-700 dark:text-neutral-300">
               <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-500" strokeWidth={2} />
               <span>
                 <strong className="font-semibold text-neutral-900 dark:text-neutral-100">{formatCurrency(sum(future))}</strong> nos próximos meses

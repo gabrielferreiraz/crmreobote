@@ -21,6 +21,7 @@ import { maskPhone } from "@/lib/log-redact";
 import { buildDealName } from "@/lib/deal-name";
 import { publishDealsEvent } from "@/lib/deals/live-events";
 import { resolveAutomationActions, type AutomationActionEntry } from "@/lib/automations/actions";
+import { randomStepDelayMs } from "@/lib/campaigns/step-delay";
 
 /** Resultado de uma ação executada — vira o `success`/`detail` gravados em AutomationExecution, exibidos no "Ver detalhes" do histórico. */
 export type ActionResult = {
@@ -569,7 +570,7 @@ export async function performAction(
         if (steps.length > 1) {
           void (async () => {
             for (let i = 0; i < steps.length - 1; i++) {
-              if (steps[i].delayAfterSec > 0) await sleep(steps[i].delayAfterSec * 1000);
+              if (steps[i].delayAfterSec > 0) await sleep(randomStepDelayMs(steps[i].delayAfterSec));
               try {
                 await sendWhatsAppMessage({
                   organizationId: entity.organizationId,

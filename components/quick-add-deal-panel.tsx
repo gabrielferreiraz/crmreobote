@@ -8,6 +8,9 @@ import { ContactConflictNotice, type ContactConflict } from "@/components/contac
 import { Select } from "@/components/select";
 import { LoadingDots } from "@/components/loading-dots";
 
+/** Mesmo formato do 409 de duplicidade (ver GET /api/contacts/[id]/ownership). */
+type OwnershipConflict = ContactConflict;
+
 type Stage = { id: string; name: string; order: number };
 type Pipeline = { id: string; name: string; isDefault: boolean; stages: Stage[] };
 type CreditTypeOption = { id: string; label: string };
@@ -31,21 +34,39 @@ type JobTitleOption = { id: string; label: string };
  *    antes disso só existia o caminho "sem negócio nenhum ainda", então tudo
  *    que já tinha UM negócio ficava sem jeito de abrir um segundo direto do
  *    WhatsApp.
+ *
+ * Responsável do Contact/Deal criados aqui é SEMPRE quem está logado
+ * (currentUserId), nunca derivado da conversa — achado real: o "Responsável"
+ * que a lista de conversas calcula (ver ownerId em
+ * lib/whatsapp/conversations.ts) é o dono de um negócio ABERTO qualquer já
+ * existente do contato, que pode ser um consultor totalmente diferente de
+ * quem está conversando agora (contato antigo, negócio de outro produto).
+ * Usar esse valor aqui fazia o negócio NOVO nascer pro consultor errado, em
+ * silêncio — quem clicava "Criar negócio" não desconfiava, só descobria
+ * depois que o negócio "sumiu" (estava lá, só que com outro dono). Mesmo
+ * padrão de responsável de todo outro cadastro rápido do CRM (ver ownerId em
+ * new-deal-dialog.tsx / quick-register-deal-form.tsx: sempre quem está
+ * logado por padrão).
+ *
+ * Quando o contato já existe e o responsável DELE é outra pessoa, mostra a
+ * mesma notificação de "de quem é esse lead" usada no cadastro normal (ver
+ * ContactConflictNotice) — só informa e oferece assumir/solicitar o
+ * CONTATO; não bloqueia criar o negócio (que continua saindo sempre no nome
+ * de quem está criando).
  */
 export function QuickAddDealPanel({
   onClose,
   suggestedName,
   phoneFormatted,
-  ownerId,
-  ownerName,
+  currentUserId,
   existingContactId,
   onCreated,
 }: {
   onClose: () => void;
   suggestedName: string;
   phoneFormatted: string;
-  ownerId: string;
-  ownerName: string;
+  /** Quem está logado — SEMPRE o responsável do negócio (e do contato, se for novo) criado aqui. */
+  currentUserId: string;
   existingContactId?: string;
   onCreated: (result: { contactId: string; deal: { id: string; name: string } }) => void;
 }) {
@@ -63,6 +84,26 @@ export function QuickAddDealPanel({
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState<ContactConflict | null>(null);
   const [claiming, setClaiming] = useState(false);
+  // "De quem é esse contato?" (ver GET /api/contacts/[id]/ownership) —
+  // só informativo, nunca trava "Criar negócio" (o negócio sempre nasce de
+  // quem está criando, ver docstring do componente).
+  const [ownershipConflict, setOwnershipConflict] = useState<OwnershipConflict | null>(null);
+
+  useEffect(() => {
+    if (!existingContactId) return;
+    const controller = new AbortController();
+    (async () => {
+      try {
+        const res = await fetch(`/api/contacts/${existingContactId}/ownership`, { signal: controller.signal });
+        if (!res.ok) return;
+        const data = (await res.json()) as OwnershipConflict;
+        if (!data.ownedByMe) setOwnershipConflict(data);
+      } catch {
+        // Falhou? O painel segue funcionando sem o aviso — não é bloqueante.
+      }
+    })();
+    return () => controller.abort();
+  }, [existingContactId]);
 
   useEffect(() => {
     // Fechar o painel antes das listas chegarem cancela as buscas (mesmo
@@ -123,21 +164,21 @@ export function QuickAddDealPanel({
     const contactRes = await fetch("/api/contacts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      // responsavelId: ownerId — mesmo dono já usado pro Deal logo abaixo
-      // (dono da instância de WhatsApp da conversa, ver ownerId em
-      // lib/whatsapp/conversations.ts). Sem isso o Contact nascia SEM
-      // responsável (POST /api/contacts grava null quando a chave não vem),
-      // mesmo o Deal vinculado tendo o dono certo — daí o relato "responsável
-      // não vem automático": o negócio aparecia certo no Pipeline, mas o
-      // cliente sumia da lista de Clientes do consultor (contactScopeWhere
-      // só mostra pra Membro os contatos onde ele é responsavelId). Ignorado
-      // no branch de claimContactId (server sempre força pra quem está
-      // reivindicando, ver comentário em app/api/contacts/route.ts) — inofensivo mandar mesmo assim.
+      // responsavelId: currentUserId — mesmo dono já usado pro Deal logo
+      // abaixo (sempre quem está logado, ver docstring do componente). Sem
+      // isso o Contact nascia SEM responsável (POST /api/contacts grava null
+      // quando a chave não vem), mesmo o Deal vinculado tendo o dono certo —
+      // daí o relato "responsável não vem automático": o negócio aparecia
+      // certo no Pipeline, mas o cliente sumia da lista de Clientes do
+      // consultor (contactScopeWhere só mostra pra Membro os contatos onde
+      // ele é responsavelId). Ignorado no branch de claimContactId (server
+      // sempre força pra quem está reivindicando, ver comentário em
+      // app/api/contacts/route.ts) — inofensivo mandar mesmo assim.
       body: JSON.stringify({
         name,
         whatsapp: phoneFormatted,
         jobTitle,
-        responsavelId: ownerId,
+        responsavelId: currentUserId,
         ...(claimContactId ? { claimContactId } : {}),
       }),
     });
@@ -163,7 +204,7 @@ export function QuickAddDealPanel({
         contactId,
         value: value ? Number(value) : undefined,
         creditType: creditType || undefined,
-        ownerId,
+        ownerId: currentUserId,
       }),
     });
     const deal = await dealRes.json().catch(() => ({}));
@@ -268,7 +309,12 @@ export function QuickAddDealPanel({
           />
         </div>
 
-        <p className="text-xs text-neutral-400 dark:text-neutral-500">Responsável: {ownerName}</p>
+        <p className="text-xs text-neutral-400 dark:text-neutral-500">Responsável: Você</p>
+
+        {/* O contato já existia e já é de outra pessoa — só informa (e
+            oferece assumir/solicitar o CONTATO); não impede criar o negócio,
+            que sai sempre no seu nome (ver docstring do componente). */}
+        {ownershipConflict && <ContactConflictNotice conflict={ownershipConflict} />}
 
         {conflict && (
           <ContactConflictNotice

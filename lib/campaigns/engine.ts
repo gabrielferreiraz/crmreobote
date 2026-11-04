@@ -26,6 +26,7 @@ import {
 import { PAUSE_REASON } from "@/lib/campaigns/pause-reasons";
 import { enqueueWebhookEvent, buildDealWebhookPayload } from "@/lib/webhooks/enqueue";
 import type { $Enums, Contact } from "@/app/generated/prisma/client";
+import { randomStepDelayMs } from "@/lib/campaigns/step-delay";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -520,7 +521,7 @@ async function sendToRecipient(
     // log, sem acionar pauseIfFailing.
     for (let i = 0; i < steps.length - 1; i++) {
       try {
-        if (steps[i].delayAfterSec > 0) await sleep(steps[i].delayAfterSec * 1000);
+        if (steps[i].delayAfterSec > 0) await sleep(randomStepDelayMs(steps[i].delayAfterSec));
         await sendWhatsAppMessage({
           organizationId,
           threadId: thread.id,

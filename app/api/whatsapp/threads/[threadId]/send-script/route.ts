@@ -9,6 +9,7 @@ import { renderSteps } from "@/lib/campaigns/spintax";
 import { brazilGreeting } from "@/lib/timezone";
 import type { Contact } from "@/app/generated/prisma/client";
 import { scriptAccessWhere } from "@/lib/campaigns/scripts";
+import { randomStepDelayMs } from "@/lib/campaigns/step-delay";
 
 export const dynamic = "force-dynamic";
 
@@ -95,7 +96,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ threadI
           console.error(`[send-script] falha ao enviar etapa ${i + 1}/${steps.length} do script ${scriptId} na conversa ${threadId}`, err);
         }
         if (i < steps.length - 1 && steps[i].delayAfterSec > 0) {
-          await sleep(steps[i].delayAfterSec * 1000);
+          await sleep(randomStepDelayMs(steps[i].delayAfterSec));
         }
       }
     })();

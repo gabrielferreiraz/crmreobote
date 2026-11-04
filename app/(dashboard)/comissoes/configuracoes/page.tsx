@@ -5,6 +5,11 @@ import { getCommissionAccess } from "@/lib/commissions/access";
 import { brazilMonthKey, parsePercentList } from "@/lib/commissions/engine";
 import { SettingsView } from "../_components/settings-view";
 
+function monthParts(key: string): { year: number; month: number } {
+  const [year, month] = key.split("-").map(Number);
+  return { year, month };
+}
+
 export const dynamic = "force-dynamic";
 
 export default async function CommissionSettingsPage() {
@@ -14,7 +19,9 @@ export default async function CommissionSettingsPage() {
 
   return runWithTenant(access.organizationId, async () => {
     const organizationId = access.organizationId;
-    const [org, administrators, rules, members, creditTypes] = await Promise.all([
+    const currentMonth = brazilMonthKey();
+    const { year, month } = monthParts(currentMonth);
+    const [org, administrators, rules, members, creditTypes, bonusRules, individualGoals] = await Promise.all([
       prisma.organization.findUnique({
         where: { id: organizationId },
         select: { commissionStartDate: true, commissionPayDay: true, commissionSellerPastMonths: true },
@@ -35,11 +42,20 @@ export default async function CommissionSettingsPage() {
         orderBy: { user: { name: "asc" } },
       }),
       prisma.creditType.findMany({ where: { organizationId }, orderBy: { order: "asc" }, select: { label: true } }),
+      prisma.commissionBonusRule.findMany({
+        where: { organizationId },
+        include: { user: { select: { id: true, name: true } }, tiers: { orderBy: { thresholdPercent: "asc" } } },
+        orderBy: { createdAt: "asc" },
+      }),
+      prisma.commissionIndividualGoal.findMany({
+        where: { organizationId, year, month },
+        select: { userId: true, value: true },
+      }),
     ]);
 
     return (
       <SettingsView
-        currentMonth={brazilMonthKey()}
+        currentMonth={currentMonth}
         startMonth={org?.commissionStartDate ? brazilMonthKey(org.commissionStartDate) : null}
         payDay={org?.commissionPayDay ?? 10}
         sellerPastMonths={org?.commissionSellerPastMonths ?? 0}
@@ -76,6 +92,20 @@ export default async function CommissionSettingsPage() {
         members={members.map((m) => ({ id: m.user.id, name: m.user.name, role: m.role, canManageCommissions: m.canManageCommissions }))}
         creditTypes={creditTypes.map((c) => c.label)}
         isOwner={access.isOwner}
+        bonusRules={bonusRules.map((r) => ({
+          id: r.id,
+          beneficiaryRole: r.beneficiaryRole,
+          userId: r.userId,
+          userName: r.user?.name ?? null,
+          active: r.active,
+          tiers: r.tiers.map((t) => ({
+            id: t.id,
+            thresholdPercent: Number(t.thresholdPercent),
+            rewardType: t.rewardType,
+            rewardValue: Number(t.rewardValue),
+          })),
+        }))}
+        individualGoals={individualGoals.map((g) => ({ userId: g.userId, value: Number(g.value) }))}
       />
     );
   });

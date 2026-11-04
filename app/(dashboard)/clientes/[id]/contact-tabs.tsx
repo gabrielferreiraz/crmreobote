@@ -140,6 +140,9 @@ export function ContactTabs({
     setDeleteContactOpen(false);
   }
 
+  const openDeals = deals.filter((deal) => deal.status === "OPEN");
+  const openValue = openDeals.reduce((sum, deal) => sum + (deal.value ?? 0), 0);
+
   return (
     <div>
       <div className="mb-4 grid grid-cols-2 border-b border-neutral-200 dark:border-neutral-800 lg:hidden">
@@ -168,44 +171,9 @@ export function ContactTabs({
         </button>
       </div>
 
-      <div className="relative mb-5 hidden w-full max-w-[340px] rounded-xl border border-neutral-200 bg-neutral-100 p-1 dark:border-neutral-800 dark:bg-neutral-950/80 lg:flex">
-        <div
-          className="absolute inset-y-1 left-1 w-[calc(50%-4px)] rounded-lg bg-gradient-to-r from-brand to-brand-dark shadow-md shadow-brand/20 transition-transform duration-200 ease-spring"
-          style={{ transform: tab === "info" ? "translateX(calc(100% + 4px))" : "translateX(0)" }}
-        />
-        <button
-          type="button"
-          onClick={() => setTab("deals")}
-          className={`relative z-10 flex-1 flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-colors ${
-            tab === "deals" ? "text-white" : "text-neutral-600 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-200"
-          }`}
-        >
-          <Briefcase className="h-3.5 w-3.5" strokeWidth={2} />
-          <span>Negócios</span>
-          {deals.length > 0 && (
-            <span
-              className={`ml-0.5 rounded-full px-1.5 py-0.2 text-[10px] tabular-nums ${
-                tab === "deals" ? "bg-white/20 text-white" : "bg-neutral-200 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300"
-              }`}
-            >
-              ({deals.length})
-            </span>
-          )}
-        </button>
-        <button
-          type="button"
-          onClick={() => setTab("info")}
-          className={`relative z-10 flex-1 flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-colors ${
-            tab === "info" ? "text-white" : "text-neutral-600 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-200"
-          }`}
-        >
-          <UserCheck className="h-3.5 w-3.5" strokeWidth={2} />
-          <span>Dados de contato</span>
-        </button>
-      </div>
-
-      {tab === "deals" ? (
-        <div className="animate-bubble-in space-y-0 lg:space-y-2.5">
+      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(320px,390px)] lg:gap-8 xl:gap-10">
+        <section className={`${tab === "deals" ? "block" : "hidden"} min-w-0 lg:block`}>
+          <div className="space-y-0 lg:space-y-2.5">
           {deleteError && <p className="text-sm text-red-600 dark:text-red-400">{deleteError}</p>}
 
           {deals.length === 0 ? (
@@ -226,31 +194,40 @@ export function ContactTabs({
             </div>
           ) : (
             <>
-              <div className="block lg:flex lg:items-center lg:justify-between lg:gap-2 lg:px-1">
-                {deals.length > 1 ? (
-                  <p className="hidden text-xs font-medium text-neutral-500 dark:text-neutral-400 lg:block">
-                    {deals.length} negócios · {deals.filter((d) => d.status === "OPEN").length} em andamento
-                    {deals.some((d) => d.status === "OPEN") && (
-                      <> · <span className="text-emerald-600 dark:text-emerald-400 font-semibold">{formatCurrency(deals.filter((d) => d.status === "OPEN").reduce((sum, d) => sum + (d.value ?? 0), 0))}</span> em aberto</>
+              <div className="block lg:flex lg:items-end lg:justify-between lg:gap-4 lg:border-b lg:border-neutral-200 lg:pb-3 dark:lg:border-neutral-800">
+                <div className="hidden lg:block">
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Negócios</h2>
+                    <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-medium tabular-nums text-neutral-500 dark:bg-neutral-900 dark:text-neutral-400">
+                      {deals.length}
+                    </span>
+                  </div>
+                  <p className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400">
+                    {openDeals.length} em andamento
+                    {openDeals.length > 0 && (
+                      <> · <span className="font-medium text-emerald-600 dark:text-emerald-400">{formatCurrency(openValue)}</span> em aberto</>
                     )}
                   </p>
-                ) : (
-                  <span />
-                )}
+                </div>
                 <CreateDealForContactDialog
                   contactId={contactId}
                   pipelines={pipelines}
                   members={members}
                   creditTypes={creditTypes}
                   onCreated={(deal: CreatedDeal) => setDeals((prev) => [deal, ...prev])}
-                  triggerClassName="flex h-12 w-full items-center gap-2 border-b border-neutral-200 px-1 text-sm font-medium text-brand transition-colors hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-900 lg:h-8 lg:w-auto lg:justify-center lg:rounded-md lg:border-0 lg:bg-brand lg:px-3 lg:text-xs lg:font-semibold lg:text-white lg:hover:bg-brand-dark"
+                  triggerClassName="flex h-12 w-full items-center gap-2 border-b border-neutral-200 px-1 text-sm font-medium text-brand transition-colors hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-900 lg:h-9 lg:w-auto lg:justify-center lg:rounded-md lg:border-0 lg:bg-brand lg:px-3 lg:text-sm lg:font-semibold lg:text-white lg:hover:bg-brand-dark"
                 />
               </div>
               {deals.map((deal) => {
-                const statusBadgeStyle = {
-                  OPEN: "bg-brand/15 text-brand dark:bg-brand/20 dark:text-brand-light border border-brand/30",
-                  WON: "bg-emerald-500/15 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400 border border-emerald-500/30",
-                  LOST: "bg-red-500/15 text-red-700 dark:bg-red-500/20 dark:text-red-400 border border-red-500/30",
+                const statusStyle = {
+                  OPEN: "text-brand",
+                  WON: "text-emerald-700 dark:text-emerald-400",
+                  LOST: "text-red-700 dark:text-red-400",
+                }[deal.status];
+                const statusDotStyle = {
+                  OPEN: "bg-brand",
+                  WON: "bg-emerald-500",
+                  LOST: "bg-red-500",
                 }[deal.status];
 
                 return (
@@ -266,7 +243,8 @@ export function ContactTabs({
                         <span className="min-w-0 break-words font-semibold text-neutral-900 transition-colors group-hover:text-brand dark:text-neutral-100 lg:truncate">
                           {deal.name}
                         </span>
-                        <span className={`contact-deal-status shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${statusBadgeStyle}`}>
+                        <span className={`contact-deal-status inline-flex shrink-0 items-center gap-1.5 text-xs font-medium ${statusStyle}`}>
+                          <span className={`h-1.5 w-1.5 rounded-full ${statusDotStyle}`} aria-hidden="true" />
                           {STATUS_LABEL[deal.status].label}
                         </span>
                       </div>
@@ -303,21 +281,27 @@ export function ContactTabs({
               })}
             </>
           )}
-        </div>
-      ) : (
-        <div className="animate-bubble-in max-w-xl space-y-3">
-          <div className="contact-info-card card space-y-2 p-4 text-sm">
+          </div>
+        </section>
+
+        <aside className={`${tab === "info" ? "block" : "hidden"} min-w-0 lg:block lg:border-l lg:border-neutral-200 lg:pl-8 dark:lg:border-neutral-800 xl:pl-10`}>
+          <div className="space-y-3 lg:sticky lg:top-4">
+            <div className="hidden items-center gap-2 border-b border-neutral-200 pb-3 dark:border-neutral-800 lg:flex">
+              <UserCheck className="h-4 w-4 text-brand" strokeWidth={2} />
+              <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Dados do contato</h2>
+            </div>
+          <div className="contact-info-card card space-y-0 p-4 text-sm lg:border-0 lg:bg-transparent lg:p-0 lg:shadow-none">
             {infoRows.map((row) => (
               <Row key={row.label} label={row.label} value={row.value} />
             ))}
             {addressLines && (
-              <div className="space-y-0.5">
+              <div className="grid grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] gap-3 border-b border-neutral-200 py-2.5 dark:border-neutral-800">
                 <span className="text-neutral-500 dark:text-neutral-400">Endereço</span>
-                <p className="text-right text-neutral-800 dark:text-neutral-200">{addressLines}</p>
+                <p className="text-right leading-snug text-neutral-800 dark:text-neutral-200">{addressLines}</p>
               </div>
             )}
             {tags.length > 0 && (
-              <div className="flex items-center justify-between gap-2">
+              <div className="grid grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] items-start gap-3 py-2.5">
                 <span className="text-neutral-500 dark:text-neutral-400">Tags</span>
                 <div className="flex flex-wrap justify-end gap-1">
                   {tags.map((tag) => (
@@ -328,16 +312,17 @@ export function ContactTabs({
                 </div>
               </div>
             )}
-            {whatsapp && (
-              <WhatsAppChat
-                threadId={whatsapp.threadId}
-                contactId={whatsapp.contactId}
-                contactName={whatsapp.contactName}
-                contactPhone={whatsapp.contactPhone}
-                sendAsAlternate={whatsapp.sendAsAlternate}
-              />
-            )}
           </div>
+
+          {whatsapp && (
+            <WhatsAppChat
+              threadId={whatsapp.threadId}
+              contactId={whatsapp.contactId}
+              contactName={whatsapp.contactName}
+              contactPhone={whatsapp.contactPhone}
+              sendAsAlternate={whatsapp.sendAsAlternate}
+            />
+          )}
 
           {/* "Zona de perigo" — card separado do resto, de propósito (não é
               mais um dado do contato, é uma ação destrutiva sobre ele). Só
@@ -353,8 +338,8 @@ export function ContactTabs({
                   <p className="font-medium text-neutral-900 dark:text-neutral-100">Apagar contato</p>
                   <p className="text-xs text-neutral-500 dark:text-neutral-400">
                     {deals.length > 0
-                      ? "Apague os negócios vinculados primeiro — não dá pra apagar o contato enquanto algum negócio ainda apontar pra ele."
-                      : "Remove o contato e seus dados. Dá pra desfazer logo em seguida, pelo aviso que aparece no canto da tela (ou Ctrl+Z)."}
+                      ? "Disponível após excluir os negócios vinculados."
+                      : "Remove este contato. A ação pode ser desfeita."}
                   </p>
                 </div>
                 <button
@@ -375,8 +360,9 @@ export function ContactTabs({
               )}
             </div>
           )}
-        </div>
-      )}
+          </div>
+        </aside>
+      </div>
 
       {deleteContactOpen && (
         <ConfirmDialog
@@ -403,9 +389,9 @@ export function ContactTabs({
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between gap-2">
-      <span className="shrink-0 text-neutral-500 dark:text-neutral-400">{label}</span>
-      <span className="min-w-0 truncate text-right text-neutral-800 dark:text-neutral-200">{value}</span>
+    <div className="grid grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] items-start gap-3 border-b border-neutral-200 py-2.5 last:border-0 dark:border-neutral-800">
+      <span className="text-neutral-500 dark:text-neutral-400">{label}</span>
+      <span className="min-w-0 break-words text-right leading-snug text-neutral-800 dark:text-neutral-200">{value}</span>
     </div>
   );
 }

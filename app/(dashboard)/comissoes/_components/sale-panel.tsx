@@ -178,7 +178,7 @@ export function SalePanel({
   ).sort((a, b) => ["SELLER", "SUPERVISOR", "MANAGER"].indexOf(a.role) - ["SELLER", "SUPERVISOR", "MANAGER"].indexOf(b.role));
 
   return (
-    <SidePanel title={sale.clientName} onClose={onClose} maxWidth="max-w-2xl">
+    <SidePanel title={sale.clientName} onClose={onClose} maxWidth="max-w-3xl">
       <div className="space-y-6">
         {queue && queue.total > 1 && onNavigate && (
           <div className="flex items-center justify-between gap-2 rounded-xl bg-neutral-50 px-3 py-2 dark:bg-neutral-800/50">

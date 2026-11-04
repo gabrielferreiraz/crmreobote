@@ -227,13 +227,13 @@ export function SalesView({
   }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-4">
+    <div className="mx-auto max-w-5xl space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Link href="/comissoes" className="icon-btn" aria-label="Voltar">
             <ArrowLeft className="h-4 w-4" strokeWidth={2} />
           </Link>
-          <h1 className="text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Vendas e comissões</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Vendas e comissões</h1>
         </div>
         <div className="flex flex-wrap gap-2">
           {legacy && (

@@ -13,7 +13,7 @@ import { CampaignMetricsChart } from "./metrics-chart";
 import { CampaignActions } from "./campaign-actions";
 import { NextSendCountdown } from "./next-send-countdown";
 import { CampaignScriptsPanel } from "./campaign-scripts-panel";
-import { CampaignQueue, type CampaignQueueData } from "./campaign-queue";
+import type { CampaignQueueData } from "./campaign-queue";
 import { OfflineNotice, PausedNotice } from "./paused-notice";
 import { PAUSE_REASON } from "@/lib/campaigns/pause-reasons";
 
@@ -45,7 +45,14 @@ export default async function CampaignDetailPage({
   searchParams: Promise<{ destinatarios?: string }>;
 }) {
   const [{ id }, query] = await Promise.all([params, searchParams]);
-  const initialRecipientStatus = query.destinatarios === "falhas" ? "FAILED" as const : undefined;
+  const initialRecipientStatus =
+    query.destinatarios === "falhas"
+      ? "FAILED" as const
+      : query.destinatarios === "enviados"
+        ? "SENT" as const
+        : query.destinatarios === "respostas" || query.destinatarios === "todos"
+          ? undefined
+          : "PENDING" as const;
   const initialOnlyReplied = query.destinatarios === "respostas";
   const session = await auth();
   const organizationId = session!.user.organizationId!;
@@ -161,16 +168,11 @@ export default async function CampaignDetailPage({
             <a href="#visao-geral" className="border-b-2 border-transparent py-3 text-base font-medium text-neutral-600 hover:border-neutral-400 hover:text-neutral-950 dark:text-neutral-300 dark:hover:border-neutral-600 dark:hover:text-white">
               Visão geral
             </a>
-            {queue && (
-              <a href="#fila" className="border-b-2 border-transparent py-3 text-base font-medium text-neutral-600 hover:border-neutral-400 hover:text-neutral-950 dark:text-neutral-300 dark:hover:border-neutral-600 dark:hover:text-white">
-                Fila <span className="font-normal text-neutral-400 dark:text-neutral-500">{campaign.counts.pending}</span>
-              </a>
-            )}
-            <a href="#destinatarios" className="border-b-2 border-transparent py-3 text-base font-medium text-neutral-600 hover:border-neutral-400 hover:text-neutral-950 dark:text-neutral-300 dark:hover:border-neutral-600 dark:hover:text-white">
-              Destinatários <span className="font-normal text-neutral-400 dark:text-neutral-500">{total}</span>
+            <a href="#fila" className="border-b-2 border-transparent py-3 text-base font-medium text-neutral-600 hover:border-neutral-400 hover:text-neutral-950 dark:text-neutral-300 dark:hover:border-neutral-600 dark:hover:text-white">
+              Fila <span className="font-normal text-neutral-400 dark:text-neutral-500">{campaign.counts.pending}</span>
             </a>
             <a href="#mensagens" className="border-b-2 border-transparent py-3 text-base font-medium text-neutral-600 hover:border-neutral-400 hover:text-neutral-950 dark:text-neutral-300 dark:hover:border-neutral-600 dark:hover:text-white">
-              Mensagens e desempenho
+              Desempenho
             </a>
           </div>
         </nav>
@@ -223,7 +225,7 @@ export default async function CampaignDetailPage({
               </p>
               {campaign.counts.skipped > 0 && <p className="text-xs text-neutral-400 dark:text-neutral-500">{campaign.counts.skipped} ignorados</p>}
               {campaign.counts.failed > 0 && (
-                <Link href={`/whatsapp/campanhas/${campaign.id}?destinatarios=falhas#destinatarios`} className="mt-1 inline-block text-sm font-medium text-red-600 hover:underline dark:text-red-400">
+                <Link href={`/whatsapp/campanhas/${campaign.id}?destinatarios=falhas#fila`} className="mt-1 inline-block text-sm font-medium text-red-600 hover:underline dark:text-red-400">
                   Revisar contatos
                 </Link>
               )}
@@ -235,7 +237,7 @@ export default async function CampaignDetailPage({
                 <span className="ml-1 text-sm font-normal text-neutral-400 dark:text-neutral-500">{replyRate}%</span>
               </p>
               {campaign.counts.replied > 0 && (
-                <Link href={`/whatsapp/campanhas/${campaign.id}?destinatarios=respostas#destinatarios`} className="mt-1 inline-block text-sm font-medium text-brand hover:underline">
+                <Link href={`/whatsapp/campanhas/${campaign.id}?destinatarios=respostas#fila`} className="mt-1 inline-block text-sm font-medium text-brand hover:underline">
                   Ver respostas
                 </Link>
               )}
@@ -316,25 +318,24 @@ export default async function CampaignDetailPage({
           </section>
         )}
 
-        {/* Ordem de envio dos pendentes, por horário previsto, e quem sai na próxima hora — editável
-            por quem gerencia a campanha (ver campaign-queue.tsx). */}
-        {queue && (
-          <div id="fila" className="scroll-mt-16">
-            <CampaignQueue campaignId={campaign.id} initial={queue} />
-          </div>
-        )}
-
-        <section id="destinatarios" className="scroll-mt-16 space-y-3" aria-labelledby="campaign-recipients-title">
+        <section id="fila" className="scroll-mt-16 space-y-3" aria-labelledby="campaign-recipients-title">
           <div className="border-b border-neutral-200 pb-3 dark:border-neutral-800">
-            <h2 id="campaign-recipients-title" className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Destinatários</h2>
-            <p className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400">Busque um contato, acompanhe o envio e abra as respostas.</p>
+            <h2 id="campaign-recipients-title" className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Fila de contatos</h2>
+            <p className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400">Veja quem ainda vai receber e acompanhe o resultado dos envios.</p>
           </div>
           <RecipientsTable
-            key={query.destinatarios ?? "todos"}
+            key={query.destinatarios ?? "pendentes"}
             campaignId={campaign.id}
-            repliedTotal={campaign.counts.replied}
             initialStatusFilter={initialRecipientStatus ?? "ALL"}
             initialOnlyReplied={initialOnlyReplied}
+            queue={queue}
+            counts={{
+              pending: campaign.counts.pending,
+              sent: campaign.counts.sent,
+              failed: campaign.counts.failed,
+              replied: campaign.counts.replied,
+              total,
+            }}
             initialPage={{
               ...initialRecipients,
               items: initialRecipients.items.map((r) => ({

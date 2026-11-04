@@ -173,16 +173,16 @@ export function RuleDialog({
   return (
     <Modal
       onClose={() => !saving && onClose()}
-      maxWidth="max-w-3xl"
+      maxWidth="max-w-4xl"
       mobileSheet
-      panelClassName="!flex !h-[90dvh] !flex-col !overflow-hidden !p-0 lg:!h-[min(90vh,48rem)]"
+      panelClassName="!flex !h-[90dvh] !flex-col !overflow-hidden !p-0 lg:!h-[min(90vh,52rem)]"
     >
-      <header className="flex shrink-0 items-start justify-between gap-4 border-b border-neutral-200 px-5 py-4 dark:border-neutral-800">
+      <header className="flex shrink-0 items-start justify-between gap-4 border-b border-neutral-200 px-7 py-5 dark:border-neutral-800">
         <div className="min-w-0">
-          <h2 className="truncate text-lg font-semibold text-neutral-900 dark:text-neutral-100">
+          <h2 className="truncate text-xl font-semibold text-neutral-900 dark:text-neutral-100">
             {initial.id ? "Editar regra" : "Nova regra"}
           </h2>
-          <p className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400">
+          <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
             Defina quem recebe e como calcular.
           </p>
         </div>
@@ -192,10 +192,10 @@ export function RuleDialog({
       </header>
 
       <form ref={formRef} onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
-        <div className="scrollbar-thin min-h-0 flex-1 divide-y divide-neutral-200 overflow-y-auto px-5 dark:divide-neutral-800">
-          <section className="py-6">
+        <div className="scrollbar-thin min-h-0 flex-1 divide-y divide-neutral-200 overflow-y-auto px-7 dark:divide-neutral-800">
+          <section className="py-7">
             <FormSectionHeading number={1} title="Quem recebe" description="Escolha a função e a abrangência." />
-            <div className="grid gap-6 md:grid-cols-2">
+            <div className="grid gap-8 md:grid-cols-2">
               <Question title="Função">
                 <Choices
                   columns={3}
@@ -246,9 +246,9 @@ export function RuleDialog({
             </div>
           </section>
 
-          <section className="py-6">
+          <section className="py-7">
             <FormSectionHeading number={2} title="Em quais vendas" description="Delimite onde esta regra será usada." />
-            <div className="grid gap-6 sm:grid-cols-2">
+            <div className="grid gap-8 sm:grid-cols-2">
               <Question title="Administradora">
                 <Select
                   value={form.administratorId ?? ""}
@@ -274,7 +274,7 @@ export function RuleDialog({
             </div>
 
             {creditTypes.length > 0 && (
-              <div className="mt-6">
+              <div className="mt-7">
                 <Question title="Categoria">
                   <Choices
                     columns={3}
@@ -288,11 +288,11 @@ export function RuleDialog({
             )}
           </section>
 
-          <section className="py-6">
+          <section className="py-7">
             <FormSectionHeading number={3} title="Valor da comissão" description="Informe o percentual e a base de cálculo." />
-            <div className="grid items-start gap-6 sm:grid-cols-[9rem_minmax(0,1fr)]">
+            <div className="grid items-start gap-8 sm:grid-cols-2">
               <Question title="Percentual" required>
-                <div className="relative">
+                <div className="relative max-w-[14rem]">
                   <input
                     id="commission-percent"
                     inputMode="decimal"
@@ -380,7 +380,7 @@ export function RuleDialog({
           )}
         </div>
 
-        <footer className="flex shrink-0 flex-col gap-3 border-t border-neutral-200 px-5 pt-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] sm:flex-row sm:items-center sm:justify-between lg:pb-4 dark:border-neutral-800">
+        <footer className="flex shrink-0 flex-col gap-3 border-t border-neutral-200 px-7 pt-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] sm:flex-row sm:items-center sm:justify-between lg:pb-4 dark:border-neutral-800">
           <p
             className={`flex min-w-0 items-center gap-1.5 text-sm ${
               pendingItems.length > 0

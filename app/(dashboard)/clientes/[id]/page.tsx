@@ -159,7 +159,7 @@ export default async function ContactPage({
   }
 
   return (
-    <div className="contact-detail space-y-4 lg:space-y-6">
+    <div className="contact-detail mx-auto w-full max-w-[1440px] space-y-4 lg:space-y-5">
       <Link
         href={fromDeal ? `/negocios/${fromDeal}` : "/clientes"}
         className="inline-flex items-center gap-1.5 text-sm text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
@@ -168,98 +168,81 @@ export default async function ContactPage({
         {fromDeal ? "Negócio" : "Clientes"}
       </Link>
 
-      {/* Cabeçalho e abas compartilham a mesma largura/centro (max-w-xl
-          mx-auto, acompanha o max-w-xl do cartão de "Dados de contato" em
-          contact-tabs.tsx) — antes o cabeçalho ocupava a página inteira
-          enquanto o cartão de baixo ficava estreito e colado à esquerda,
-          deixando o lápis de editar solto, longe do cartão. Agora os dois
-          formam uma coluna só, centralizada. */}
-      <div className="mx-auto max-w-xl space-y-4 lg:space-y-6">
-        {/* Card Hero de Destaque do Cliente */}
-        <div className="contact-mobile-summary card space-y-4 border border-neutral-200 bg-white p-5 shadow-sm dark:border-neutral-800/80 dark:bg-neutral-900">
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex items-start gap-3.5 min-w-0">
-              <Avatar name={contact.name} size="lg" className="ring-2 ring-brand/40 shadow-sm shrink-0" />
+      <div className="space-y-4 lg:space-y-5">
+        <section className="contact-mobile-summary border-b border-neutral-200 pb-5 dark:border-neutral-800">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex min-w-0 items-start gap-3.5 lg:items-center">
+              <Avatar name={contact.name} size="lg" className="shrink-0 ring-2 ring-brand/30" />
               <div className="min-w-0 flex-1 space-y-1">
-                <h1 className="line-clamp-2 text-xl font-bold tracking-tight text-neutral-900 dark:text-neutral-100 lg:truncate lg:text-2xl">
+                <h1 className="line-clamp-2 text-xl font-bold text-neutral-900 dark:text-neutral-100 lg:truncate lg:text-2xl">
                   {contact.name}
                 </h1>
-                <div className="space-y-1 text-xs text-neutral-500 dark:text-neutral-400">
-                  <span className="inline-flex items-center gap-1 font-medium text-neutral-700 dark:text-neutral-300">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-neutral-500 dark:text-neutral-400">
+                  <span className="inline-flex items-center gap-1.5 font-medium text-neutral-700 dark:text-neutral-300">
                     <Building2 className="h-3.5 w-3.5 shrink-0 text-brand" strokeWidth={2} />
                     {contact.company || contact.source || "Origem não informada"}
                   </span>
                   {contact.responsavel && (
-                    <p className="text-neutral-500 dark:text-neutral-400">
+                    <span className="text-neutral-500 dark:text-neutral-400">
                       Responsável: <strong className="font-medium text-neutral-700 dark:text-neutral-300">{contact.responsavel.name}</strong>
-                    </p>
+                    </span>
                   )}
                 </div>
               </div>
             </div>
-            <EditContactDialog
-              contact={{
-                id: contact.id,
-                name: contact.name,
-                email: contact.email,
-                phone: contact.phone,
-                whatsapp: contact.whatsapp,
-                source: contact.source,
-                company: contact.company,
-                jobTitle: contact.jobTitle,
-                birthDate: contact.birthDate,
-                address: contact.address,
-                addressNumber: contact.addressNumber,
-                addressComplement: contact.addressComplement,
-                neighborhood: contact.neighborhood,
-                city: contact.city,
-                state: contact.state,
-                zipCode: contact.zipCode,
-                tags: contact.tags,
-                responsavelId: contact.responsavelId,
-                customFieldValues,
-              }}
-              sources={sources}
-              jobTitles={jobTitles}
-              members={members}
-              customFields={customFields}
-              triggerClassName="inline-flex h-10 w-10 shrink-0 items-center justify-center gap-1.5 rounded-md text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-900 [&>span]:hidden dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-white lg:h-9 lg:w-auto lg:rounded-full lg:border lg:border-neutral-200 lg:bg-neutral-100 lg:px-3.5 lg:text-xs lg:font-semibold lg:text-neutral-800 lg:shadow-2xs lg:[&>span]:inline lg:dark:border-neutral-700 lg:dark:bg-neutral-800/80 lg:dark:text-neutral-200"
-            />
-          </div>
-
-          {/* Atalhos de ação rápida do contato */}
-          {(contact.phone || contact.whatsapp || contact.email) && (
-            <div className="contact-quick-actions grid grid-cols-3 gap-2 border-t border-neutral-200 pt-2 dark:border-neutral-800/80">
-              {contact.phone && (
-                <a
-                  href={`tel:${contact.phone}`}
-                  className="contact-quick-action flex items-center justify-center gap-1.5 rounded-lg bg-emerald-500/10 py-2 text-xs font-semibold text-emerald-700 transition-colors hover:bg-emerald-500/20 dark:text-emerald-400"
-                >
-                  <Phone className="h-3.5 w-3.5" strokeWidth={2.2} />
-                  <span>Ligar</span>
-                </a>
-              )}
+            <div className="contact-quick-actions flex flex-wrap items-center gap-2 border-t border-neutral-200 pt-3 dark:border-neutral-800 lg:shrink-0 lg:border-0 lg:pt-0">
               {contact.whatsapp && (
                 <Link
                   href={`/whatsapp/conversas?contactId=${contact.id}`}
-                  className="contact-quick-action flex items-center justify-center gap-1.5 rounded-lg bg-emerald-500/10 py-2 text-xs font-semibold text-emerald-700 transition-colors hover:bg-emerald-500/20 dark:text-emerald-400"
+                  className="contact-quick-action btn-secondary btn-sm text-emerald-700 dark:text-emerald-400"
                 >
                   <MessageSquare className="h-3.5 w-3.5" strokeWidth={2.2} />
                   <span>WhatsApp</span>
                 </Link>
               )}
+              {contact.phone && (
+                <a href={`tel:${contact.phone}`} className="contact-quick-action btn-secondary btn-sm">
+                  <Phone className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" strokeWidth={2.2} />
+                  <span>Ligar</span>
+                </a>
+              )}
               {contact.email && (
-                <a
-                  href={`mailto:${contact.email}`}
-                  className="contact-quick-action flex items-center justify-center gap-1.5 rounded-lg bg-purple-500/10 py-2 text-xs font-semibold text-purple-700 transition-colors hover:bg-purple-500/20 dark:text-purple-400"
-                >
-                  <Mail className="h-3.5 w-3.5" strokeWidth={2.2} />
+                <a href={`mailto:${contact.email}`} className="contact-quick-action btn-secondary btn-sm">
+                  <Mail className="h-3.5 w-3.5 text-brand" strokeWidth={2.2} />
                   <span>E-mail</span>
                 </a>
               )}
+              <EditContactDialog
+                contact={{
+                  id: contact.id,
+                  name: contact.name,
+                  email: contact.email,
+                  phone: contact.phone,
+                  whatsapp: contact.whatsapp,
+                  source: contact.source,
+                  company: contact.company,
+                  jobTitle: contact.jobTitle,
+                  birthDate: contact.birthDate,
+                  address: contact.address,
+                  addressNumber: contact.addressNumber,
+                  addressComplement: contact.addressComplement,
+                  neighborhood: contact.neighborhood,
+                  city: contact.city,
+                  state: contact.state,
+                  zipCode: contact.zipCode,
+                  tags: contact.tags,
+                  responsavelId: contact.responsavelId,
+                  customFieldValues,
+                }}
+                sources={sources}
+                jobTitles={jobTitles}
+                members={members}
+                customFields={customFields}
+                triggerClassName="contact-quick-action btn-secondary btn-sm"
+              />
             </div>
-          )}
-        </div>
+          </div>
+        </section>
 
         <ContactTabs
           contactId={contact.id}

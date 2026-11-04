@@ -26,15 +26,15 @@ export function WeightCard({ weight }: { weight: CommissionWeight }) {
   const net = current.revenue - current.commissionByCompanyKnown;
 
   return (
-    <section className="card flex min-h-80 flex-col rounded-lg p-4">
+    <section className="card flex min-h-80 flex-col rounded-lg p-5">
       <div className="flex items-baseline justify-between gap-3">
-        <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+        <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
           {knowsRevenue ? "Resultado da corretora" : "Peso das comissões"}
         </h2>
         <span className="text-xs text-neutral-500 dark:text-neutral-400">{formatMonthLong(current.month)}</span>
       </div>
 
-      <div className="mt-4 grid grid-cols-3 divide-x divide-neutral-200 border-y border-neutral-200 py-3 dark:divide-neutral-800 dark:border-neutral-800">
+      <div className="mt-5 grid grid-cols-3 divide-x divide-neutral-200 border-y border-neutral-200 py-4 dark:divide-neutral-800 dark:border-neutral-800">
         {knowsRevenue ? (
           <>
             <Metric label="Receita" value={formatCurrency(current.revenue)} />
@@ -83,9 +83,9 @@ export function WeightCard({ weight }: { weight: CommissionWeight }) {
 
 function Metric({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
   return (
-    <div className="min-w-0 px-3 first:pl-0 last:pr-0">
-      <p className="text-[11px] text-neutral-500 dark:text-neutral-400">{label}</p>
-      <p className={`truncate text-sm tabular-nums text-neutral-900 dark:text-neutral-100 ${strong ? "font-semibold" : "font-medium"}`}>{value}</p>
+    <div className="min-w-0 px-4 first:pl-0 last:pr-0">
+      <p className="text-xs text-neutral-500 dark:text-neutral-400">{label}</p>
+      <p className={`truncate text-base tabular-nums text-neutral-900 dark:text-neutral-100 ${strong ? "font-semibold" : "font-medium"}`}>{value}</p>
     </div>
   );
 }

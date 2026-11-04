@@ -228,24 +228,40 @@ export function ProposalFormDialog({
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            {/* Form próprio: o modal de tabelas abre pelo submit, sem sair da proposta. */}
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                setTablesOpen(true);
-              }}
-            >
-              <button type="submit" className="btn-secondary btn-sm shrink-0" title="Escolher créditos das tabelas da Servopa e anexar à proposta, sem sair dela">
-                <Table2 className="h-3.5 w-3.5" strokeWidth={2} />
-                Usar tabelas da Servopa
-              </button>
-            </form>
             <button type="button" onClick={onClose} disabled={busy} className="icon-btn h-8 w-8 shrink-0" aria-label="Fechar">
               <X className="h-4 w-4" strokeWidth={2} />
             </button>
           </div>
         </div>
       </div>
+
+      {/* Form próprio: abre a consulta pelo submit, sem enviar a proposta nem sair dela. */}
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          setTablesOpen(true);
+        }}
+        className="mt-4"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 border-l-4 border-brand bg-brand-light/40 px-4 py-3.5 dark:bg-brand-light/10">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+              {hasQuotas
+                ? `${quotas.length} ${quotas.length === 1 ? "crédito" : "créditos"} da Servopa na proposta`
+                : "Comece pelas tabelas da Servopa"}
+            </p>
+            <p className="mt-0.5 text-xs leading-5 text-neutral-600 dark:text-neutral-300">
+              {hasQuotas
+                ? "Crédito, prazo, taxa e parcela vêm das tabelas. Clique para trocar ou incluir outros créditos."
+                : "Escolha o grupo e a categoria: crédito, prazo, taxa e parcela são preenchidos sozinhos."}
+            </p>
+          </div>
+          <button type="submit" className="btn-primary shrink-0" title="Escolher créditos das tabelas da Servopa e anexar à proposta, sem sair dela">
+            <Table2 className="h-4 w-4" strokeWidth={2} />
+            {hasQuotas ? "Editar créditos" : "Usar tabelas da Servopa"}
+          </button>
+        </div>
+      </form>
 
       <div className="grid gap-4 pt-4 lg:grid-cols-[minmax(0,1fr)_280px]">
         <div className="space-y-3">

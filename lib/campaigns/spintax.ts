@@ -4,6 +4,9 @@
  * função pura. Evita mandar a mesma frase exata pra centenas de contatos,
  * o que é um padrão fácil de reconhecer como disparo automático.
  */
+
+import { stepDelayBounds } from "@/lib/campaigns/step-delay";
+
 // O corpo de cada opção pode conter tokens de variável de chave simples
 // (ex.: "Oi {primeiro_nome}!") — só "[" e "]" ficam de fora, já que esses
 // dois são os únicos caracteres que de fato delimitam o bloco de variação
@@ -72,7 +75,9 @@ export function renderSamplePreview(text: string): string {
 
 /** Espera entre mensagens na prévia: "30s depois", "2 min depois". */
 export function stepDelayLabel(seconds: number): string {
-  return seconds < 60 ? `${seconds}s depois` : `${Math.round(seconds / 60)} min depois`;
+  const { min, max } = stepDelayBounds(seconds);
+  if (max === 0) return "logo depois";
+  return max < 60 ? `${min} a ${max}s depois` : `cerca de ${Math.round(((min + max) / 2) / 60)} min depois`;
 }
 
 /** Uma "mensagem" da sequência de um script — delayAfterSec é a espera até a PRÓXIMA (ignorado na última). */

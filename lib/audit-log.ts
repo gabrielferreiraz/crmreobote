@@ -62,6 +62,12 @@ export type AuditAction =
   | "COMMISSION_RELEASED"
   | "COMMISSION_ADJUSTMENT"
   | "COMMISSION_DISPUTE_RESOLVED"
+  // Bônus por meta batida (ver lib/commissions/bonus-run.ts): meta individual
+  // cadastrada, regra de bônus criada/editada/apagada, e cada vez que o
+  // Financeiro manda calcular os bônus de um mês.
+  | "COMMISSION_INDIVIDUAL_GOAL_CHANGED"
+  | "COMMISSION_BONUS_RULE_CHANGED"
+  | "COMMISSION_BONUS_CALCULATED"
   // Central de Leads (ver lib/whatsapp/lead-routing.ts): contato criado pelo
   // sistema na 1ª mensagem, e conexão/pool da Central mexidos pelo Dono.
   | "CENTRAL_CONTACT_CREATED"

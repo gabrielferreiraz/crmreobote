@@ -1,5 +1,7 @@
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
+import Link from "next/link";
+import { Lock } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { USER_PUBLIC_SELECT } from "@/lib/user-public";
@@ -13,7 +15,39 @@ import { getOrCreateThreadForContact } from "@/lib/whatsapp/threads";
 import { resolveConnectedInstance } from "@/lib/whatsapp/send";
 import { findOpenCentralThreadForContact } from "@/lib/whatsapp/central-access";
 import type { CustomFieldFormValues } from "@/components/custom-fields-fieldset";
+import { EmptyState } from "@/components/empty-state";
 import { DealDetail } from "./deal-detail";
+
+/**
+ * Antes, um negócio fora do escopo (não é seu, nem compartilhado) dava 404
+ * puro — nenhuma informação, nem pra quem pedir o lead de volta. Relatado:
+ * consultor "não conseguia assumir" um lead porque nem sabia que o negócio
+ * existia nem quem era o responsável (caía direto no 404, sem pista
+ * nenhuma). Esta versão enxuta mostra só o nome do negócio/cliente e quem é
+ * o responsável — NADA de atividades, tarefas, valores, propostas ou
+ * qualquer outro dado do negócio. "Assumir"/"Solicitar" o contato continua
+ * existindo em outros lugares do CRM (cadastro de contato, conversa de
+ * WhatsApp já vinculada) — de propósito não duplicado aqui: assumir o
+ * CONTATO não transfere este negócio específico (ownerId não muda sozinho),
+ * então um botão de assumir aqui destravaria o contato mas não esta página,
+ * o que confundiria mais do que ajudaria.
+ */
+function DealOwnershipStub({ dealName, contactName, ownerName }: { dealName: string; contactName: string; ownerName: string }) {
+  return (
+    <div className="card py-4">
+      <EmptyState
+        icon={Lock}
+        title={dealName}
+        description={`Negócio de ${contactName}, responsável: ${ownerName}. Você não tem acesso ao histórico (atividades, tarefas, valores) deste negócio.`}
+        action={
+          <Link href="/" className="btn-secondary">
+            Voltar ao início
+          </Link>
+        }
+      />
+    </div>
+  );
+}
 
 export default async function DealPage({ params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
@@ -53,7 +87,17 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
       },
     });
 
-    if (!dealRaw) notFound();
+    if (!dealRaw) {
+      // Fora do escopo normal (ownerId/compartilhamento) — antes de dizer
+      // "não existe", confere se existe na organização mesmo assim, pra
+      // mostrar quem é o responsável em vez de um 404 sem nenhuma pista.
+      const stub = await prisma.deal.findFirst({
+        where: { id, organizationId },
+        select: { name: true, contact: { select: { name: true } }, owner: { select: { name: true } } },
+      });
+      if (!stub) notFound();
+      return <DealOwnershipStub dealName={stub.name} contactName={stub.contact.name} ownerName={stub.owner.name} />;
+    }
 
     // Divisão do negócio (co-responsáveis).
     const participantsRaw = await prisma.dealParticipant.findMany({

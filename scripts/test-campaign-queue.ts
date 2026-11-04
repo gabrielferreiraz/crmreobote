@@ -17,6 +17,7 @@ import {
   resolvePace,
 } from "@/lib/campaigns/queue-estimate";
 import { getBrazilParts } from "@/lib/timezone";
+import { randomStepDelayMs, stepDelayBounds } from "@/lib/campaigns/step-delay";
 
 /** Instante no horário de Brasília (Campo Grande, UTC-4). */
 const brt = (y: number, m: number, d: number, h: number, mi = 0) => new Date(Date.UTC(y, m - 1, d, h + 4, mi));
@@ -182,14 +183,26 @@ test("resolvePace: usa o observado quando há histórico, senão o modelo", () =
 
 test("expectedScriptProcessingSec: soma as esperas ENTRE passos, ponderada pelo peso", () => {
   const one = [{ steps: [{ delayAfterSec: 20 }, { delayAfterSec: 40 }, { delayAfterSec: 99 }], weight: 1 }];
-  assert.equal(expectedScriptProcessingSec(one), 60); // o último passo não espera
+  // A espera real é sorteada na faixa do tempo-base (20 s → 16–30, média 23; 40 s → 32–60, média 46); o último passo não espera.
+  assert.equal(expectedScriptProcessingSec(one), 69);
   const two = [
     { steps: [{ delayAfterSec: 20 }, { delayAfterSec: 40 }, { delayAfterSec: 0 }], weight: 1 },
     { steps: [{ delayAfterSec: 0 }], weight: 3 },
   ];
-  assert.equal(expectedScriptProcessingSec(two), 15); // (60*1 + 0*3) / 4
+  assert.equal(expectedScriptProcessingSec(two), 17.25); // (69*1 + 0*3) / 4
   assert.equal(expectedScriptProcessingSec(null), 0);
   assert.equal(expectedScriptProcessingSec([]), 0);
+});
+
+test("stepDelayBounds: a faixa que o consultor vê é a mesma do envio (5 s → 4–8, 10 s → 8–15)", () => {
+  assert.deepEqual(stepDelayBounds(5), { min: 4, max: 8 });
+  assert.deepEqual(stepDelayBounds(10), { min: 8, max: 15 });
+  assert.deepEqual(stepDelayBounds(0), { min: 0, max: 0 });
+  for (let i = 0; i < 2000; i++) {
+    const ms = randomStepDelayMs(10);
+    assert.ok(ms >= 8000 && ms <= 15000, `fora da faixa: ${ms}`);
+  }
+  assert.equal(randomStepDelayMs(0), 0);
 });
 
 // ─── horários da fila ─────────────────────────────────────────────────

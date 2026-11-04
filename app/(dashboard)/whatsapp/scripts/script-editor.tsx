@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Plus, Trash2, Loader2, ArrowLeft, X, Shuffle, MessageCircleMore, Pencil, Globe2, Lock, ImagePlus, Image as ImageIcon } from "lucide-react";
+import { Plus, Trash2, Loader2, ArrowLeft, X, Shuffle, MessageCircleMore, Pencil, Globe2, Lock, ImagePlus, Image as ImageIcon, Timer } from "lucide-react";
 import { VariablePills } from "@/components/variable-pills";
 import { Switch } from "@/components/switch";
 import { LoadingDots } from "@/components/loading-dots";
@@ -13,6 +13,7 @@ import { MessageVariationEditor } from "@/components/message-variation-editor";
 import { renderTemplate, SAMPLE_CONTACT_VARS } from "@/lib/campaigns/spintax";
 import type { ScriptStep } from "@/lib/campaigns/spintax";
 import { normalizeSteps, textChangeRatio } from "@/lib/campaigns/script-steps";
+import { DEFAULT_STEP_DELAY_SEC, stepDelayBounds } from "@/lib/campaigns/step-delay";
 import { SYNONYM_REGEX, synonymsFor } from "@/lib/message-synonyms";
 import { ScriptSaveDialog, type ScriptImpactDTO, type ScriptSaveChoice } from "./script-save-dialog";
 import { trackUse } from "@/lib/feature-usage/track";
@@ -181,6 +182,38 @@ function computeFloatingPosition(rect: DOMRect, estimatedHeight: number, width =
   return { top, left };
 }
 
+/** Espera entre duas mensagens: uma linha só, fora dos cartões. A faixa é a mesma do envio (lib/campaigns/step-delay). */
+function StepDelayConnector({
+  seconds,
+  nextNumber,
+  onChange,
+}: {
+  seconds: number;
+  nextNumber: number;
+  onChange: (value: number) => void;
+}) {
+  const { min, max } = stepDelayBounds(seconds);
+  return (
+    <div className="my-1 flex flex-1 items-center gap-2 border-l-2 border-neutral-200 py-1.5 pl-4 text-sm text-neutral-600 dark:border-neutral-800 dark:text-neutral-300">
+      <Timer className="h-3.5 w-3.5 shrink-0 text-neutral-400" strokeWidth={2} aria-hidden="true" />
+      <label className="flex items-center gap-1.5">
+        Enviar após
+        <input
+          type="number"
+          min={0}
+          max={MAX_DELAY_SEC}
+          value={seconds}
+          onChange={(e) => onChange(Number(e.target.value))}
+          className="field-input w-14 shrink-0 px-1.5 py-0.5 text-center text-sm font-semibold tabular-nums"
+          aria-label={`Segundos de espera antes da mensagem ${nextNumber}`}
+        />
+        s
+      </label>
+      {max > 0 && <span className="text-xs tabular-nums text-neutral-400">({min}–{max} s)</span>}
+    </div>
+  );
+}
+
 export function ScriptEditor({
   scriptId,
   initialName = "",
@@ -220,7 +253,7 @@ export function ScriptEditor({
   const [steps, setSteps] = useState<Step[]>(
     initialSteps?.length
       ? initialSteps
-      : [{ text: "", delayAfterSec: defaultStepDelayRange ? randomInRange(defaultStepDelayRange) : 0 }],
+      : [{ text: "", delayAfterSec: defaultStepDelayRange ? randomInRange(defaultStepDelayRange) : DEFAULT_STEP_DELAY_SEC }],
   );
   // Chave estável por mensagem, independente da posição no array — sem isso,
   // remover a mensagem 1 faria a mensagem 2 "herdar" o DOM (e o innerHTML já
@@ -374,8 +407,14 @@ export function ScriptEditor({
   }
 
   function addStep() {
-    const delayAfterSec = defaultStepDelayRange ? randomInRange(defaultStepDelayRange) : 2;
-    setSteps((prev) => [...prev, { text: "", delayAfterSec }]);
+    const delayAfterSec = defaultStepDelayRange ? randomInRange(defaultStepDelayRange) : DEFAULT_STEP_DELAY_SEC;
+    // A espera que antecede a mensagem nova mora na ÚLTIMA mensagem de hoje (até agora escondida, por não ter próxima):
+    // ela passa a valer e já nasce no padrão.
+    setSteps((prev) => [
+      ...prev.slice(0, -1),
+      ...(prev.length > 0 ? [{ ...prev[prev.length - 1], delayAfterSec }] : []),
+      { text: "", delayAfterSec },
+    ]);
     setStepKeys((prev) => [...prev, newStepKey()]);
     setFocusedStepIndex(steps.length);
   }
@@ -966,7 +1005,8 @@ export function ScriptEditor({
 
             {steps.map((step, idx) => {
               return (
-                <div key={stepKeys[idx]} className="flex gap-3">
+                <Fragment key={stepKeys[idx]}>
+                <div className="flex gap-3">
                   {/* Selo numerado + linha conectando ao próximo passo — o
                       mesmo fio visual continua até o botão "adicionar passo"
                       no fim da lista (ver abaixo), pra ler como um fluxo só,
@@ -1065,20 +1105,6 @@ export function ScriptEditor({
                       </div>
                       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs text-neutral-400 dark:text-neutral-500">
                         <span className="shrink-0">{step.text.length} caracteres</span>
-                        {idx < steps.length - 1 && (
-                          <label className="flex flex-wrap items-center gap-1.5">
-                            Esperar
-                            <input
-                              type="number"
-                              min={0}
-                              max={MAX_DELAY_SEC}
-                              value={step.delayAfterSec}
-                              onChange={(e) => updateStepDelay(idx, Number(e.target.value))}
-                              className="field-input w-16 shrink-0 px-2 py-0.5"
-                            />
-                            segundos antes da próxima mensagem
-                          </label>
-                        )}
                       </div>
                       {/* Pedido explícito: variação nasce direto de um
                           trecho que a pessoa já escreveu (seleciona o texto,
@@ -1096,6 +1122,19 @@ export function ScriptEditor({
                     </div>
                   </div>
                 </div>
+                {idx < steps.length - 1 && (
+                  <div className="flex gap-3">
+                    <div className="flex w-7 shrink-0 justify-center">
+                      <span className="w-px bg-neutral-200 dark:bg-neutral-800" />
+                    </div>
+                    <StepDelayConnector
+                      seconds={step.delayAfterSec}
+                      nextNumber={idx + 2}
+                      onChange={(value) => updateStepDelay(idx, value)}
+                    />
+                  </div>
+                )}
+                </Fragment>
               );
             })}
 
