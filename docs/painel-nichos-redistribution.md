@@ -1,12 +1,21 @@
 # Redistribuição de negócios existentes — Painel Nichos
 
-Esta operação localiza registros existentes. Não cria contatos nem negócios e não revalida/regrava os telefones originais.
+Esta operação localiza registros existentes e não revalida/regrava os telefones originais. Só cria algo no último recurso descrito abaixo.
 
 ## Ativação
 
-No CRM, configure `PAINEL_NICHOS_REASSIGN_API_KEY_ID` com o **ID**, não o token, de uma chave dedicada do Painel. Ausente ou diferente da chave autenticada: resposta 403, nenhuma redistribuição.
+Não há variáveis novas. Os endpoints aceitam uma chave de API válida da organização, e o solicitante (`actorId`) é conferido a cada chamada. A integração começa desmarcada na interface e exige consultor, funil e etapa. A importação da Black fica apenas no Painel. Reabrir negócios perdidos exige escolha explícita.
 
-No Painel, configure `CRM_EXISTING_DEALS_ENABLED=true` somente após implantar estes endpoints no CRM. A integração começa desmarcada na interface e exige consultor, funil e etapa. A importação da Black fica apenas no Painel. Reabrir negócios perdidos exige escolha explícita.
+## Último recurso: criar quando não encontrar
+
+A base da campanha foi extraída do próprio CRM, então não encontrar um cadastro é exceção. Só cria com `createIfMissing=true`, marcado à parte na interface, e sem `dealId` na solicitação. Fora desses casos, o item fica para revisão:
+
+- **Contato não encontrado:** exige `fallback.name` e telefone válido para cadastro (nunca cria contato sem número). Antes de criar, uma busca ampla procura o mesmo final de telefone (8 dígitos), nome ou e-mail. Qualquer resultado bloqueia a criação (`CONTACT_POSSIBLE_MATCH`).
+- **Contato encontrado:** só cria o negócio se o contato não tiver nenhum negócio, em nenhum funil e com nenhum status. Contato ambíguo, vários negócios ou negócio ganho nunca geram criação.
+- **Disjuntor:** no máximo 20 criações por organização em 24 horas (`CREATION_LIMIT_REACHED`).
+- **Etapa:** campos obrigatórios não preenchidos bloqueiam a criação.
+
+Tudo ocorre na mesma transação, com `outcome: "created"`, `before: null` e auditoria `PANEL_DISTRIBUTION_CREATED`.
 
 Os endpoints usam as tabelas existentes do CRM; esta alteração não requer migração de schema. Não é necessário alterar o endpoint de notas nem o upsert de integrações comuns.
 

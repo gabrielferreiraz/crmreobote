@@ -8,6 +8,7 @@ import { PanelRedistributionError, panelRedistributionSchema, redistributeExisti
 import { rateLimitOrResponse } from "@/lib/rate-limit";
 import { publishDealsEvent } from "@/lib/deals/live-events";
 import { enqueueWebhookEvent, buildDealWebhookPayload } from "@/lib/webhooks/enqueue";
+import { linkOrphanThreadsForContact } from "@/lib/whatsapp/threads";
 
 export const dynamic = "force-dynamic";
 
@@ -30,10 +31,21 @@ export async function POST(req: Request) {
         after(async () => {
           try {
             await runWithTenant(access.organizationId, async () => {
-              publishDealsEvent(access.organizationId, { type: "deal-updated", pipelineId: result.after.pipelineId });
+              publishDealsEvent(access.organizationId, { type: result.before ? "deal-updated" : "deal-created", pipelineId: result.after.pipelineId });
               const deal = await prisma.deal.findFirst({ where: { id: result.id, organizationId: access.organizationId }, include: { contact: true, owner: true, stage: true } });
               if (!deal) return;
               const payload = await buildDealWebhookPayload(deal);
+              if (!result.before) {
+                if (result.contactCreated) {
+                  const { contact } = deal;
+                  await linkOrphanThreadsForContact(access.organizationId, contact.id, [contact.phoneNormalized, contact.whatsappNormalized]);
+                  await enqueueWebhookEvent(access.organizationId, "contact.created", {
+                    id: contact.id, name: contact.name, email: contact.email, phone: contact.phone, whatsapp: contact.whatsapp, source: contact.source, tags: contact.tags, createdAt: contact.createdAt,
+                  });
+                }
+                await enqueueWebhookEvent(access.organizationId, "deal.created", payload);
+                return;
+              }
               if (result.before.ownerId !== result.after.ownerId) await enqueueWebhookEvent(access.organizationId, "deal.owner_changed", { ...payload, previousOwner: { id: result.before.ownerId } });
               if (result.before.stageId !== result.after.stageId) await enqueueWebhookEvent(access.organizationId, "deal.stage_changed", { ...payload, previousStage: { id: result.before.stageId } });
               if (result.before.contactOwnerId !== result.after.contactOwnerId) await enqueueWebhookEvent(access.organizationId, "contact.owner_changed", {

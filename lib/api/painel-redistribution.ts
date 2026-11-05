@@ -4,6 +4,14 @@ import type { Prisma } from "@/app/generated/prisma/client";
 import { evaluateLeadClaim } from "@/lib/lead-claim";
 import { findMissingRequiredFields, labelForRequiredField } from "@/lib/deal-required-fields";
 import { panelPhoneLookupVariants } from "@/lib/api/painel-phone-match";
+import { parsePhone, resolveContactPhones } from "@/lib/phone-normalize";
+import { buildDealName } from "@/lib/deal-name";
+import { sanitizeCell } from "@/lib/csv-sanitize";
+
+// A base da campanha saiu do próprio CRM: muitos "não encontrados" indicam
+// problema na busca, não contatos novos. O disjuntor para antes de virar lote.
+export const MAX_LAST_RESORT_CREATIONS_PER_DAY = 20;
+const LAST_RESORT_ACTION = "PANEL_DISTRIBUTION_CREATED";
 
 export const panelRedistributionSchema = z.object({
   requestId: z.string().trim().min(1).max(200),
@@ -15,11 +23,23 @@ export const panelRedistributionSchema = z.object({
   stageId: z.string().trim().min(1).max(100),
   dealId: z.string().trim().min(1).max(100).optional(),
   reopenLost: z.boolean().default(false),
+  createIfMissing: z.boolean().default(false),
+  fallback: z.object({
+    name: z.string().trim().min(1).max(200),
+    email: z.string().trim().max(200).optional(),
+    company: z.string().trim().max(200).optional(),
+    city: z.string().trim().max(100).optional(),
+    state: z.string().trim().max(100).optional(),
+    description: z.string().trim().max(10_000).optional(),
+  }).optional(),
 });
 
 type Input = z.infer<typeof panelRedistributionSchema>;
 type Snapshot = { ownerId: string; contactOwnerId: string | null; pipelineId: string; stageId: string; status: string };
-type Result = { id: string; contactId: string; outcome: "updated"; auditId: string; before: Snapshot; after: Snapshot; warnings: string[]; replayed: boolean };
+type Result = {
+  id: string; contactId: string; outcome: "updated" | "created"; auditId: string; before: Snapshot | null; after: Snapshot;
+  contactCreated?: boolean; warnings: string[]; replayed: boolean;
+};
 
 export class PanelRedistributionError extends Error {
   constructor(public code: string, message: string, public status = 409) { super(message); }
@@ -27,7 +47,75 @@ export class PanelRedistributionError extends Error {
 
 function fail(code: string, message: string, status = 409): never { throw new PanelRedistributionError(code, message, status); }
 
-/** Called only inside a SERIALIZABLE transaction after setTenantOnTx. No create/upsert of Contact or Deal. */
+/** Busca ampla que só serve para IMPEDIR uma criação: nunca escolhe um cadastro para alterar. */
+async function assertNoPossibleContact(tx: Prisma.TransactionClient, organizationId: string, phone: string, name: string, email?: string) {
+  const lastDigits = phone.replace(/\D/g, "").slice(-8);
+  const possible = await tx.$queryRaw<Array<{ id: string }>>`
+    SELECT id FROM "Contact" WHERE "organizationId" = ${organizationId} AND (
+      right(regexp_replace(coalesce(phone, ''), '\\D', '', 'g'), 8) = ${lastDigits}
+      OR right(regexp_replace(coalesce(whatsapp, ''), '\\D', '', 'g'), 8) = ${lastDigits}
+      OR right(coalesce("phoneNormalized", ''), 8) = ${lastDigits}
+      OR right(coalesce("whatsappNormalized", ''), 8) = ${lastDigits}
+      OR lower(trim(name)) = lower(trim(${name}))
+      OR (${email ?? ""} <> '' AND lower(trim(coalesce(email, ''))) = lower(trim(${email ?? ""})))
+    ) LIMIT 1`;
+  if (possible.length) fail("CONTACT_POSSIBLE_MATCH", "Existe um contato parecido no CRM (mesmo final de telefone, nome ou e-mail). Confira no CRM: nada foi criado.");
+}
+
+async function assertCreationBudget(tx: Prisma.TransactionClient, organizationId: string) {
+  const created = await tx.auditLog.count({ where: { organizationId, action: LAST_RESORT_ACTION, createdAt: { gte: new Date(Date.now() - 86_400_000) } } });
+  if (created >= MAX_LAST_RESORT_CREATIONS_PER_DAY) {
+    fail("CREATION_LIMIT_REACHED", `Limite de ${MAX_LAST_RESORT_CREATIONS_PER_DAY} criações por dia atingido. Muitos não encontrados podem indicar problema na busca: confira antes de continuar. Nada foi criado.`);
+  }
+}
+
+/** Último recurso: só chega aqui depois de a busca falhar e com autorização explícita na solicitação. */
+async function createDealAsLastResort(tx: Prisma.TransactionClient, organizationId: string, apiKeyName: string, actorName: string, input: Input, stage: { requiredFields: Prisma.PipelineStageGetPayload<object>["requiredFields"] }, existing: { id: string; name: string; source: string | null; jobTitle: string | null } | null, auditId: (contactId: string) => string): Promise<Omit<Result, "replayed">> {
+  await assertCreationBudget(tx, organizationId);
+  const missing = findMissingRequiredFields(stage.requiredFields, { value: null, grossValue: null, creditType: null, expectedCloseAt: null,
+    contactSource: existing?.source ?? `Painel Nichos - ${input.campaignKey}`, contactJobTitle: existing?.jobTitle ?? null });
+  if (missing.length) fail("STAGE_REQUIRED_FIELDS", `A etapa exige o preenchimento de: ${missing.map(labelForRequiredField).join(", ")}. Nada foi criado.`, 400);
+
+  let contact = existing;
+  if (!contact) {
+    if (!input.fallback) fail("CONTACT_NOT_FOUND", "Nenhum contato correspondente foi encontrado no CRM e a solicitação não trouxe os dados para criar. Nada foi criado.", 404);
+    // Nunca repetir o incidente de contato criado sem número.
+    const parsed = parsePhone(input.phone, "phone");
+    const phones = resolveContactPhones({ phone: input.phone });
+    if (!parsed.ok || !parsed.phone || parsed.phone.kind === "OTHER" || phones.issues.length || !(phones.phoneNormalized || phones.whatsappNormalized)) {
+      fail("PHONE_NOT_CREATABLE", "O contato não foi encontrado e o telefone não é válido para um cadastro novo. Nada foi criado.", 404);
+    }
+    await assertNoPossibleContact(tx, organizationId, parsed.phone.normalized, input.fallback.name, input.fallback.email);
+    const { email, company, city, state } = input.fallback;
+    contact = await tx.contact.create({ data: {
+      organizationId, name: sanitizeCell(input.fallback.name), tags: [], source: `Painel Nichos - ${input.campaignKey}`, responsavelId: input.ownerId,
+      phone: phones.phone, phoneNormalized: phones.phoneNormalized, whatsapp: phones.whatsapp, whatsappNormalized: phones.whatsappNormalized,
+      ...(email ? { email: sanitizeCell(email) } : {}), ...(company ? { company: sanitizeCell(company) } : {}),
+      ...(city ? { city: sanitizeCell(city) } : {}), ...(state ? { state: sanitizeCell(state) } : {}),
+    } });
+  } else {
+    await tx.contact.update({ where: { id: contact.id }, data: { responsavelId: input.ownerId } });
+  }
+
+  const description = input.fallback?.description;
+  const deal = await tx.deal.create({ data: {
+    organizationId, pipelineId: input.pipelineId, stageId: input.stageId, contactId: contact.id, ownerId: input.ownerId,
+    name: sanitizeCell(buildDealName(contact.name, contact.source)), ...(description ? { description: sanitizeCell(description) } : {}),
+  } });
+  const after: Snapshot = { ownerId: input.ownerId, contactOwnerId: input.ownerId, pipelineId: input.pipelineId, stageId: input.stageId, status: "OPEN" };
+  const id = auditId(contact.id);
+  const result = { id: deal.id, contactId: contact.id, outcome: "created" as const, auditId: id, before: null, after, contactCreated: !existing, warnings: [] };
+  await tx.auditLog.create({ data: { id, organizationId, actorUserId: input.actorId, actorName,
+    action: LAST_RESORT_ACTION, targetType: "Deal", targetId: deal.id,
+    detail: JSON.stringify({ requestId: input.requestId, campaignKey: input.campaignKey, apiKeyName, result }),
+  } });
+  await tx.activity.create({ data: { organizationId, dealId: deal.id, contactId: contact.id, userId: input.actorId, type: "SYSTEM",
+    body: `Painel Nichos: negócio criado como último recurso, porque ${existing ? "o contato não tinha nenhum negócio" : "o telefone não foi encontrado"} no CRM. Auditoria: ${id}.`,
+  } });
+  return result;
+}
+
+/** Called only inside a SERIALIZABLE transaction after setTenantOnTx. Creates records only through createDealAsLastResort. */
 export async function redistributeExistingDeal(tx: Prisma.TransactionClient, organizationId: string, apiKeyName: string, input: Input): Promise<Result> {
   const hash = (value: string) => createHash("sha256").update(value).digest("hex");
   const requestHash = hash(JSON.stringify(input));
@@ -76,14 +164,28 @@ export async function redistributeExistingDeal(tx: Prisma.TransactionClient, org
     { phone: { in: variants } }, { whatsapp: { in: variants } },
   ] };
   const matches = await tx.contact.findMany({ where: matchWhere, select: { id: true }, take: 2 });
-  if (matches.length === 0) fail("CONTACT_NOT_FOUND", "Nenhum contato correspondente foi encontrado no CRM. O cadastro original precisa ser conferido; nenhum contato novo foi criado.", 404);
+  const campaignAuditId = (id: string) => `pn_campaign_${hash(`${organizationId}:${input.campaignKey}:${id}`)}`;
+  // Um dealId conhecido que sumiu foi removido de propósito: nunca recriar.
+  const mayCreate = input.createIfMissing && !input.dealId;
+  const finishCreation = async (created: Omit<Result, "replayed">): Promise<Result> => {
+    const result: Result = { ...created, replayed: false };
+    await tx.auditLog.create({ data: { id: receiptId, organizationId, actorUserId: input.actorId, actorName: actor!.user.name,
+      action: "PANEL_DISTRIBUTION_RECEIPT", targetType: "Deal", targetId: result.id,
+      detail: JSON.stringify({ requestId: input.requestId, requestHash, result }),
+    } });
+    return result;
+  };
+  if (matches.length === 0) {
+    if (mayCreate) return finishCreation(await createDealAsLastResort(tx, organizationId, apiKeyName, actor.user.name, input, stage, null, campaignAuditId));
+    fail("CONTACT_NOT_FOUND", "Nenhum contato correspondente foi encontrado no CRM. O cadastro original precisa ser conferido; nenhum contato novo foi criado.", 404);
+  }
   if (matches.length !== 1) fail("CONTACT_AMBIGUOUS", "Mais de um contato corresponde a esse número. Confira os cadastros no CRM antes de escolher qual redistribuir.");
 
   const contactId = matches[0].id;
   await tx.$queryRaw`SELECT id FROM "Contact" WHERE id = ${contactId} AND "organizationId" = ${organizationId} FOR UPDATE`;
   const contact = await tx.contact.findFirst({ where: { id: contactId, organizationId } });
   if (!contact) fail("CONTACT_CHANGED", "O contato mudou durante a consulta. Confira o cadastro e tente novamente.");
-  const auditId = `pn_campaign_${hash(`${organizationId}:${input.campaignKey}:${contactId}`)}`;
+  const auditId = campaignAuditId(contactId);
   if (await tx.auditLog.findUnique({ where: { id: auditId } })) {
     fail("CONTACT_ALREADY_DISTRIBUTED", "Este contato já foi redistribuído nesta campanha, possivelmente por outro formato do mesmo telefone. Confira a auditoria antes de transferir novamente.");
   }
@@ -92,6 +194,14 @@ export async function redistributeExistingDeal(tx: Prisma.TransactionClient, org
     where: { organizationId, contactId, pipelineId: input.pipelineId, status: { in: ["OPEN", "LOST"] }, ...(input.dealId ? { id: input.dealId } : {}) },
     select: { id: true }, take: 2,
   });
+  // Só cria para um contato sem NENHUM negócio: ganho, perdido ou em outro funil exige decisão humana.
+  if (!deals.length && mayCreate && await tx.deal.count({ where: { organizationId, contactId } }) === 0) {
+    if (actor.role !== "OWNER" && contact.responsavelId && !scopeIds.has(contact.responsavelId)) {
+      const claim = await evaluateLeadClaim(organizationId, contactId, contact.responsavelId, tx);
+      if (!claim.claimReason) fail("CURRENT_OWNER_OUTSIDE_TEAM", "Este cadastro pertence a um responsável ativo de outra equipe. A transferência precisa ser autorizada no CRM.", 403);
+    }
+    return finishCreation(await createDealAsLastResort(tx, organizationId, apiKeyName, actor.user.name, input, stage, contact, campaignAuditId));
+  }
   if (!deals.length) fail("DEAL_NOT_FOUND", "Não foi encontrado um negócio aberto ou perdido deste contato no funil selecionado. Nenhum negócio novo foi criado.", 404);
   if (deals.length !== 1) fail("DEAL_AMBIGUOUS", "O contato possui vários negócios no funil selecionado. Confira no CRM qual negócio deve ser redistribuído.");
   await tx.$queryRaw`SELECT id FROM "Deal" WHERE id = ${deals[0].id} AND "organizationId" = ${organizationId} FOR UPDATE`;
