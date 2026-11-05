@@ -152,8 +152,10 @@ test('existing contact only gets a deal when it has none at all', async () => {
   }
 });
 test('lost deals reopen only with explicit authorization', async () => {
-  const f = fixture(); f.state.deals[0].status = 'LOST';
-  await f.run(input({ reopenLost: true })); assert.equal(f.state.deals[0].status, 'OPEN');
+  const f = fixture(); Object.assign(f.state.deals[0], { status: 'LOST', closedAt: new Date('2026-01-02'), lossReasonId: 'reason', lostReason: 'Sem interesse' });
+  const result = await f.run(input({ reopenLost: true })); assert.equal(f.state.deals[0].status, 'OPEN');
+  assert.equal(f.state.deals[0].closedAt, null); assert.equal(f.state.deals[0].lossReasonId, null);
+  assert.equal(result.before.lossReasonId, 'reason'); assert.equal(result.before.closedAt, '2026-01-02T00:00:00.000Z');
 });
 for (const options of [{ noActor: true }, { noTarget: true }, { role: 'SUPERVISOR', noTeam: true }, { role: 'MEMBER' }, { noStage: true }, { required: ['expectedCloseAt'] }]) {
   test(`permissions and stage requirements: ${JSON.stringify(options)}`, async () => {

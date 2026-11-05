@@ -35,7 +35,7 @@ export const panelRedistributionSchema = z.object({
 });
 
 type Input = z.infer<typeof panelRedistributionSchema>;
-type Snapshot = { ownerId: string; contactOwnerId: string | null; pipelineId: string; stageId: string; status: string };
+type Snapshot = { ownerId: string; contactOwnerId: string | null; pipelineId: string; stageId: string; status: string; closedAt?: string | null; lossReasonId?: string | null };
 type Result = {
   id: string; contactId: string; outcome: "updated" | "created"; auditId: string; before: Snapshot | null; after: Snapshot;
   contactCreated?: boolean; warnings: string[]; replayed: boolean;
@@ -220,11 +220,13 @@ export async function redistributeExistingDeal(tx: Prisma.TransactionClient, org
     expectedCloseAt: deal.expectedCloseAt, contactSource: contact.source, contactJobTitle: contact.jobTitle });
   if (missing.length) fail("STAGE_REQUIRED_FIELDS", `A etapa exige o preenchimento de: ${missing.map(labelForRequiredField).join(", ")}.`, 400);
 
-  const before: Snapshot = { ownerId: deal.ownerId, contactOwnerId: contact.responsavelId, pipelineId: deal.pipelineId, stageId: deal.stageId, status: deal.status };
+  const before: Snapshot = { ownerId: deal.ownerId, contactOwnerId: contact.responsavelId, pipelineId: deal.pipelineId, stageId: deal.stageId, status: deal.status, closedAt: deal.closedAt?.toISOString() ?? null, lossReasonId: deal.lossReasonId };
   const after: Snapshot = { ownerId: input.ownerId, contactOwnerId: input.ownerId, pipelineId: input.pipelineId, stageId: input.stageId, status: "OPEN" };
   await tx.deal.update({ where: { id: deal.id }, data: {
     ownerId: input.ownerId, stageId: input.stageId, status: "OPEN",
     ...(deal.stageId !== input.stageId || deal.status !== "OPEN" ? { stageEnteredAt: new Date() } : {}),
+    // Mesma regra da reabertura em massa: senão o negócio aberto segue nos relatórios por data de fechamento.
+    ...(deal.status === "LOST" ? { closedAt: null, lossReasonId: null } : {}),
   } });
   await tx.contact.update({ where: { id: contactId }, data: { responsavelId: input.ownerId } });
   if (deal.ownerId !== input.ownerId) await tx.dealParticipant.deleteMany({ where: { dealId: deal.id, userId: input.ownerId } });
