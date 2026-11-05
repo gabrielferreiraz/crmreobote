@@ -118,6 +118,20 @@ export async function GET(req: Request) {
   });
 }
 
+/**
+ * O responsável do contato, mas só se ele ainda for um membro ativo — um
+ * consultor desativado não pode receber negócio novo (o rodízio nunca o
+ * escolheria), então nesse caso devolve null e a decisão volta pro rodízio.
+ */
+async function ownerFromContact(organizationId: string, responsavelId: string | null): Promise<string | null> {
+  if (!responsavelId) return null;
+  const membership = await prisma.organizationUser.findUnique({
+    where: { organizationId_userId: { organizationId, userId: responsavelId } },
+    select: { active: true },
+  });
+  return membership?.active ? responsavelId : null;
+}
+
 export async function POST(req: Request) {
   let body: unknown;
   try {
@@ -216,7 +230,7 @@ export async function POST(req: Request) {
     const [contact, stage, fieldDefs, existingOpenDeal, ownerAccess] = await Promise.all([
       prisma.contact.findFirst({
         where: { id: contactId, organizationId },
-        select: { name: true, source: true },
+        select: { name: true, source: true, responsavelId: true },
       }),
       prisma.pipelineStage.findFirst({
         where: { id: stageId, pipelineId, pipeline: { organizationId } },
@@ -254,7 +268,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ skipped: true, dealId: existingOpenDeal.id });
     }
 
-    const resolvedOwnerId = ownerId || (await pickOwnerId(organizationId, userId));
+    // Sem responsável escolhido, o negócio segue o responsável do CONTATO.
+    // Antes caía direto no rodízio (pickOwnerId), que escolhe o membro com
+    // menos negócios abertos da organização inteira e ignora quem está
+    // criando — era o que mandava o negócio pra outra pessoa (e até pra
+    // contas de teste) enquanto o cliente continuava com o consultor certo.
+    // O rodízio segue valendo só pra contato órfão, que é quando de fato não
+    // há ninguém a quem o negócio pertença.
+    const resolvedOwnerId = ownerId || (await ownerFromContact(organizationId, contact.responsavelId)) || (await pickOwnerId(organizationId, userId));
 
     let cleanCustomFieldValues;
     try {

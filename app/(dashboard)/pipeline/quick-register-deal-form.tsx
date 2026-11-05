@@ -550,7 +550,7 @@ export function QuickRegisterDealForm({
               value={ownerId}
               onChange={setOwnerId}
               options={[
-                { value: "", label: "Atribuição automática" },
+                { value: "", label: "Mesmo responsável do cliente" },
                 ...members.map((m) => ({ value: m.id, label: m.name })),
               ]}
             />

@@ -661,8 +661,12 @@ export function ContactsTable({
   }
 
   // Um negócio por contato selecionado, na primeira etapa do funil escolhido —
-  // sem responsável/valor (fica pra editar depois), mesmo comportamento de
-  // "Atribuição automática" do NewDealDialog (ownerId omitido = auto-assign).
+  // sem valor (fica pra editar depois) e sem responsável no corpo: omitir
+  // ownerId faz o negócio herdar o responsável de cada contato (ver
+  // app/api/deals/route.ts), que é o certo aqui, já que a seleção pode
+  // misturar clientes de vários consultores. Até 11/2026 isso caía no
+  // rodízio e espalhava os negócios por quem tinha menos fila — foi o que
+  // mandou uma leva inteira de clientes de um consultor pra outras pessoas.
   //
   // skipIfOpenDealExists: true — pedido explícito (relato do usuário: "há um
   // botão de criar negócio, porém não faz sentido, já tem um negócio").
