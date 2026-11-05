@@ -313,6 +313,8 @@ function QuickCreateContactModal({
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState<ContactConflict | null>(null);
   const [claiming, setClaiming] = useState(false);
+  const { data: session } = useSession();
+  const currentUserId = session?.user.id;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -362,6 +364,13 @@ function QuickCreateContactModal({
         whatsapp: whatsapp || undefined,
         jobTitle,
         source: source || undefined,
+        // Mesma correção já feita em quick-add-deal-panel.tsx: sem esta chave
+        // o POST grava responsavelId null e o contato nasce órfão, enquanto o
+        // negócio criado em seguida fica com o dono certo — é o relato de
+        // "pessoa e negócio com responsável diferente". Quem cria aqui é
+        // sempre quem está logado. Ignorado quando é reivindicação (o
+        // servidor força o responsável pra quem reivindica).
+        responsavelId: currentUserId,
         ...(claimContactId ? { claimContactId } : {}),
       }),
     });

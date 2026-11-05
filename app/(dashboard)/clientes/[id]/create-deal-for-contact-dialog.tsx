@@ -139,7 +139,7 @@ export function CreateDealForContactDialog({
               <Select
                 value={ownerId}
                 onChange={setOwnerId}
-                options={[{ value: "", label: "Atribuição automática" }, ...members.map((m) => ({ value: m.id, label: m.name }))]}
+                options={[{ value: "", label: "Mesmo responsável do cliente" }, ...members.map((m) => ({ value: m.id, label: m.name }))]}
               />
             </div>
 
