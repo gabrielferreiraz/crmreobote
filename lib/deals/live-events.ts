@@ -28,7 +28,7 @@
 
 import { EventEmitter } from "node:events";
 
-export type DealsLiveEvent = { type: "deal-created"; pipelineId: string };
+export type DealsLiveEvent = { type: "deal-created" | "deal-updated"; pipelineId: string };
 
 // Guardado em globalThis pelo mesmo motivo do client do Prisma em lib/prisma.ts
 // (e do emitter de WhatsApp acima) — o Next.js pode empacotar este módulo mais
