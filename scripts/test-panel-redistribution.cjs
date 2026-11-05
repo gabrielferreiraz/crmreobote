@@ -44,7 +44,7 @@ function fixture(options = {}) {
       create: async () => { throw new Error('Creating a contact is forbidden'); },
     },
     deal: {
-      findMany: async ({ where, take }) => state.deals.filter(d => d.organizationId === where.organizationId && d.contactId === where.contactId && d.pipelineId === where.pipelineId && where.status.in.includes(d.status) && (!where.id || d.id === where.id)).slice(0, take),
+      findMany: async ({ where }) => state.deals.filter(d => d.organizationId === where.organizationId && where.contactId.in.includes(d.contactId) && d.pipelineId === where.pipelineId && where.status.in.includes(d.status) && (!where.id || d.id === where.id)).sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0)),
       findFirst: async ({ where }) => state.deals.find(d => d.organizationId === where.organizationId && d.contactId === where.contactId &&
         (typeof where.id === 'string' ? d.id === where.id && d.pipelineId === where.pipelineId : d.id !== where.id.not && where.status.in.includes(d.status) && d.ownerId !== where.ownerId.not)) || null,
       update: async ({ where, data }) => { state.writes.push('deal.update'); return Object.assign(state.deals.find(d => d.id === where.id), data); },
@@ -93,18 +93,61 @@ test('same contact/campaign cannot be redistributed by another equivalent-phone 
   await assert.rejects(f.run(input({ requestId: 'request-2', phone: '55624250000' })), e => e.code === 'CONTACT_ALREADY_DISTRIBUTED');
   assert.equal(f.state.writes.length, writes);
 });
-for (const scenario of ['missing-contact', 'ambiguous-contact', 'ambiguous-deal', 'won', 'lost', 'other-active']) {
+for (const scenario of ['missing-contact', 'won', 'lost']) {
   test(`${scenario} leaves the CRM records unchanged`, async () => {
     const f = fixture();
     if (scenario === 'missing-contact') f.state.contacts = [];
-    if (scenario === 'ambiguous-contact') f.state.contacts.push({ ...f.state.contacts[0], id: 'another' });
-    if (scenario === 'ambiguous-deal') f.state.deals.push({ ...f.state.deals[0], id: 'another' });
     if (scenario === 'won') f.state.deals[0].status = 'WON';
     if (scenario === 'lost') f.state.deals[0].status = 'LOST';
-    if (scenario === 'other-active') f.state.deals.push({ ...f.state.deals[0], id: 'other-pipeline', pipelineId: 'another-pipeline', status: 'WON' });
     await assert.rejects(f.run()); assert.deepEqual(f.state.writes, []); assert.deepEqual(f.state.audits, []);
   });
 }
+test('several deals in the funnel: the open one wins over a more recent lost one', async () => {
+  const f = fixture(); f.state.deals[0].updatedAt = 1;
+  f.state.deals.push({ ...f.state.deals[0], id: 'lost-recent', status: 'LOST', updatedAt: 9 });
+  const result = await f.run(input({ reopenLost: true }));
+  assert.equal(result.id, 'deal'); assert.equal(f.state.deals[1].ownerId, 'old'); assert.equal(f.state.deals[1].status, 'LOST');
+});
+test('several lost deals: the most recent one is reopened and the others stay untouched', async () => {
+  const f = fixture(); Object.assign(f.state.deals[0], { status: 'LOST', updatedAt: 1 });
+  f.state.deals.push({ ...f.state.deals[0], id: 'lost-recent', updatedAt: 9 });
+  const result = await f.run(input({ reopenLost: true }));
+  assert.equal(result.id, 'lost-recent'); assert.equal(f.state.deals[0].status, 'LOST'); assert.equal(f.state.deals[1].status, 'OPEN');
+});
+test('several contacts with the phone: the same name wins, then the open and most recent deal', async () => {
+  const twoContacts = () => {
+    const f = fixture(); f.state.deals[0].updatedAt = 1;
+    f.state.contacts.push({ ...f.state.contacts[0], id: 'namesake', name: 'Maria Silva' });
+    f.state.deals.push({ ...f.state.deals[0], id: 'namesake-deal', contactId: 'namesake', status: 'LOST', updatedAt: 0 });
+    return f;
+  };
+  const named = twoContacts(); const byName = await named.run(input({ reopenLost: true, fallback: { name: ' maria silva ' } }));
+  assert.equal(byName.contactId, 'namesake'); assert.equal(named.state.contacts[0].responsavelId, 'old');
+  const unnamed = twoContacts(); const byDeal = await unnamed.run(input({ reopenLost: true }));
+  assert.equal(byDeal.contactId, 'contact'); assert.equal(unnamed.state.contacts[1].responsavelId, 'old');
+});
+test('a duplicate contact already distributed in the campaign blocks the lead', async () => {
+  const f = fixture(); f.state.contacts.push({ ...f.state.contacts[0], id: 'duplicate' });
+  f.state.deals.push({ ...f.state.deals[0], id: 'duplicate-deal', contactId: 'duplicate', status: 'WON' });
+  await f.run();
+  const writes = f.state.writes.length;
+  await assert.rejects(f.run(input({ requestId: 'request-2' })), e => e.code === 'CONTACT_ALREADY_DISTRIBUTED'); assert.equal(f.state.writes.length, writes);
+});
+test('a duplicate contact without eligible deals never gets a new deal', async () => {
+  const f = creationFixture(); f.state.deals = []; f.state.contacts.push({ ...f.state.contacts[0], id: 'duplicate' });
+  await assert.rejects(f.run(input({ createIfMissing: true })), e => e.code === 'DEAL_NOT_FOUND'); assert.deepEqual(f.state.writes, []);
+});
+test('another active deal: the chosen deal moves, and the contact keeps its owner with a warning', async () => {
+  const f = fixture(); f.state.deals.push({ ...f.state.deals[0], id: 'other-pipeline', pipelineId: 'another-pipeline', status: 'WON' });
+  const result = await f.run();
+  assert.equal(f.state.deals[0].ownerId, 'target'); assert.equal(f.state.deals[1].ownerId, 'old');
+  assert.equal(f.state.contacts[0].responsavelId, 'old'); assert.equal(result.after.contactOwnerId, 'old'); assert.equal(result.warnings.length, 1);
+});
+test('required fields at the stage: the deal changes owner and stays where it was, with a warning', async () => {
+  const f = fixture({ required: ['expectedCloseAt'] }); const result = await f.run();
+  assert.equal(f.state.deals[0].ownerId, 'target'); assert.equal(f.state.deals[0].stageId, 'old-stage'); assert.equal(f.state.deals[0].expectedCloseAt, null);
+  assert.equal(result.after.stageId, 'old-stage'); assert.equal(f.state.contacts[0].responsavelId, 'target'); assert.equal(result.warnings.length, 1);
+});
 const fallback = { name: 'Cliente Novo', description: 'Da planilha' };
 const creatable = extra => input({ phone: '65999990000', createIfMissing: true, fallback, ...extra });
 function creationFixture(options = {}) {
@@ -157,8 +200,8 @@ test('lost deals reopen only with explicit authorization', async () => {
   assert.equal(f.state.deals[0].closedAt, null); assert.equal(f.state.deals[0].lossReasonId, null);
   assert.equal(result.before.lossReasonId, 'reason'); assert.equal(result.before.closedAt, '2026-01-02T00:00:00.000Z');
 });
-for (const options of [{ noActor: true }, { noTarget: true }, { role: 'SUPERVISOR', noTeam: true }, { role: 'MEMBER' }, { noStage: true }, { required: ['expectedCloseAt'] }]) {
-  test(`permissions and stage requirements: ${JSON.stringify(options)}`, async () => {
+for (const options of [{ noActor: true }, { noTarget: true }, { role: 'SUPERVISOR', noTeam: true }, { role: 'MEMBER' }, { noStage: true }]) {
+  test(`permissions and stage: ${JSON.stringify(options)}`, async () => {
     const f = fixture(options); await assert.rejects(f.run()); assert.deepEqual(f.state.writes, []);
   });
 }

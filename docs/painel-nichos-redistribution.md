@@ -4,14 +4,23 @@ Esta operação localiza registros existentes e não revalida/regrava os telefon
 
 ## Ativação
 
-Não há variáveis novas. Os endpoints aceitam uma chave de API válida da organização, e o solicitante (`actorId`) é conferido a cada chamada. A integração começa desmarcada na interface e exige consultor, funil e etapa. A importação da Black fica apenas no Painel. Reabrir negócios perdidos exige escolha explícita.
+Não há variáveis novas. Os endpoints aceitam uma chave de API válida da organização, e o solicitante (`actorId`) é conferido a cada chamada. Na interface, o clique em **Importar no CRM** autoriza o envio, com `reopenLost=true` e `createIfMissing=true`. A importação da Black fica apenas no Painel.
+
+## Decisões automáticas
+
+- **Vários contatos com o telefone:** vale o que tem o nome da planilha; depois, o que tem negócio aberto; depois, o negócio alterado mais recentemente. Se qualquer um deles já foi distribuído na campanha, o lead é recusado com `CONTACT_ALREADY_DISTRIBUTED`.
+- **Vários negócios no funil:** vale o aberto; depois, o alterado mais recentemente. Os demais não são alterados.
+- **Outro negócio aberto ou ganho com outro responsável:** o negócio escolhido é transferido, o contato continua com o responsável atual e a resposta traz um aviso em `warnings`.
+- **Campos obrigatórios na etapa:** o responsável muda, o negócio fica na etapa atual e a resposta traz um aviso em `warnings`. Nenhum valor é inventado.
+
+Continuam recusados, sem alterar nada: contato sem negócio aberto ou perdido no funil, telefone inválido, travas do último recurso e responsável ativo de outra equipe.
 
 ## Último recurso: criar quando não encontrar
 
-A base da campanha foi extraída do próprio CRM, então não encontrar um cadastro é exceção. Só cria com `createIfMissing=true`, marcado à parte na interface, e sem `dealId` na solicitação. Fora desses casos, o item fica para revisão:
+A base da campanha foi extraída do próprio CRM, então não encontrar um cadastro é exceção. Só cria com `createIfMissing=true` e sem `dealId` na solicitação, e apenas nestas condições:
 
 - **Contato não encontrado:** exige `fallback.name` e telefone válido para cadastro (nunca cria contato sem número). Antes de criar, uma busca ampla procura o mesmo final de telefone (8 dígitos), nome ou e-mail. Qualquer resultado bloqueia a criação (`CONTACT_POSSIBLE_MATCH`).
-- **Contato encontrado:** só cria o negócio se o contato não tiver nenhum negócio, em nenhum funil e com nenhum status. Contato ambíguo, vários negócios ou negócio ganho nunca geram criação.
+- **Contato encontrado:** só cria o negócio se o contato não tiver nenhum negócio, em nenhum funil e com nenhum status. Vários contatos com o telefone, ou contato com qualquer negócio, nunca geram criação.
 - **Disjuntor:** no máximo 20 criações por organização em 24 horas (`CREATION_LIMIT_REACHED`).
 - **Etapa:** campos obrigatórios não preenchidos bloqueiam a criação.
 
@@ -40,13 +49,13 @@ Limite de 30/minuto por chave. Solicitação:
 }
 ```
 
-`dealId` é uma restrição opcional quando o ID original já é conhecido. Sem ele, a busca automática deve encontrar exatamente um negócio aberto/perdido do contato no funil selecionado. A etapa pertence a esse mesmo funil; esta versão não transfere negócios entre funis.
+`dealId` é uma restrição opcional quando o ID original já é conhecido. Sem ele, a busca automática aplica as decisões descritas acima. A etapa pertence a esse mesmo funil; esta versão não transfere negócios entre funis.
 
 O solicitante é conferido novamente no CRM. Deve estar ativo como OWNER, MANAGER ou SUPERVISOR. O destino deve ser MEMBER ativo de Vendas. OWNER tem escopo global; MANAGER e SUPERVISOR respeitam as equipes gerenciadas/lideradas. Fora desse escopo, só permite assumir contato elegível pela regra existente em `evaluateLeadClaim`; demais casos retornam 403 para decisão no CRM.
 
 A busca compara variantes nos quatro campos `phoneNormalized`, `whatsappNormalized`, `phone` e `whatsapp`. Considera formato, DDI 55, zero nacional, operadora e nono dígito de celular. Um fixo antigo como `0624250000` pode corresponder a `55624250000` já salvo; nenhuma dessas variantes é usada para substituir o cadastro. Número com `+` e DDI estrangeiro não recebe variantes brasileiras.
 
-Retorna erro sem alterações se não houver contato, houver vários contatos, não houver negócio elegível ou houver vários negócios. Negócios ganhos não são alterados. Negócios perdidos exigem `reopenLost=true`. Também recusa quando outro negócio aberto/ganho do contato está atribuído a outro responsável ou faltam campos obrigatórios da etapa.
+Retorna erro sem alterações se não houver contato (sem poder criar) ou negócio elegível. Negócios ganhos não são alterados. Negócios perdidos exigem `reopenLost=true`.
 
 O resultado concluído tem `data.id` (negócio), `contactId`, `outcome: "updated"`, `auditId`, `before`, `after`, `warnings` e `replayed`. Contato, negócio, auditoria e atividade são gravados numa única transação SERIALIZABLE, com RLS configurada e bloqueio das linhas. Nenhum nome, telefone, descrição ou valor é reescrito.
 
@@ -60,4 +69,4 @@ Os testes usam clientes de banco simulados: `node --test scripts/test-panel-redi
 
 Implante primeiro o CRM com a integração ainda desativada no Painel. Depois implante o Painel, confira a configuração e habilite o recurso. Nenhum teste de desenvolvimento deve enviar uma campanha real. A confirmação de envio pertence ao usuário na interface.
 
-As filas antigas que criavam negócios da Black não devem ser reativadas automaticamente. O novo worker do Painel as marca para revisão. A resolução de ambiguidades continua sendo uma decisão no CRM; não existe nesta versão uma escolha arbitrária ou fallback de criação.
+As filas antigas que criavam negócios da Black não devem ser reativadas automaticamente. O novo worker do Painel as marca para revisão.
