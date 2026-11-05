@@ -11,9 +11,10 @@ Não há variáveis novas. Os endpoints aceitam uma chave de API válida da orga
 - **Vários contatos com o telefone:** vale o que tem o nome da planilha; depois, o que tem negócio aberto; depois, o negócio alterado mais recentemente. Se qualquer um deles já foi distribuído na campanha, o lead é recusado com `CONTACT_ALREADY_DISTRIBUTED`.
 - **Vários negócios no funil:** vale o aberto; depois, o alterado mais recentemente. Os demais não são alterados.
 - **Outro negócio aberto ou ganho com outro responsável:** o negócio escolhido é transferido, o contato continua com o responsável atual e a resposta traz um aviso em `warnings`.
-- **Campos obrigatórios na etapa:** o responsável muda, o negócio fica na etapa atual e a resposta traz um aviso em `warnings`. Nenhum valor é inventado.
+- **Campos obrigatórios na etapa:** o negócio entra na etapa da campanha mesmo assim, e a resposta traz um aviso em `warnings`. Nenhum valor é inventado; o consultor preenche o que faltar.
+- **Negócio perdido de outra equipe:** é transferido, inclusive por SUPERVISOR ou MANAGER, porque ninguém o está trabalhando.
 
-Continuam recusados, sem alterar nada: contato sem negócio aberto ou perdido no funil, telefone inválido, travas do último recurso e responsável ativo de outra equipe.
+Continuam recusados, sem alterar nada: contato sem negócio aberto ou perdido no funil, telefone inválido, travas do último recurso e negócio aberto de responsável ativo de outra equipe.
 
 ## Último recurso: criar quando não encontrar
 
@@ -22,7 +23,7 @@ A base da campanha foi extraída do próprio CRM, então não encontrar um cadas
 - **Contato não encontrado:** exige `fallback.name` e telefone válido para cadastro (nunca cria contato sem número). Antes de criar, uma busca ampla procura o mesmo final de telefone (8 dígitos), nome ou e-mail. Qualquer resultado bloqueia a criação (`CONTACT_POSSIBLE_MATCH`).
 - **Contato encontrado:** só cria o negócio se o contato não tiver nenhum negócio, em nenhum funil e com nenhum status. Vários contatos com o telefone, ou contato com qualquer negócio, nunca geram criação.
 - **Disjuntor:** no máximo 20 criações por organização em 24 horas (`CREATION_LIMIT_REACHED`).
-- **Etapa:** campos obrigatórios não preenchidos bloqueiam a criação.
+- **Etapa:** campos obrigatórios não preenchidos geram um aviso em `warnings`, sem bloquear a criação.
 
 Tudo ocorre na mesma transação, com `outcome: "created"`, `before: null` e auditoria `PANEL_DISTRIBUTION_CREATED`.
 
@@ -51,7 +52,7 @@ Limite de 30/minuto por chave. Solicitação:
 
 `dealId` é uma restrição opcional quando o ID original já é conhecido. Sem ele, a busca automática aplica as decisões descritas acima. A etapa pertence a esse mesmo funil; esta versão não transfere negócios entre funis.
 
-O solicitante é conferido novamente no CRM. Deve estar ativo como OWNER, MANAGER ou SUPERVISOR. O destino deve ser MEMBER ativo de Vendas. OWNER tem escopo global; MANAGER e SUPERVISOR respeitam as equipes gerenciadas/lideradas. Fora desse escopo, só permite assumir contato elegível pela regra existente em `evaluateLeadClaim`; demais casos retornam 403 para decisão no CRM.
+O solicitante é conferido novamente no CRM. Deve estar ativo como OWNER, MANAGER ou SUPERVISOR. O destino deve ser MEMBER ativo de Vendas. OWNER tem escopo global; MANAGER e SUPERVISOR respeitam as equipes gerenciadas/lideradas. Fora desse escopo, um negócio perdido pode ser transferido; um negócio aberto só se o contato for elegível pela regra existente em `evaluateLeadClaim`, e os demais casos retornam 403.
 
 A busca compara variantes nos quatro campos `phoneNormalized`, `whatsappNormalized`, `phone` e `whatsapp`. Considera formato, DDI 55, zero nacional, operadora e nono dígito de celular. Um fixo antigo como `0624250000` pode corresponder a `55624250000` já salvo; nenhuma dessas variantes é usada para substituir o cadastro. Número com `+` e DDI estrangeiro não recebe variantes brasileiras.
 

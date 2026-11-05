@@ -143,10 +143,17 @@ test('another active deal: the chosen deal moves, and the contact keeps its owne
   assert.equal(f.state.deals[0].ownerId, 'target'); assert.equal(f.state.deals[1].ownerId, 'old');
   assert.equal(f.state.contacts[0].responsavelId, 'old'); assert.equal(result.after.contactOwnerId, 'old'); assert.equal(result.warnings.length, 1);
 });
-test('required fields at the stage: the deal changes owner and stays where it was, with a warning', async () => {
+test('required fields at the stage: the deal still enters the campaign stage, invents nothing and warns', async () => {
   const f = fixture({ required: ['expectedCloseAt'] }); const result = await f.run();
-  assert.equal(f.state.deals[0].ownerId, 'target'); assert.equal(f.state.deals[0].stageId, 'old-stage'); assert.equal(f.state.deals[0].expectedCloseAt, null);
-  assert.equal(result.after.stageId, 'old-stage'); assert.equal(f.state.contacts[0].responsavelId, 'target'); assert.equal(result.warnings.length, 1);
+  assert.equal(f.state.deals[0].ownerId, 'target'); assert.equal(f.state.deals[0].stageId, 'destination'); assert.equal(f.state.deals[0].expectedCloseAt, null);
+  assert.equal(result.after.stageId, 'destination'); assert.equal(f.state.contacts[0].responsavelId, 'target'); assert.equal(result.warnings.length, 1);
+});
+test('a supervisor receives a lost deal from another team, but never an open one', async () => {
+  const lost = fixture({ role: 'SUPERVISOR' }); Object.assign(lost.state.deals[0], { status: 'LOST', ownerId: 'another-team' }); lost.state.contacts[0].responsavelId = 'another-team';
+  await lost.run(input({ reopenLost: true }));
+  assert.equal(lost.state.deals[0].ownerId, 'target'); assert.equal(lost.state.contacts[0].responsavelId, 'target');
+  const open = fixture({ role: 'SUPERVISOR' }); open.state.deals[0].ownerId = 'another-team';
+  await assert.rejects(open.run(), e => e.code === 'CURRENT_OWNER_OUTSIDE_TEAM'); assert.deepEqual(open.state.writes, []);
 });
 const fallback = { name: 'Cliente Novo', description: 'Da planilha' };
 const creatable = extra => input({ phone: '65999990000', createIfMissing: true, fallback, ...extra });
@@ -176,7 +183,6 @@ test('each last resort guard blocks the creation', async () => {
   for (const [options, data, code] of [
     [{ possibleMatch: true }, creatable(), 'CONTACT_POSSIBLE_MATCH'],
     [{ createdToday: 20 }, creatable(), 'CREATION_LIMIT_REACHED'],
-    [{ required: ['expectedCloseAt'] }, creatable(), 'STAGE_REQUIRED_FIELDS'],
     [{}, creatable({ fallback: undefined }), 'CONTACT_NOT_FOUND'],
     [{}, creatable({ phone: '1234567' }), 'PHONE_NOT_CREATABLE'],
     [{}, creatable({ dealId: 'known' }), 'CONTACT_NOT_FOUND'],

@@ -74,7 +74,7 @@ async function createDealAsLastResort(tx: Prisma.TransactionClient, organization
   await assertCreationBudget(tx, organizationId);
   const missing = findMissingRequiredFields(stage.requiredFields, { value: null, grossValue: null, creditType: null, expectedCloseAt: null,
     contactSource: existing?.source ?? `Painel Nichos - ${input.campaignKey}`, contactJobTitle: existing?.jobTitle ?? null });
-  if (missing.length) fail("STAGE_REQUIRED_FIELDS", `A etapa exige o preenchimento de: ${missing.map(labelForRequiredField).join(", ")}. Nada foi criado.`, 400);
+  const warnings = missing.length ? [`A etapa pede o preenchimento de: ${missing.map(labelForRequiredField).join(", ")}.`] : [];
 
   let contact = existing;
   if (!contact) {
@@ -104,7 +104,7 @@ async function createDealAsLastResort(tx: Prisma.TransactionClient, organization
   } });
   const after: Snapshot = { ownerId: input.ownerId, contactOwnerId: input.ownerId, pipelineId: input.pipelineId, stageId: input.stageId, status: "OPEN" };
   const id = auditId(contact.id);
-  const result = { id: deal.id, contactId: contact.id, outcome: "created" as const, auditId: id, before: null, after, contactCreated: !existing, warnings: [] };
+  const result = { id: deal.id, contactId: contact.id, outcome: "created" as const, auditId: id, before: null, after, contactCreated: !existing, warnings };
   await tx.auditLog.create({ data: { id, organizationId, actorUserId: input.actorId, actorName,
     action: LAST_RESORT_ACTION, targetType: "Deal", targetId: deal.id,
     detail: JSON.stringify({ requestId: input.requestId, campaignKey: input.campaignKey, apiKeyName, result }),
@@ -221,7 +221,8 @@ export async function redistributeExistingDeal(tx: Prisma.TransactionClient, org
   if (!deal || deal.status === "WON") fail("DEAL_CHANGED", "O negócio mudou ou está ganho. Confira o cadastro antes de continuar.");
   if (deal.status === "LOST" && !input.reopenLost) fail("REOPEN_REQUIRED", "O negócio está perdido. Autorize a reabertura na solicitação para movê-lo para a campanha.");
 
-  if (actor.role !== "OWNER" && (!scopeIds.has(deal.ownerId) || (contact.responsavelId && !scopeIds.has(contact.responsavelId)))) {
+  // Negócio perdido não está sendo trabalhado por ninguém: a campanha pode entregá-lo a qualquer equipe.
+  if (actor.role !== "OWNER" && deal.status !== "LOST" && (!scopeIds.has(deal.ownerId) || (contact.responsavelId && !scopeIds.has(contact.responsavelId)))) {
     const claim = await evaluateLeadClaim(organizationId, contactId, contact.responsavelId, tx);
     if (!claim.claimReason) fail("CURRENT_OWNER_OUTSIDE_TEAM", "Este cadastro pertence a um responsável ativo de outra equipe. A transferência precisa ser autorizada no CRM.", 403);
   }
@@ -232,9 +233,9 @@ export async function redistributeExistingDeal(tx: Prisma.TransactionClient, org
 
   const missing = findMissingRequiredFields(stage.requiredFields, { value: deal.value, grossValue: deal.grossValue, creditType: deal.creditType,
     expectedCloseAt: deal.expectedCloseAt, contactSource: contact.source, contactJobTitle: contact.jobTitle });
-  // Nunca inventa valores: transfere o negócio e o deixa na etapa em que estava.
-  if (missing.length) warnings.push(`O negócio ficou na etapa atual, porque a etapa escolhida exige: ${missing.map(labelForRequiredField).join(", ")}.`);
-  const stageId = missing.length ? deal.stageId : input.stageId;
+  // O lead sempre entra na etapa da campanha. Nada é inventado: o consultor preenche o que faltar.
+  if (missing.length) warnings.push(`A etapa pede o preenchimento de: ${missing.map(labelForRequiredField).join(", ")}.`);
+  const stageId = input.stageId;
   const contactOwnerId = otherActiveDeal ? contact.responsavelId : input.ownerId;
 
   const before: Snapshot = { ownerId: deal.ownerId, contactOwnerId: contact.responsavelId, pipelineId: deal.pipelineId, stageId: deal.stageId, status: deal.status, closedAt: deal.closedAt?.toISOString() ?? null, lossReasonId: deal.lossReasonId };
