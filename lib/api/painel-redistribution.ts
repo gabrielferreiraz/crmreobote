@@ -4,7 +4,7 @@ import type { Prisma } from "@/app/generated/prisma/client";
 import { evaluateLeadClaim } from "@/lib/lead-claim";
 import { findMissingRequiredFields, labelForRequiredField } from "@/lib/deal-required-fields";
 import { panelPhoneLookupVariants } from "@/lib/api/painel-phone-match";
-import { parsePhone, resolveContactPhones } from "@/lib/phone-normalize";
+import { formatBrazilianPhone, parsePhone, resolveContactPhones } from "@/lib/phone-normalize";
 import { buildDealName } from "@/lib/deal-name";
 import { sanitizeCell } from "@/lib/csv-sanitize";
 
@@ -124,6 +124,14 @@ function chooseDeal<T extends { contactId: string; status: string }>(deals: T[],
   return pool.find(deal => deal.status === "OPEN") ?? pool[0];
 }
 
+/** A tela e o WhatsApp só leem `phone`/`whatsapp`: contato com número apenas nos campos normalizados chegaria "sem número" ao consultor. Só preenche campo vazio, com o número que o próprio cadastro já tem. */
+function visiblePhonesToRestore(contact: { phone: string | null; whatsapp: string | null; phoneNormalized: string | null; whatsappNormalized: string | null }) {
+  if (contact.phone?.trim() || contact.whatsapp?.trim()) return null;
+  const phone = formatBrazilianPhone(contact.phoneNormalized);
+  const whatsapp = formatBrazilianPhone(contact.whatsappNormalized);
+  return phone || whatsapp ? { ...(phone ? { phone } : {}), ...(whatsapp ? { whatsapp } : {}) } : null;
+}
+
 /** Called only inside a SERIALIZABLE transaction after setTenantOnTx. Creates records only through createDealAsLastResort. */
 export async function redistributeExistingDeal(tx: Prisma.TransactionClient, organizationId: string, apiKeyName: string, input: Input): Promise<Result> {
   const hash = (value: string) => createHash("sha256").update(value).digest("hex");
@@ -205,6 +213,14 @@ export async function redistributeExistingDeal(tx: Prisma.TransactionClient, org
   const contactId = chosen?.contactId ?? matches[0].id;
   const contact = await tx.contact.findFirst({ where: { id: contactId, organizationId } });
   if (!contact) fail("CONTACT_CHANGED", "O contato mudou durante a consulta. Confira o cadastro e tente novamente.");
+  const restoredPhones = visiblePhonesToRestore(contact);
+  if (restoredPhones) {
+    await tx.contact.update({ where: { id: contactId }, data: restoredPhones });
+    await tx.auditLog.create({ data: { organizationId, actorUserId: input.actorId, actorName: actor.user.name,
+      action: "PANEL_DISTRIBUTION_PHONE_RESTORED", targetType: "Contact", targetId: contactId,
+      detail: JSON.stringify({ requestId: input.requestId, fields: Object.keys(restoredPhones) }),
+    } });
+  }
   const auditId = campaignAuditId(contactId);
 
   // Só cria para um único contato sem NENHUM negócio: ganho, perdido ou em outro funil não gera duplicata.

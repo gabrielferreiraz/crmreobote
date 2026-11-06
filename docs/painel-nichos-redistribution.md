@@ -13,6 +13,7 @@ Não há variáveis novas. Os endpoints aceitam uma chave de API válida da orga
 - **Outro negócio aberto ou ganho com outro responsável:** o negócio escolhido é transferido, o contato continua com o responsável atual e a resposta traz um aviso em `warnings`.
 - **Campos obrigatórios na etapa:** o negócio entra na etapa da campanha mesmo assim, e a resposta traz um aviso em `warnings`. Nenhum valor é inventado; o consultor preenche o que faltar.
 - **Negócio perdido de outra equipe:** é transferido, inclusive por SUPERVISOR ou MANAGER, porque ninguém o está trabalhando.
+- **Contato com número só nos campos normalizados:** `phone`/`whatsapp` vazios são preenchidos com o número que o cadastro já tem, com auditoria `PANEL_DISTRIBUTION_PHONE_RESTORED`, porque a tela e o WhatsApp leem apenas esses campos. Número já visível nunca é reescrito.
 
 Continuam recusados, sem alterar nada: contato sem negócio aberto ou perdido no funil, telefone inválido, travas do último recurso e negócio aberto de responsável ativo de outra equipe.
 
@@ -58,7 +59,7 @@ A busca compara variantes nos quatro campos `phoneNormalized`, `whatsappNormaliz
 
 Retorna erro sem alterações se não houver contato (sem poder criar) ou negócio elegível. Negócios ganhos não são alterados. Negócios perdidos exigem `reopenLost=true`.
 
-O resultado concluído tem `data.id` (negócio), `contactId`, `outcome: "updated"`, `auditId`, `before`, `after`, `warnings` e `replayed`. Contato, negócio, auditoria e atividade são gravados numa única transação SERIALIZABLE, com RLS configurada e bloqueio das linhas. Nenhum nome, telefone, descrição ou valor é reescrito.
+O resultado concluído tem `data.id` (negócio), `contactId`, `outcome: "updated"`, `auditId`, `before`, `after`, `warnings` e `replayed`. Contato, negócio, auditoria e atividade são gravados numa única transação SERIALIZABLE, com RLS configurada e bloqueio das linhas. Nenhum nome, descrição, valor ou telefone preenchido é reescrito.
 
 A auditoria `PANEL_DISTRIBUTION_UPDATED` contém antes/depois e usa ID determinístico por organização/campanha/contato. Impede distribuir o mesmo contato duas vezes na campanha por formatos diferentes de telefone. O recibo `PANEL_DISTRIBUTION_RECEIPT` usa ID determinístico por organização/requestId. Repetir a solicitação devolve o resultado anterior, sem nova mutação; reutilizar requestId com dados diferentes retorna 409.
 

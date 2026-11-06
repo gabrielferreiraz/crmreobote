@@ -82,6 +82,19 @@ test('updates the existing deal/contact, preserving original phones, description
   assert.equal(f.state.deals[0].value, 1200); assert.equal(f.state.deals.length, 1); assert.equal(f.state.contacts.length, 1);
   assert.equal(result.before.ownerId, 'old'); assert.equal(result.after.ownerId, 'target'); assert.equal(f.state.audits.length, 2);
 });
+test('a contact with the number only in the normalized fields reaches the consultant with a visible number', async () => {
+  const f = fixture(); Object.assign(f.state.contacts[0], { phone: null, phoneNormalized: null, whatsapp: null, whatsappNormalized: '62994250000' });
+  await f.run(input({ phone: '62994250000' }));
+  assert.equal(f.state.contacts[0].whatsapp, '+55 (62) 99425-0000'); assert.equal(f.state.contacts[0].phone, null);
+  assert.equal(f.state.contacts[0].whatsappNormalized, '62994250000'); assert.equal(f.state.contacts[0].responsavelId, 'target');
+  assert.ok(f.state.audits.some(audit => audit.action === 'PANEL_DISTRIBUTION_PHONE_RESTORED'));
+});
+test('a visible number is never rewritten', async () => {
+  const f = fixture(); Object.assign(f.state.contacts[0], { phone: null, phoneNormalized: '62994250000', whatsapp: '(62) 9425-0000', whatsappNormalized: null });
+  await f.run(input({ phone: '62994250000' }));
+  assert.equal(f.state.contacts[0].phone, null); assert.equal(f.state.contacts[0].whatsapp, '(62) 9425-0000');
+  assert.ok(!f.state.audits.some(audit => audit.action === 'PANEL_DISTRIBUTION_PHONE_RESTORED'));
+});
 test('a retry replays the recorded result without another mutation', async () => {
   const f = fixture(); const first = await f.run(); const writes = f.state.writes.length;
   const replay = await f.run(); assert.equal(replay.replayed, true); assert.equal(first.auditId, replay.auditId);
