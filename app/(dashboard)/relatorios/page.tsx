@@ -29,10 +29,12 @@ import { AdminReportsView } from "./admin-reports-view";
 import { MetaAdsReportView } from "./meta-ads-view";
 import { ReportTabs } from "./report-tabs";
 import { getCommercialReportData } from "@/lib/reports/commercial-data";
+import { getExecutiveReportData } from "@/lib/reports/executive-data";
 import { AutoInsights, DeltaBadge } from "./auto-insights";
 import { WeekdayHeatmap } from "./weekday-heatmap";
 import { RankingCardsGrid, type RankingCardData } from "./ranking-cards-grid";
 import { normalizeDateKeyRange } from "@/lib/date-ranges";
+import { ExecutiveReportView } from "./executive-report-view";
 
 type ReportSearchParam = string | string[] | undefined;
 
@@ -110,6 +112,22 @@ export default async function RelatoriosPage({
   // em vez do "Panorama comercial" genérico — isPersonalView é o flag central.
   const isPersonalView = isMember || isSupervisor;
   const currentUserName = session!.user.name ?? "";
+
+  // Visão consolidada da diretoria: só OWNER recebe a aba e só este ramo
+  // executa a consulta irrestrita da organização. Um papel diferente que
+  // digitar ?view=executivo manualmente cai no Comercial pelo fluxo normal.
+  if (isOwner && viewParam === "executivo") {
+    const executiveData = await getExecutiveReportData(organizationId);
+    return (
+      <div className="-mx-4 space-y-4 lg:mx-0 lg:space-y-6">
+        <div className="px-4 lg:px-0">
+          <ReportTabs active="executivo" />
+        </div>
+        <ExecutiveReportView data={executiveData} />
+      </div>
+    );
+  }
+
   if (isOwner && viewParam === "processos") {
     return (
       <div className="space-y-6">

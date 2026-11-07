@@ -4,18 +4,19 @@ import { useRouter, usePathname, useSearchParams } from "next/navigation";
 
 const TABS = [
   { key: "comercial", label: "Comercial" },
+  { key: "executivo", label: "Executivo" },
   { key: "facebook", label: "Facebook" },
   { key: "processos", label: "Processos" },
 ] as const;
 
 /**
- * Alternância Comercial/Facebook/Processos — só aparece pro Dono (ver
+ * Alternância entre as visões de relatório — só aparece pro Dono (ver
  * relatorios/page.tsx; consultor/gerente/supervisor nunca tiveram acesso ao
  * módulo de Processos nem ao relatório de Facebook Ads, e Administrativo já
  * cai direto no relatório de processos, sem aba). Muda a URL (?view=), a
  * página (Server Component) decide o que renderizar.
  */
-export function ReportTabs({ active }: { active: "comercial" | "facebook" | "processos" }) {
+export function ReportTabs({ active }: { active: "comercial" | "executivo" | "facebook" | "processos" }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -35,14 +36,14 @@ export function ReportTabs({ active }: { active: "comercial" | "facebook" | "pro
     // lugar dependendo de onde a página anterior estava rolada. Presa no topo
     // do scroll, ela nunca se move, não importa o que muda embaixo dela. Fundo
     // sólido + blur porque, sendo sticky, conteúdo rola por baixo dela.
-    <div className="pt-1 pb-2 mb-2">
+    <div className="mb-2 overflow-x-auto pt-1 pb-2">
       <div className="inline-flex rounded-md border border-neutral-200 bg-neutral-100 p-0.5 dark:border-neutral-800 dark:bg-neutral-800">
         {TABS.map((tab) => (
           <button
             key={tab.key}
             type="button"
             onClick={() => go(tab.key)}
-            className={`rounded px-3 py-1.5 text-xs font-medium transition-colors ${
+            className={`rounded px-4 py-2 text-base font-medium transition-colors ${
               active === tab.key
                 ? "bg-white text-neutral-900 shadow-sm dark:bg-neutral-900 dark:text-neutral-100"
                 : "text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200"

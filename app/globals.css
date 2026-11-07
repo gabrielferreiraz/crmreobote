@@ -628,6 +628,45 @@ body {
   animation: step-slide-in 220ms var(--ease-smooth);
 }
 
+@keyframes executive-month-forward {
+  from {
+    opacity: 0.62;
+    transform: translateX(12px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes executive-month-backward {
+  from {
+    opacity: 0.62;
+    transform: translateX(-12px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-executive-month-forward {
+  animation: executive-month-forward 280ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.animate-executive-month-backward {
+  animation: executive-month-backward 280ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-executive-month-forward,
+  .animate-executive-month-backward {
+    animation: none;
+  }
+}
+
 /* Entrada do popup de "dica de produtividade" — menor deslocamento e
    translação do bottom-right (onde ele fica ancorado) em vez de só escala.
    Faz o efeito de "chegar de baixo pra cima, do canto" em vez de "estica
