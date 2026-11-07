@@ -1,12 +1,15 @@
+import type { Prisma } from "@/app/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { computeDealShares, splitCentsByPercent } from "@/lib/deals/split-shares";
+import { calculatePercentageChange, EXECUTIVE_MONTHS_SHORT } from "@/lib/reports/executive-utils";
 import { brazilDateKey, brazilDateStringToUTC, getBrazilParts } from "@/lib/timezone";
 import { runWithTenant } from "@/lib/tenant-context";
 
-const MONTH_LABELS = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
 const ANNUAL_SCENARIO = 1_000_000_000;
 
 type YearMonth = { year: number; month: number };
+type PersonMonthStats = { valueCents: number; sales: number; valuedSales: number };
+type PersonPeriodStats = PersonMonthStats & { months: Set<string> };
 
 export type ExecutiveRankingRow = {
   id: string;
@@ -18,14 +21,27 @@ export type ExecutiveRankingRow = {
   activeMonths: number;
 };
 
+export type ExecutiveReportSelection = {
+  startYear?: number;
+  endYear?: number;
+  throughMonth?: number;
+};
+
 export type ExecutiveReportData = {
   reportYear: number;
   throughMonth: number;
   throughMonthLabel: string;
   updatedAt: string;
+  range: {
+    availableYears: number[];
+    startYear: number;
+    endYear: number;
+    maxThroughMonth: number;
+    latestClosedMonth: number;
+  };
   yearToDate: { value: number; previousValue: number; changePct: number | null };
   rolling12: { value: number; previousValue: number; changePct: number | null };
-  sellerAverage: { value: number; previousValue: number; changePct: number | null; sellers: number };
+  sellerAverage: { value: number; previousValue: number; changePct: number | null; valuedSellers: number };
   topTwo: { sharePct: number; names: string[] };
   yearlySeries: { year: number; values: Array<number | null> }[];
   productivity: { month: number; label: string; sellers: number; average: number }[];
@@ -33,8 +49,6 @@ export type ExecutiveReportData = {
   teams: { name: string; values: number[]; total: number }[];
   ranking: ExecutiveRankingRow[];
   annualScenario: {
-    year: number;
-    value: number;
     monthlyRequired: number;
     currentMonthlyPace: number;
     multiplier: number | null;
@@ -69,17 +83,30 @@ function keyOf({ year, month }: YearMonth): string {
   return `${year}-${String(month + 1).padStart(2, "0")}`;
 }
 
-function pctChange(current: number, previous: number): number | null {
-  if (previous <= 0) return null;
-  return ((current - previous) / previous) * 100;
+function clampInteger(value: number, minimum: number, maximum: number): number {
+  if (!Number.isFinite(value)) return minimum;
+  return Math.min(maximum, Math.max(minimum, Math.trunc(value)));
 }
 
-function decimalToCents(value: { toString(): string } | number | null): number {
-  return value == null ? 0 : Math.round(Number(value) * 100);
+function decimalToCents(value: Prisma.Decimal | null): number {
+  if (value === null) return 0;
+  const fixed = value.toFixed(2);
+  const negative = fixed.startsWith("-");
+  const [whole, fraction = "00"] = fixed.replace("-", "").split(".");
+  const cents = Number(whole) * 100 + Number(fraction.padEnd(2, "0").slice(0, 2));
+  return negative ? -cents : cents;
 }
 
 function centsToValue(cents: number): number {
   return cents / 100;
+}
+
+function countValuedSellers(people: Iterable<PersonMonthStats>): number {
+  let total = 0;
+  for (const person of people) {
+    if (person.valuedSales > 0) total += 1;
+  }
+  return total;
 }
 
 function inRange(date: Date, from: Date, to: Date): boolean {
@@ -87,13 +114,34 @@ function inRange(date: Date, from: Date, to: Date): boolean {
   return value >= from.getTime() && value < to.getTime();
 }
 
-export async function getExecutiveReportData(organizationId: string): Promise<ExecutiveReportData> {
+export async function getExecutiveReportData(
+  organizationId: string,
+  selection: ExecutiveReportSelection = {},
+): Promise<ExecutiveReportData> {
   return runWithTenant(organizationId, async () => {
     const now = new Date();
     const nowParts = getBrazilParts(now);
-    const reportYear = nowParts.month === 0 ? nowParts.year - 1 : nowParts.year;
-    const throughMonth = nowParts.month === 0 ? 11 : nowParts.month - 1;
+    const currentReportYear = nowParts.month === 0 ? nowParts.year - 1 : nowParts.year;
+    const latestClosedMonth = nowParts.month === 0 ? 11 : nowParts.month - 1;
+    const dateCoverage = await prisma.deal.aggregate({
+      where: { organizationId, status: "WON", closedAt: { not: null }, value: { not: null } },
+      _min: { closedAt: true },
+    });
+    const earliestDataYear = dateCoverage._min.closedAt
+      ? Math.min(currentReportYear, getBrazilParts(dateCoverage._min.closedAt).year)
+      : currentReportYear;
+    const availableYears = Array.from(
+      { length: currentReportYear - earliestDataYear + 1 },
+      (_, index) => earliestDataYear + index,
+    );
+    const requestedEndYear = clampInteger(selection.endYear ?? currentReportYear, earliestDataYear, currentReportYear);
+    const requestedStartYear = clampInteger(selection.startYear ?? earliestDataYear, earliestDataYear, currentReportYear);
+    const reportYear = requestedEndYear;
+    const startYear = Math.min(requestedStartYear, reportYear);
+    const maxThroughMonth = reportYear === currentReportYear ? latestClosedMonth : 11;
+    const throughMonth = clampInteger(selection.throughMonth ?? maxThroughMonth, 0, maxThroughMonth);
     const completeEnd = monthStart(addMonths({ year: reportYear, month: throughMonth }, 1));
+    const historyStart = monthStart({ year: startYear, month: 0 });
     const currentYearStart = monthStart({ year: reportYear, month: 0 });
     const previousYearStart = monthStart({ year: reportYear - 1, month: 0 });
     const previousComparableEnd = monthStart({ year: reportYear - 1, month: throughMonth + 1 });
@@ -103,14 +151,14 @@ export async function getExecutiveReportData(organizationId: string): Promise<Ex
     const lastMonthPreviousStart = monthStart({ year: reportYear - 1, month: throughMonth });
     const lastMonthPreviousEnd = monthStart({ year: reportYear - 1, month: throughMonth + 1 });
     const recentStart = monthStart(addMonths({ year: reportYear, month: throughMonth + 1 }, -3));
-    const chartStart = monthStart({ year: reportYear - 2, month: 0 });
+    const queryStart = monthStart({ year: Math.min(startYear, reportYear - 2), month: 0 });
 
     const [deals, memberships, wonContacts] = await Promise.all([
       prisma.deal.findMany({
         where: {
           organizationId,
           status: "WON",
-          closedAt: { gte: chartStart, lt: completeEnd },
+          closedAt: { gte: queryStart, lt: completeEnd },
         },
         select: {
           ownerId: true,
@@ -156,8 +204,9 @@ export async function getExecutiveReportData(organizationId: string): Promise<Ex
     // de evitar ruído de ponto flutuante em somas longas, o rateio por pessoa
     // usa splitCentsByPercent, cuja soma é garantidamente igual ao negócio.
     const companyByMonth = new Map<string, number>();
-    const peopleByMonth = new Map<string, Map<string, { valueCents: number; sales: number }>>();
-    let missingValue = 0;
+    const peopleByMonth = new Map<string, Map<string, PersonMonthStats>>();
+    let historyWonDeals = 0;
+    let historyMissingValue = 0;
     let periodWonDeals = 0;
     let periodMissingValue = 0;
     const possibleDuplicateKeys = new Map<string, number>();
@@ -166,7 +215,10 @@ export async function getExecutiveReportData(organizationId: string): Promise<Ex
       if (!deal.closedAt) continue;
       const key = monthKey(deal.closedAt);
       const valueCents = decimalToCents(deal.value);
-      if (deal.value == null) missingValue += 1;
+      if (inRange(deal.closedAt, historyStart, completeEnd)) {
+        historyWonDeals += 1;
+        if (deal.value == null) historyMissingValue += 1;
+      }
       if (inRange(deal.closedAt, currentYearStart, completeEnd)) {
         periodWonDeals += 1;
         if (deal.value == null) periodMissingValue += 1;
@@ -180,13 +232,14 @@ export async function getExecutiveReportData(organizationId: string): Promise<Ex
       personNames.set(deal.ownerId, deal.owner.name);
       for (const participant of deal.participants) personNames.set(participant.userId, participant.user.name);
 
-      const monthPeople = peopleByMonth.get(key) ?? new Map<string, { valueCents: number; sales: number }>();
+      const monthPeople = peopleByMonth.get(key) ?? new Map<string, PersonMonthStats>();
       const shares = computeDealShares(deal.ownerId, deal.participants);
       const allocatedCents = splitCentsByPercent(valueCents, shares);
       shares.forEach((share, index) => {
-        const current = monthPeople.get(share.userId) ?? { valueCents: 0, sales: 0 };
+        const current = monthPeople.get(share.userId) ?? { valueCents: 0, sales: 0, valuedSales: 0 };
         current.valueCents += allocatedCents[index];
         current.sales += 1;
+        if (deal.value !== null) current.valuedSales += 1;
         monthPeople.set(share.userId, current);
       });
       peopleByMonth.set(key, monthPeople);
@@ -204,15 +257,16 @@ export async function getExecutiveReportData(organizationId: string): Promise<Ex
     };
 
     const personTotals = (from: Date, to: Date) => {
-      const totals = new Map<string, { valueCents: number; sales: number; months: Set<string> }>();
+      const totals = new Map<string, PersonPeriodStats>();
       let cursor = { year: getBrazilParts(from).year, month: getBrazilParts(from).month };
       const end = getBrazilParts(to);
       while (cursor.year < end.year || (cursor.year === end.year && cursor.month < end.month)) {
         const key = keyOf(cursor);
         for (const [userId, result] of peopleByMonth.get(key) ?? []) {
-          const current = totals.get(userId) ?? { valueCents: 0, sales: 0, months: new Set<string>() };
+          const current = totals.get(userId) ?? { valueCents: 0, sales: 0, valuedSales: 0, months: new Set<string>() };
           current.valueCents += result.valueCents;
           current.sales += result.sales;
+          current.valuedSales += result.valuedSales;
           current.months.add(key);
           totals.set(userId, current);
         }
@@ -233,8 +287,12 @@ export async function getExecutiveReportData(organizationId: string): Promise<Ex
     const previousRolling12Value = centsToValue(previousRolling12Cents);
     const lastMonthPeople = personTotals(lastMonthStart, completeEnd);
     const lastMonthPreviousPeople = personTotals(lastMonthPreviousStart, lastMonthPreviousEnd);
-    const sellerAverage = lastMonthPeople.size > 0 ? centsToValue(lastMonthCents) / lastMonthPeople.size : 0;
-    const previousSellerAverage = lastMonthPreviousPeople.size > 0 ? centsToValue(lastMonthPreviousCents) / lastMonthPreviousPeople.size : 0;
+    const lastMonthValuedSellers = countValuedSellers(lastMonthPeople.values());
+    const previousMonthValuedSellers = countValuedSellers(lastMonthPreviousPeople.values());
+    const sellerAverage = lastMonthValuedSellers > 0 ? centsToValue(lastMonthCents) / lastMonthValuedSellers : 0;
+    const previousSellerAverage = previousMonthValuedSellers > 0
+      ? centsToValue(lastMonthPreviousCents) / previousMonthValuedSellers
+      : 0;
 
     const yearPeople = personTotals(currentYearStart, completeEnd);
     const recentPeople = personTotals(recentStart, completeEnd);
@@ -243,27 +301,28 @@ export async function getExecutiveReportData(organizationId: string): Promise<Ex
       .sort((a, b) => b[1].valueCents - a[1].valueCents)
       .slice(0, 2);
 
-    const yearlySeries = [reportYear - 2, reportYear - 1, reportYear].map((year) => ({
+    const yearlySeries = availableYears.filter((year) => year >= startYear && year <= reportYear).map((year) => ({
       year,
       values: Array.from({ length: 12 }, (_, month) => {
-        if (year === reportYear && month > throughMonth) return null;
+        if (month > throughMonth) return null;
         return centsToValue(companyByMonth.get(keyOf({ year, month })) ?? 0);
       }),
     }));
 
     const productivity = Array.from({ length: 12 }, (_, month) => {
-      const people = peopleByMonth.get(keyOf({ year: reportYear, month })) ?? new Map();
+      const people = peopleByMonth.get(keyOf({ year: reportYear, month })) ?? new Map<string, PersonMonthStats>();
       const valueCents = companyByMonth.get(keyOf({ year: reportYear, month })) ?? 0;
+      const valuedSellers = countValuedSellers(people.values());
       return {
         month,
-        label: MONTH_LABELS[month],
+        label: EXECUTIVE_MONTHS_SHORT[month],
         sellers: month <= throughMonth ? people.size : 0,
-        average: month <= throughMonth && people.size > 0 ? centsToValue(valueCents) / people.size : 0,
+        average: month <= throughMonth && valuedSellers > 0 ? centsToValue(valueCents) / valuedSellers : 0,
       };
     }).slice(0, throughMonth + 1);
 
     const teamMonths = Array.from({ length: 3 }, (_, index) => addMonths({ year: reportYear, month: throughMonth - 2 }, index)).map(
-      ({ year, month }) => ({ year, month, label: MONTH_LABELS[month] }),
+      ({ year, month }) => ({ year, month, label: EXECUTIVE_MONTHS_SHORT[month] }),
     );
     const teamMap = new Map<string, number[]>();
     teamMonths.forEach(({ year, month }, index) => {
@@ -304,23 +363,30 @@ export async function getExecutiveReportData(organizationId: string): Promise<Ex
     return {
       reportYear,
       throughMonth,
-      throughMonthLabel: MONTH_LABELS[throughMonth],
+      throughMonthLabel: EXECUTIVE_MONTHS_SHORT[throughMonth],
       updatedAt: now.toISOString(),
+      range: {
+        availableYears,
+        startYear,
+        endYear: reportYear,
+        maxThroughMonth,
+        latestClosedMonth,
+      },
       yearToDate: {
         value: currentYearValue,
         previousValue: previousYearValue,
-        changePct: pctChange(currentYearValue, previousYearValue),
+        changePct: calculatePercentageChange(currentYearValue, previousYearValue),
       },
       rolling12: {
         value: rolling12Value,
         previousValue: previousRolling12Value,
-        changePct: pctChange(rolling12Value, previousRolling12Value),
+        changePct: calculatePercentageChange(rolling12Value, previousRolling12Value),
       },
       sellerAverage: {
         value: sellerAverage,
         previousValue: previousSellerAverage,
-        changePct: pctChange(sellerAverage, previousSellerAverage),
-        sellers: lastMonthPeople.size,
+        changePct: calculatePercentageChange(sellerAverage, previousSellerAverage),
+        valuedSellers: lastMonthValuedSellers,
       },
       topTwo: {
         sharePct: currentYearCents > 0 ? (topTwoPeople.reduce((sum, [, result]) => sum + result.valueCents, 0) / currentYearCents) * 100 : 0,
@@ -332,8 +398,6 @@ export async function getExecutiveReportData(organizationId: string): Promise<Ex
       teams,
       ranking,
       annualScenario: {
-        year: reportYear + 1,
-        value: ANNUAL_SCENARIO,
         monthlyRequired,
         currentMonthlyPace,
         multiplier: currentMonthlyPace > 0 ? monthlyRequired / currentMonthlyPace : null,
@@ -343,8 +407,8 @@ export async function getExecutiveReportData(organizationId: string): Promise<Ex
         repeat: wonContacts.filter((contact) => contact._count._all > 1).length,
       },
       coverage: {
-        wonDeals: deals.length,
-        missingValue,
+        wonDeals: historyWonDeals,
+        missingValue: historyMissingValue,
         periodWonDeals,
         periodMissingValue,
         possibleDuplicateGroups: possibleDuplicateCounts.length,

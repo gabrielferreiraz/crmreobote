@@ -1,26 +1,17 @@
 "use client";
 
-import { useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { formatCurrencyCompact } from "@/lib/format";
 import type { ExecutiveReportData } from "@/lib/reports/executive-data";
-
-const MONTHS = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
-const MONTHS_LONG = [
-  "Janeiro",
-  "Fevereiro",
-  "Março",
-  "Abril",
-  "Maio",
-  "Junho",
-  "Julho",
-  "Agosto",
-  "Setembro",
-  "Outubro",
-  "Novembro",
-  "Dezembro",
-];
-const SERIES_COLORS = ["#737373", "#f97316", "#2f80ed"];
+import {
+  calculatePercentageChange,
+  EXECUTIVE_MONTHS_LONG,
+  EXECUTIVE_MONTHS_SHORT,
+  formatExecutiveCurrency,
+  formatSignedPercentage,
+} from "@/lib/reports/executive-utils";
+const HISTORICAL_COLORS = ["#737373", "#8b5cf6", "#06b6d4", "#10b981", "#eab308", "#f43f5e"];
 
 const WIDTH = 960;
 const HEIGHT = 340;
@@ -28,7 +19,6 @@ const LEFT = 72;
 const RIGHT = 20;
 const TOP = 18;
 const BOTTOM = 44;
-const PLOT_WIDTH = WIDTH - LEFT - RIGHT;
 const PLOT_HEIGHT = HEIGHT - TOP - BOTTOM;
 const MOBILE_WIDTH = 360;
 const MOBILE_HEIGHT = 260;
@@ -49,7 +39,13 @@ type GestureStart = {
   y: number;
 };
 
-export function ExecutiveSalesChart({ series }: { series: ExecutiveReportData["yearlySeries"] }) {
+export function ExecutiveSalesChart({
+  series,
+  exactValues,
+}: {
+  series: ExecutiveReportData["yearlySeries"];
+  exactValues: boolean;
+}) {
   const [hover, setHover] = useState<HoverState | null>(null);
   const [focusedSeries, setFocusedSeries] = useState<number | null>(null);
   const [selectedSeries, setSelectedSeries] = useState<number | null>(null);
@@ -57,6 +53,9 @@ export function ExecutiveSalesChart({ series }: { series: ExecutiveReportData["y
   const [mobileDirection, setMobileDirection] = useState<1 | -1>(1);
   const [dragMonth, setDragMonth] = useState<number | null>(null);
   const gestureStart = useRef<GestureStart | null>(null);
+  const desktopChartRef = useRef<HTMLDivElement | null>(null);
+  const [desktopWidth, setDesktopWidth] = useState(WIDTH);
+  const desktopPlotWidth = desktopWidth - LEFT - RIGHT;
   const maxValue = useMemo(
     () => niceMaximum(Math.max(1, ...series.flatMap((year) => year.values.map((value) => value ?? 0)))),
     [series],
@@ -66,8 +65,20 @@ export function ExecutiveSalesChart({ series }: { series: ExecutiveReportData["y
     [maxValue],
   );
 
+  useEffect(() => {
+    const chart = desktopChartRef.current;
+    if (!chart) return;
+
+    const updateWidth = () => setDesktopWidth(Math.max(760, Math.round(chart.getBoundingClientRect().width)));
+    updateWidth();
+
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(chart);
+    return () => observer.disconnect();
+  }, []);
+
   const point = (month: number, value: number) => ({
-    x: LEFT + (month / 11) * PLOT_WIDTH,
+    x: LEFT + (month / 11) * desktopPlotWidth,
     y: TOP + (1 - value / maxValue) * PLOT_HEIGHT,
   });
   const mobilePoint = (month: number, value: number) => ({
@@ -77,9 +88,14 @@ export function ExecutiveSalesChart({ series }: { series: ExecutiveReportData["y
 
   const selectAtPointer = (event: PointerEvent<SVGSVGElement>) => {
     const bounds = event.currentTarget.getBoundingClientRect();
-    const svgX = ((event.clientX - bounds.left) / bounds.width) * WIDTH;
+    const svgX = ((event.clientX - bounds.left) / bounds.width) * desktopWidth;
     const svgY = ((event.clientY - bounds.top) / bounds.height) * HEIGHT;
-    const month = clamp(Math.round(((svgX - LEFT) / PLOT_WIDTH) * 11), 0, 11);
+    if (svgX < LEFT || svgX > desktopWidth - RIGHT || svgY < TOP || svgY > TOP + PLOT_HEIGHT) {
+      setHover(null);
+      setFocusedSeries(null);
+      return;
+    }
+    const month = clamp(Math.round(((svgX - LEFT) / desktopPlotWidth) * 11), 0, 11);
     const nearestSeries = series.reduce(
       (nearest, year, index) => {
         const value = year.values[month];
@@ -167,7 +183,7 @@ export function ExecutiveSalesChart({ series }: { series: ExecutiveReportData["y
   const previousSeries = series.at(-2);
   const latestMonthValue = latestSeries?.values[mobileMonth] ?? null;
   const previousMonthValue = previousSeries?.values[mobileMonth] ?? null;
-  const mobileYearChange = calculateChange(latestMonthValue, previousMonthValue);
+  const mobileYearChange = calculatePercentageChange(latestMonthValue, previousMonthValue);
   const mobileIndicatorMonth = dragMonth ?? mobileMonth;
   const mobileIndicatorX = mobilePoint(mobileIndicatorMonth, 0).x;
   const mobileBandWidth = MOBILE_PLOT_WIDTH / 12;
@@ -196,7 +212,7 @@ export function ExecutiveSalesChart({ series }: { series: ExecutiveReportData["y
               onFocus={() => setFocusedSeries(index)}
               onBlur={() => setFocusedSeries(hover?.seriesIndex ?? null)}
             >
-              <span className="h-0.5 w-5" style={{ backgroundColor: SERIES_COLORS[index] }} />
+              <span className="h-0.5 w-5" style={{ backgroundColor: seriesColor(index, series.length) }} />
               {year.year}
             </button>
           );
@@ -265,7 +281,7 @@ export function ExecutiveSalesChart({ series }: { series: ExecutiveReportData["y
                 <path
                   d={path}
                   fill="none"
-                  stroke={SERIES_COLORS[seriesIndex]}
+                  stroke={seriesColor(seriesIndex, series.length)}
                   strokeWidth={isActive ? 4 : seriesIndex === series.length - 1 ? 3 : 2}
                   vectorEffect="non-scaling-stroke"
                   strokeLinecap="round"
@@ -279,7 +295,7 @@ export function ExecutiveSalesChart({ series }: { series: ExecutiveReportData["y
                       cx={value.x}
                       cy={value.y}
                       r={selected ? 5 : seriesIndex === series.length - 1 ? 3 : 2}
-                      fill={SERIES_COLORS[seriesIndex]}
+                      fill={seriesColor(seriesIndex, series.length)}
                       stroke={selected ? "white" : "transparent"}
                       strokeWidth={selected ? 2 : 0}
                       vectorEffect="non-scaling-stroke"
@@ -291,7 +307,7 @@ export function ExecutiveSalesChart({ series }: { series: ExecutiveReportData["y
             );
           })}
 
-          {MONTHS.map((month, index) => {
+          {EXECUTIVE_MONTHS_SHORT.map((month, index) => {
             const x = mobilePoint(index, 0).x;
             const selected = mobileMonth === index;
             return (
@@ -320,10 +336,10 @@ export function ExecutiveSalesChart({ series }: { series: ExecutiveReportData["y
               <ChevronLeft className="h-5 w-5" strokeWidth={2} />
             </button>
             <div key={`month-heading-${mobileMonth}`} className={`text-center ${mobileDirection > 0 ? "animate-executive-month-forward" : "animate-executive-month-backward"}`}>
-              <p className="text-xl font-semibold text-neutral-950 dark:text-white">{MONTHS_LONG[mobileMonth]}</p>
+              <p className="text-xl font-semibold text-neutral-950 dark:text-white">{EXECUTIVE_MONTHS_LONG[mobileMonth]}</p>
               {mobileYearChange !== null && previousSeries && (
                 <p className={`mt-0.5 text-sm font-semibold ${changeClass(mobileYearChange)}`}>
-                  {formatSignedChange(mobileYearChange)} contra {previousSeries.year}
+                  {formatSignedPercentage(mobileYearChange)} contra {previousSeries.year}
                 </p>
               )}
               {latestMonthValue === null && latestSeries && (
@@ -340,15 +356,17 @@ export function ExecutiveSalesChart({ series }: { series: ExecutiveReportData["y
               <ChevronRight className="h-5 w-5" strokeWidth={2} />
             </button>
           </div>
-          <div key={`month-values-${mobileMonth}`} className={`mt-3 grid grid-cols-3 gap-3 ${mobileDirection > 0 ? "animate-executive-month-forward" : "animate-executive-month-backward"}`}>
+          <div key={`month-values-${mobileMonth}`} className={`mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 ${mobileDirection > 0 ? "animate-executive-month-forward" : "animate-executive-month-backward"}`}>
             {series.map((year, index) => (
               <div key={year.year} className={activeSeries !== null && activeSeries !== index ? "opacity-40" : ""}>
                 <p className="flex items-center gap-1.5 text-sm text-neutral-500 dark:text-neutral-400">
-                  <span className="h-2 w-2 rounded-full" style={{ backgroundColor: SERIES_COLORS[index] }} />
+                  <span className="h-2 w-2 rounded-full" style={{ backgroundColor: seriesColor(index, series.length) }} />
                   {year.year}
                 </p>
                 <p className="mt-1 text-base font-semibold tabular-nums text-neutral-950 dark:text-white">
-                  {year.values[mobileMonth] === null ? "—" : formatCurrencyCompact(year.values[mobileMonth] ?? 0)}
+                  {year.values[mobileMonth] === null
+                    ? "—"
+                    : formatExecutiveCurrency(year.values[mobileMonth] ?? 0, exactValues)}
                 </p>
               </div>
             ))}
@@ -358,9 +376,9 @@ export function ExecutiveSalesChart({ series }: { series: ExecutiveReportData["y
       </div>
 
       <div className="hidden overflow-x-auto lg:block">
-        <div className="relative h-[340px] min-w-[760px] w-full">
+        <div ref={desktopChartRef} className="relative h-[340px] min-w-[760px] w-full">
           <svg
-            viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+            viewBox={`0 0 ${desktopWidth} ${HEIGHT}`}
             className="h-full w-full touch-pan-x select-none outline-none"
             role="img"
             aria-label="Vendas líquidas mensais comparadas por ano. Use as setas para navegar entre os meses."
@@ -382,9 +400,9 @@ export function ExecutiveSalesChart({ series }: { series: ExecutiveReportData["y
           >
             {hover && (
               <rect
-                x={Math.max(LEFT, point(hover.month, 0).x - PLOT_WIDTH / 24)}
+                x={Math.max(LEFT, point(hover.month, 0).x - desktopPlotWidth / 24)}
                 y={TOP}
-                width={hover.month === 0 || hover.month === 11 ? PLOT_WIDTH / 24 : PLOT_WIDTH / 12}
+                width={hover.month === 0 || hover.month === 11 ? desktopPlotWidth / 24 : desktopPlotWidth / 12}
                 height={PLOT_HEIGHT}
                 rx="6"
                 className="fill-blue-500/5 dark:fill-blue-400/5"
@@ -395,7 +413,7 @@ export function ExecutiveSalesChart({ series }: { series: ExecutiveReportData["y
               const y = TOP + (1 - tick / maxValue) * PLOT_HEIGHT;
               return (
                 <g key={tick}>
-                  <line x1={LEFT} y1={y} x2={WIDTH - RIGHT} y2={y} className="stroke-neutral-200 dark:stroke-neutral-800" strokeWidth="1" />
+                  <line x1={LEFT} y1={y} x2={desktopWidth - RIGHT} y2={y} className="stroke-neutral-200 dark:stroke-neutral-800" strokeWidth="1" />
                   <text x={LEFT - 10} y={y + 4} textAnchor="end" className="fill-neutral-400 text-[12px] dark:fill-neutral-500">
                     {formatCurrencyCompact(tick)}
                   </text>
@@ -403,8 +421,8 @@ export function ExecutiveSalesChart({ series }: { series: ExecutiveReportData["y
               );
             })}
 
-            {MONTHS.map((month, index) => {
-              const x = LEFT + (index / 11) * PLOT_WIDTH;
+            {EXECUTIVE_MONTHS_SHORT.map((month, index) => {
+              const x = LEFT + (index / 11) * desktopPlotWidth;
               const selected = hover?.month === index;
               return (
                 <text
@@ -432,7 +450,7 @@ export function ExecutiveSalesChart({ series }: { series: ExecutiveReportData["y
                   <path
                     d={path}
                     fill="none"
-                    stroke={SERIES_COLORS[seriesIndex]}
+                    stroke={seriesColor(seriesIndex, series.length)}
                     strokeWidth={isActive ? 4 : seriesIndex === series.length - 1 ? 3 : 2}
                     vectorEffect="non-scaling-stroke"
                     strokeLinecap="round"
@@ -447,7 +465,7 @@ export function ExecutiveSalesChart({ series }: { series: ExecutiveReportData["y
                         cx={value.x}
                         cy={value.y}
                         r={selected ? (isActive ? 6 : 4) : seriesIndex === series.length - 1 ? 3.5 : 2.5}
-                        fill={SERIES_COLORS[seriesIndex]}
+                        fill={seriesColor(seriesIndex, series.length)}
                         stroke={selected ? "white" : "transparent"}
                         strokeWidth={selected ? 2 : 0}
                         vectorEffect="non-scaling-stroke"
@@ -480,6 +498,8 @@ export function ExecutiveSalesChart({ series }: { series: ExecutiveReportData["y
               series={series}
               x={hoveredPoint.x}
               y={hoveredPoint.y}
+              chartWidth={desktopWidth}
+              exactValues={exactValues}
             />
           )}
         </div>
@@ -494,12 +514,16 @@ function ChartTooltip({
   series,
   x,
   y,
+  chartWidth,
+  exactValues,
 }: {
   month: number;
   seriesIndex: number;
   series: ExecutiveReportData["yearlySeries"];
   x: number;
   y: number;
+  chartWidth: number;
+  exactValues: boolean;
 }) {
   const horizontalTransform = month <= 2 ? "translateX(8px)" : month >= 9 ? "translateX(calc(-100% - 8px))" : "translateX(-50%)";
   const showBelow = y < 130;
@@ -508,15 +532,15 @@ function ChartTooltip({
 
   return (
     <div
-      className="pointer-events-none absolute z-10 w-56 rounded-lg border border-neutral-200 bg-white/95 p-4 shadow-xl shadow-black/10 backdrop-blur-sm dark:border-neutral-700 dark:bg-neutral-950/95 dark:shadow-black/40"
+      className={`${exactValues ? "w-72" : "w-56"} pointer-events-none absolute z-10 rounded-lg border border-neutral-200 bg-white/95 p-4 shadow-xl shadow-black/10 backdrop-blur-sm dark:border-neutral-700 dark:bg-neutral-950/95 dark:shadow-black/40`}
       style={{
-        left: `${(x / WIDTH) * 100}%`,
+        left: `${(x / chartWidth) * 100}%`,
         top: `${(top / HEIGHT) * 100}%`,
         transform: `${horizontalTransform} ${verticalTransform}`,
       }}
       aria-hidden="true"
     >
-      <p className="text-base font-semibold text-neutral-950 dark:text-white">{MONTHS_LONG[month]}</p>
+      <p className="text-base font-semibold text-neutral-950 dark:text-white">{EXECUTIVE_MONTHS_LONG[month]}</p>
       <div className="mt-3 space-y-2">
         {series.map((year, index) => (
           <div
@@ -524,10 +548,14 @@ function ChartTooltip({
             className={`flex items-center justify-between gap-3 text-sm ${index === seriesIndex ? "font-semibold text-neutral-950 dark:text-white" : "text-neutral-500 dark:text-neutral-400"}`}
           >
             <span className="inline-flex items-center gap-1.5">
-              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: SERIES_COLORS[index] }} />
+              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: seriesColor(index, series.length) }} />
               {year.year}
             </span>
-            <span className="tabular-nums">{year.values[month] === null ? "—" : formatCurrencyCompact(year.values[month] ?? 0)}</span>
+            <span className="tabular-nums">
+              {year.values[month] === null
+                ? "—"
+                : formatExecutiveCurrency(year.values[month] ?? 0, exactValues)}
+            </span>
           </div>
         ))}
       </div>
@@ -542,6 +570,12 @@ function findLatestSeriesWithValue(series: ExecutiveReportData["yearlySeries"], 
   return 0;
 }
 
+function seriesColor(index: number, total: number): string {
+  if (index === total - 1) return "#2f80ed";
+  if (index === total - 2) return "#f97316";
+  return HISTORICAL_COLORS[index % HISTORICAL_COLORS.length];
+}
+
 function findLastMonthWithValue(series: ExecutiveReportData["yearlySeries"]): number {
   const latestSeries = series.at(-1);
   if (latestSeries) {
@@ -553,16 +587,6 @@ function findLastMonthWithValue(series: ExecutiveReportData["yearlySeries"]): nu
     if (series.some((year) => year.values[month] !== null)) return month;
   }
   return 0;
-}
-
-function calculateChange(current: number | null, previous: number | null): number | null {
-  if (current === null || previous === null || previous === 0) return null;
-  return ((current - previous) / previous) * 100;
-}
-
-function formatSignedChange(value: number): string {
-  const sign = value > 0 ? "+" : "";
-  return `${sign}${value.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
 }
 
 function changeClass(value: number): string {

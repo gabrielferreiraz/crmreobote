@@ -42,6 +42,12 @@ function firstSearchParam(value: ReportSearchParam): string | undefined {
   return typeof value === "string" ? value : Array.isArray(value) ? value[0] : undefined;
 }
 
+function integerSearchParam(value: ReportSearchParam): number | undefined {
+  const raw = firstSearchParam(value);
+  if (!raw || !/^\d+$/.test(raw)) return undefined;
+  return Number(raw);
+}
+
 export default async function RelatoriosPage({
   searchParams,
 }: {
@@ -61,6 +67,10 @@ export default async function RelatoriosPage({
     /** "YYYY-MM-DD" — só usado quando compare === "custom" (ver compare-period-filter.tsx). */
     compareFrom?: ReportSearchParam;
     compareTo?: ReportSearchParam;
+    execFromYear?: ReportSearchParam;
+    execToYear?: ReportSearchParam;
+    execMonth?: ReportSearchParam;
+    execExact?: ReportSearchParam;
   }>;
 }) {
   const rawParams = await searchParams;
@@ -117,13 +127,19 @@ export default async function RelatoriosPage({
   // executa a consulta irrestrita da organização. Um papel diferente que
   // digitar ?view=executivo manualmente cai no Comercial pelo fluxo normal.
   if (isOwner && viewParam === "executivo") {
-    const executiveData = await getExecutiveReportData(organizationId);
+    const selectedExecutiveMonth = integerSearchParam(rawParams.execMonth);
+    const exactExecutiveValues = firstSearchParam(rawParams.execExact) === "1";
+    const executiveData = await getExecutiveReportData(organizationId, {
+      startYear: integerSearchParam(rawParams.execFromYear),
+      endYear: integerSearchParam(rawParams.execToYear),
+      throughMonth: selectedExecutiveMonth === undefined ? undefined : selectedExecutiveMonth - 1,
+    });
     return (
       <div className="-mx-4 space-y-4 lg:mx-0 lg:space-y-6">
         <div className="px-4 lg:px-0">
           <ReportTabs active="executivo" />
         </div>
-        <ExecutiveReportView data={executiveData} />
+        <ExecutiveReportView data={executiveData} exactValues={exactExecutiveValues} />
       </div>
     );
   }

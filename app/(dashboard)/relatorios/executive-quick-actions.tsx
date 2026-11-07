@@ -3,12 +3,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { BriefcaseBusiness, Check, Download, Share2, Users } from "lucide-react";
-import { formatCurrencyCompact } from "@/lib/format";
 import type { ExecutiveReportData } from "@/lib/reports/executive-data";
+import { EXECUTIVE_MONTHS_LONG, formatExecutiveCurrency } from "@/lib/reports/executive-utils";
 
 type Feedback = "shared" | "copied" | "downloaded" | null;
 
-export function ExecutiveQuickActions({ data }: { data: ExecutiveReportData }) {
+export function ExecutiveQuickActions({ data, exactValues }: { data: ExecutiveReportData; exactValues: boolean }) {
   const [feedback, setFeedback] = useState<Feedback>(null);
   const feedbackTimer = useRef<number | null>(null);
   const periodEnd = useMemo(() => endOfMonth(data.reportYear, data.throughMonth), [data.reportYear, data.throughMonth]);
@@ -25,7 +25,7 @@ export function ExecutiveQuickActions({ data }: { data: ExecutiveReportData }) {
   };
 
   const shareSummary = async () => {
-    const text = buildExecutiveSummary(data);
+    const text = buildExecutiveSummary(data, exactValues);
     try {
       if (navigator.share) {
         await navigator.share({ title: `Resumo executivo ${data.reportYear}`, text });
@@ -98,7 +98,7 @@ export function ExecutiveQuickActions({ data }: { data: ExecutiveReportData }) {
   );
 }
 
-function buildExecutiveSummary(data: ExecutiveReportData): string {
+function buildExecutiveSummary(data: ExecutiveReportData, exactValues: boolean): string {
   const change = data.yearToDate.changePct;
   const comparison = change === null
     ? "sem base comparável"
@@ -107,9 +107,9 @@ function buildExecutiveSummary(data: ExecutiveReportData): string {
 
   return [
     `Resumo executivo — jan–${data.throughMonthLabel}/${String(data.reportYear).slice(-2)}`,
-    `Vendas líquidas: ${formatCurrencyCompact(data.yearToDate.value)} (${comparison})`,
-    `Média por vendedor em ${MONTHS_LONG[data.throughMonth]}: ${formatCurrencyCompact(data.sellerAverage.value)}`,
-    `Vendedores com venda no mês: ${data.sellerAverage.sellers}`,
+    `Vendas líquidas: ${formatExecutiveCurrency(data.yearToDate.value, exactValues)} (${comparison})`,
+    `Média por vendedor em ${EXECUTIVE_MONTHS_LONG[data.throughMonth].toLocaleLowerCase("pt-BR")}: ${formatExecutiveCurrency(data.sellerAverage.value, exactValues)}`,
+    `Vendedores considerados na média: ${data.sellerAverage.valuedSellers}`,
     `Concentração nos 2 maiores: ${data.topTwo.sharePct.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%${topNames}`,
     "Base: negócios ganhos em meses já fechados.",
   ].join("\n");
@@ -142,18 +142,3 @@ function csvCell(value: string | number): string {
   const text = String(value).replace(/"/g, '""');
   return `"${text}"`;
 }
-
-const MONTHS_LONG = [
-  "janeiro",
-  "fevereiro",
-  "março",
-  "abril",
-  "maio",
-  "junho",
-  "julho",
-  "agosto",
-  "setembro",
-  "outubro",
-  "novembro",
-  "dezembro",
-];

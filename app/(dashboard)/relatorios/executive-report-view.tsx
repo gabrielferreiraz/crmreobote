@@ -10,17 +10,23 @@ import {
   UsersRound,
   type LucideIcon,
 } from "lucide-react";
-import { formatCurrencyCompact } from "@/lib/format";
 import type { ExecutiveReportData } from "@/lib/reports/executive-data";
+import {
+  EXECUTIVE_MONTHS_LONG,
+  formatExecutiveCurrency,
+  formatSignedPercentage,
+} from "@/lib/reports/executive-utils";
 import { ExecutiveQuickActions } from "./executive-quick-actions";
 import { ExecutiveMobileNav } from "./executive-mobile-nav";
+import { ExecutivePeriodFilter } from "./executive-period-filter";
 import { ExecutiveRankingTable } from "./executive-ranking-table";
 import { ExecutiveSalesChart } from "./executive-sales-chart";
 
-export function ExecutiveReportView({ data }: { data: ExecutiveReportData }) {
+export function ExecutiveReportView({ data, exactValues }: { data: ExecutiveReportData; exactValues: boolean }) {
   const period = `jan–${data.throughMonthLabel}/${String(data.reportYear).slice(-2)}`;
   const previousPeriod = `jan–${data.throughMonthLabel}/${String(data.reportYear - 1).slice(-2)}`;
   const yearDirection = describeChange(data.yearToDate.changePct);
+  const money = (value: number) => formatExecutiveCurrency(value, exactValues);
   const topNames = data.topTwo.names.join(" e ");
   const maxTeamTotal = Math.max(1, ...data.teams.map((team) => team.total));
   const targetProgress = data.annualScenario.monthlyRequired > 0
@@ -38,42 +44,43 @@ export function ExecutiveReportView({ data }: { data: ExecutiveReportData }) {
             </span>
             Visão executiva · {period}
           </div>
-          <h1 className="mt-4 text-4xl leading-none font-semibold tabular-nums text-neutral-950 sm:text-5xl dark:text-white">
-            {formatCurrencyCompact(data.yearToDate.value)}
+          <h1 className={`mt-4 leading-none font-semibold tabular-nums text-neutral-950 sm:text-5xl dark:text-white ${exactValues ? "text-3xl" : "text-4xl"}`}>
+            {money(data.yearToDate.value)}
           </h1>
           <p className="mt-2 text-xl font-medium text-neutral-700 dark:text-neutral-200">em vendas líquidas no ano</p>
           <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 text-base text-neutral-600 dark:text-neutral-300">
-            <span><strong className={changeTextClass(data.yearToDate.changePct)}>{yearDirection.text}</strong> contra {data.reportYear - 1}</span>
+            <span><strong className={changeTextClass(data.yearToDate.changePct)}>{yearDirection}</strong> contra {data.reportYear - 1}</span>
             <span className="hidden h-5 w-px bg-neutral-200 sm:block dark:bg-neutral-800" aria-hidden="true" />
-            <span><strong className="font-semibold text-neutral-950 dark:text-white">{data.sellerAverage.sellers} responsáveis</strong> venderam em {data.throughMonthLabel}</span>
+            <span><strong className="font-semibold text-neutral-950 dark:text-white">{data.sellerAverage.valuedSellers} responsáveis</strong> compõem a média de {data.throughMonthLabel}</span>
           </div>
         </div>
-        <ExecutiveQuickActions data={data} />
+        <ExecutiveQuickActions data={data} exactValues={exactValues} />
       </header>
 
+      <ExecutivePeriodFilter range={data.range} throughMonth={data.throughMonth} exactValues={exactValues} />
       <ExecutiveMobileNav />
 
       <section id="executive-overview" className="scroll-mt-16 overflow-hidden border-y border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950 lg:mt-10 lg:rounded-lg lg:border" aria-label="Resumo executivo">
         <div className="grid sm:grid-cols-2 xl:grid-cols-4">
           <ExecutiveMetric
             label="Variação no ano"
-            value={formatSignedPercent(data.yearToDate.changePct)}
-            hint={`${previousPeriod}: ${formatCurrencyCompact(data.yearToDate.previousValue)}`}
+            value={formatSignedPercentage(data.yearToDate.changePct)}
+            hint={`${previousPeriod}: ${money(data.yearToDate.previousValue)}`}
             tone="blue"
             className="sm:border-r"
           />
           <ExecutiveMetric
             label="Últimos 12 meses fechados"
-            value={formatCurrencyCompact(data.rolling12.value)}
+            value={money(data.rolling12.value)}
             change={data.rolling12.changePct}
-            hint={`12 meses anteriores: ${formatCurrencyCompact(data.rolling12.previousValue)}`}
+            hint={`12 meses anteriores: ${money(data.rolling12.previousValue)}`}
             tone="emerald"
           />
           <ExecutiveMetric
-            label={`Média por vendedor · ${monthLong(data.throughMonth)}`}
-            value={formatCurrencyCompact(data.sellerAverage.value)}
+            label={`Média por vendedor com valor · ${EXECUTIVE_MONTHS_LONG[data.throughMonth].toLocaleLowerCase("pt-BR")}`}
+            value={money(data.sellerAverage.value)}
             change={data.sellerAverage.changePct}
-            hint={`Mesmo mês de ${data.reportYear - 1}: ${formatCurrencyCompact(data.sellerAverage.previousValue)}`}
+            hint={`Mesmo mês de ${data.reportYear - 1}: ${money(data.sellerAverage.previousValue)}`}
             tone="violet"
             className="sm:border-r sm:border-b-0"
           />
@@ -91,12 +98,12 @@ export function ExecutiveReportView({ data }: { data: ExecutiveReportData }) {
         <SectionHeading
           id="year-comparison-title"
           title="Mês a mês, ano contra ano"
-          detail="Valor líquido por mês. O mês atual não entra porque ainda está aberto."
+          detail={`${data.range.startYear} a ${data.range.endYear}, sempre até ${EXECUTIVE_MONTHS_LONG[data.throughMonth].toLocaleLowerCase("pt-BR")} para manter a mesma régua.`}
           icon={ChartNoAxesCombined}
           tone="blue"
         />
         <div className="border-y border-neutral-200 bg-white p-4 shadow-sm transition-[border-color,box-shadow] duration-300 hover:border-blue-200 hover:shadow-md dark:border-neutral-800 dark:bg-neutral-950 dark:hover:border-blue-900 lg:rounded-lg lg:border lg:p-6">
-          <ExecutiveSalesChart series={data.yearlySeries} />
+          <ExecutiveSalesChart series={data.yearlySeries} exactValues={exactValues} />
         </div>
       </section>
 
@@ -104,7 +111,7 @@ export function ExecutiveReportView({ data }: { data: ExecutiveReportData }) {
         <SectionHeading
           id="productivity-title"
           title="Produtividade do time"
-          detail="Quantidade de pessoas vendendo e valor médio por vendedor em cada mês fechado."
+          detail="Pessoas vendendo e média entre responsáveis com valor informado em cada mês."
           icon={UsersRound}
           tone="emerald"
         />
@@ -116,9 +123,10 @@ export function ExecutiveReportView({ data }: { data: ExecutiveReportData }) {
             tone="emerald"
           />
           <BarPanel
-            title="Venda líquida média por vendedor"
+            title="Média por vendedor com valor"
             data={data.productivity.slice(0, data.throughMonth + 1).map((month) => ({ label: month.label, value: month.average }))}
-            format={formatCurrencyCompact}
+            format={money}
+            barFormat={(value) => formatExecutiveCurrency(value, false)}
             tone="blue"
           />
         </div>
@@ -143,13 +151,13 @@ export function ExecutiveReportView({ data }: { data: ExecutiveReportData }) {
               <article key={team.name} className="py-4 first:pt-0 last:pb-0">
                 <div className="flex items-baseline justify-between gap-3">
                   <h3 className="min-w-0 truncate text-lg font-semibold text-neutral-900 dark:text-neutral-100">{team.name}</h3>
-                  <span className="shrink-0 text-lg font-semibold tabular-nums text-neutral-950 dark:text-white">{formatCurrencyCompact(team.total)}</span>
+                  <span className="shrink-0 text-lg font-semibold tabular-nums text-neutral-950 dark:text-white">{money(team.total)}</span>
                 </div>
                 <div className="mt-3 grid grid-cols-3 gap-3">
                   {team.values.map((value, index) => (
                     <div key={data.teamMonths[index] ? `${data.teamMonths[index].year}-${data.teamMonths[index].month}` : index}>
                       <p className="text-sm capitalize text-neutral-400 dark:text-neutral-500">{data.teamMonths[index]?.label}</p>
-                      <p className="mt-0.5 text-base font-medium tabular-nums text-neutral-700 dark:text-neutral-300">{formatCurrencyCompact(value)}</p>
+                      <p className="mt-0.5 text-base font-medium tabular-nums text-neutral-700 dark:text-neutral-300">{money(value)}</p>
                     </div>
                   ))}
                 </div>
@@ -175,11 +183,11 @@ export function ExecutiveReportView({ data }: { data: ExecutiveReportData }) {
                   <tr key={team.name} className="group border-b border-neutral-100 transition-colors hover:bg-violet-50/50 last:border-0 dark:border-neutral-900 dark:hover:bg-violet-950/15">
                     <td className="py-3 font-medium text-neutral-900 dark:text-neutral-100">{team.name}</td>
                     {team.values.map((value, index) => (
-                      <td key={index} className="py-3 text-right tabular-nums text-neutral-600 dark:text-neutral-300">{formatCurrencyCompact(value)}</td>
+                      <td key={index} className="py-3 text-right tabular-nums text-neutral-600 dark:text-neutral-300">{money(value)}</td>
                     ))}
                     <td className="py-3 text-right">
                       <div className="ml-auto w-28">
-                        <span className="font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">{formatCurrencyCompact(team.total)}</span>
+                        <span className="font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">{money(team.total)}</span>
                         <span className="mt-1 block h-1 overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
                           <span
                             className="block h-full rounded-full bg-violet-500 transition-[width] duration-500"
@@ -201,8 +209,8 @@ export function ExecutiveReportView({ data }: { data: ExecutiveReportData }) {
               <Gauge className="h-4.5 w-4.5" strokeWidth={2} />
             </span>
             <div>
-              <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">Simulação estratégica · {data.annualScenario.year}</p>
-              <h2 className="mt-1 text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Cenário de R$ 1 bilhão</h2>
+              <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">Simulação estratégica · ritmo de {data.reportYear}</p>
+              <h2 className="mt-1 text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Cenário anual de R$ 1 bilhão</h2>
             </div>
           </div>
           <div className="mt-6">
@@ -215,8 +223,8 @@ export function ExecutiveReportView({ data }: { data: ExecutiveReportData }) {
             </div>
           </div>
           <div className="mt-6 space-y-5">
-            <TargetLine label="Média necessária por mês" value={formatCurrencyCompact(data.annualScenario.monthlyRequired)} />
-            <TargetLine label={`Ritmo mensal em ${data.reportYear}`} value={formatCurrencyCompact(data.annualScenario.currentMonthlyPace)} />
+            <TargetLine label="Média necessária por mês" value={money(data.annualScenario.monthlyRequired)} />
+            <TargetLine label={`Ritmo mensal em ${data.reportYear}`} value={money(data.annualScenario.currentMonthlyPace)} />
             <TargetLine
               label="Aceleração do ritmo necessária"
               value={data.annualScenario.multiplier === null ? "—" : `${data.annualScenario.multiplier.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}x`}
@@ -244,7 +252,12 @@ export function ExecutiveReportView({ data }: { data: ExecutiveReportData }) {
           tone="violet"
         />
         <div className="border-y border-neutral-200 bg-white p-4 shadow-sm transition-[border-color,box-shadow] duration-300 hover:border-violet-200 hover:shadow-md dark:border-neutral-800 dark:bg-neutral-950 dark:hover:border-violet-900 lg:rounded-lg lg:border lg:p-6">
-          <ExecutiveRankingTable rows={data.ranking} year={data.reportYear} throughMonthLabel={data.throughMonthLabel} />
+          <ExecutiveRankingTable
+            rows={data.ranking}
+            year={data.reportYear}
+            throughMonthLabel={data.throughMonthLabel}
+            exactValues={exactValues}
+          />
         </div>
       </section>
 
@@ -271,7 +284,7 @@ export function ExecutiveReportView({ data }: { data: ExecutiveReportData }) {
             {data.coverage.possibleDuplicateGroups > 0
               ? ` ${data.coverage.possibleDuplicateGroups} coincidências de cliente, valor e data (${data.coverage.possibleDuplicateDeals} negócios) foram mantidas e precisam de conferência.`
               : ""}
-            Série desde {data.reportYear - 2}: {data.coverage.wonDeals.toLocaleString("pt-BR")} negócios
+            Série desde {data.range.startYear}: {data.coverage.wonDeals.toLocaleString("pt-BR")} negócios
             {data.coverage.missingValue > 0 ? ` · ${data.coverage.missingValue} sem valor` : ""}. Administradoras e cotas ficam fora até o histórico estar completo.
           </p>
         </details>
@@ -360,7 +373,19 @@ function SectionHeading({
   );
 }
 
-function BarPanel({ title, data, format, tone }: { title: string; data: { label: string; value: number }[]; format: (value: number) => string; tone: "blue" | "emerald" }) {
+function BarPanel({
+  title,
+  data,
+  format,
+  barFormat = format,
+  tone,
+}: {
+  title: string;
+  data: { label: string; value: number }[];
+  format: (value: number) => string;
+  barFormat?: (value: number) => string;
+  tone: "blue" | "emerald";
+}) {
   const max = Math.max(1, ...data.map((item) => item.value));
   const latest = data.at(-1)?.value ?? 0;
   const styles = tone === "blue"
@@ -391,7 +416,7 @@ function BarPanel({ title, data, format, tone }: { title: string; data: { label:
         <div className="flex h-48 min-w-[560px] items-end gap-2">
           {data.map((item) => (
             <div key={item.label} className="group flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1.5" title={`${item.label}: ${format(item.value)}`}>
-              <span className="text-xs font-medium tabular-nums text-neutral-500 transition-[color,transform] duration-200 group-hover:-translate-y-0.5 group-hover:text-neutral-900 dark:text-neutral-400 dark:group-hover:text-neutral-100">{format(item.value)}</span>
+              <span className="text-xs font-medium tabular-nums text-neutral-500 transition-[color,transform] duration-200 group-hover:-translate-y-0.5 group-hover:text-neutral-900 dark:text-neutral-400 dark:group-hover:text-neutral-100">{barFormat(item.value)}</span>
               <div
                 className={`w-full max-w-9 origin-bottom rounded-t-md transition-[transform,filter] duration-200 group-hover:scale-x-110 group-hover:brightness-110 ${styles.bar}`}
                 style={{ height: `${Math.max(2, (item.value / max) * 132)}px` }}
@@ -414,28 +439,15 @@ function TargetLine({ label, value, strong = false }: { label: string; value: st
   );
 }
 
-function describeChange(value: number | null): { text: string; short: string | null } {
-  if (value === null) return { text: "sem base comparável", short: null };
-  if (Math.abs(value) < 0.05) return { text: "estável", short: "sem variação relevante" };
+function describeChange(value: number | null): string {
+  if (value === null) return "sem base comparável";
+  if (Math.abs(value) < 0.05) return "estável";
   const amount = `${Math.abs(value).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
-  return value > 0
-    ? { text: `alta de ${amount}`, short: `${amount} acima do ano anterior` }
-    : { text: `queda de ${amount}`, short: `${amount} abaixo do ano anterior` };
+  return value > 0 ? `alta de ${amount}` : `queda de ${amount}`;
 }
 
 function formatPercent(value: number): string {
   return `${value.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
-}
-
-function formatSignedPercent(value: number | null): string {
-  if (value === null) return "—";
-  const sign = value > 0 ? "+" : "";
-  return `${sign}${value.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
-}
-
-function monthLong(month: number): string {
-  const normalized = ((month % 12) + 12) % 12;
-  return new Date(Date.UTC(2026, normalized, 1)).toLocaleDateString("pt-BR", { month: "long", timeZone: "UTC" });
 }
 
 function changeTextClass(value: number | null): string {

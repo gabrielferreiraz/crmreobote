@@ -2,8 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { ArrowDown, Search } from "lucide-react";
-import { formatCurrencyCompact } from "@/lib/format";
 import type { ExecutiveRankingRow } from "@/lib/reports/executive-data";
+import { formatExecutiveCurrency } from "@/lib/reports/executive-utils";
 
 type SortKey = "yearValue" | "recentValue" | "sales" | "activeMonths";
 
@@ -18,10 +18,12 @@ export function ExecutiveRankingTable({
   rows,
   year,
   throughMonthLabel,
+  exactValues,
 }: {
   rows: ExecutiveRankingRow[];
   year: number;
   throughMonthLabel: string;
+  exactValues: boolean;
 }) {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortKey>("yearValue");
@@ -94,10 +96,10 @@ export function ExecutiveRankingTable({
                     <td className="px-3 py-4 text-right">
                       <div className="ml-auto flex max-w-56 items-center justify-end gap-2">
                         <span className="h-1.5 min-w-0 rounded-full bg-blue-500 transition-[width,filter] duration-300 group-hover:brightness-110" style={{ width: `${Math.max(3, (row.yearValue / maxYearValue) * 72)}px` }} />
-                        <span className="min-w-24 font-medium tabular-nums text-neutral-900 dark:text-neutral-100">{formatCurrencyCompact(row.yearValue)}</span>
+                        <span className="min-w-24 font-medium tabular-nums text-neutral-900 dark:text-neutral-100">{formatExecutiveCurrency(row.yearValue, exactValues)}</span>
                       </div>
                     </td>
-                    <td className="px-3 py-4 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{formatCurrencyCompact(row.recentValue)}</td>
+                    <td className="px-3 py-4 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{formatExecutiveCurrency(row.recentValue, exactValues)}</td>
                     <td className="px-3 py-4 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{row.sales}</td>
                     <td className="px-3 py-4 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{row.activeMonths}</td>
                   </tr>
@@ -117,10 +119,10 @@ export function ExecutiveRankingTable({
                         <h3 className="truncate text-lg font-medium text-neutral-900 dark:text-neutral-100">{row.name}</h3>
                         <p className="truncate text-base text-neutral-500 dark:text-neutral-400">{row.team}</p>
                       </div>
-                      <p className="shrink-0 text-lg font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">{formatCurrencyCompact(row.yearValue)}</p>
+                      <p className="shrink-0 text-lg font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">{formatExecutiveCurrency(row.yearValue, exactValues)}</p>
                     </div>
                     <div className="mt-3 grid grid-cols-3 gap-3">
-                      <MobileMetric label="Últimos 3 meses" value={formatCurrencyCompact(row.recentValue)} />
+                      <MobileMetric label="Últimos 3 meses" value={formatExecutiveCurrency(row.recentValue, exactValues)} />
                       <MobileMetric label="Participações" value={String(row.sales)} />
                       <MobileMetric label="Meses ativos" value={String(row.activeMonths)} />
                     </div>
