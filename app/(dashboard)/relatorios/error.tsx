@@ -12,8 +12,13 @@ export default function ReportsError({
   retry: () => void;
 }) {
   useEffect(() => {
-    console.error("[relatorios] falha ao renderizar", { digest: error.digest });
-  }, [error.digest]);
+    console.error("[relatorios] falha ao renderizar", {
+      name: error.name,
+      message: error.message,
+      digest: error.digest,
+      stack: error.stack,
+    });
+  }, [error]);
 
   return (
     <div className="mx-auto flex min-h-[55vh] max-w-xl items-center px-4 py-12">

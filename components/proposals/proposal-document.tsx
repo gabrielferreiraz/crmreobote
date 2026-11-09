@@ -784,10 +784,10 @@ function getCreditCategory(creditType: string | null): CreditCategory {
 function getCoverImage(category: CreditCategory): string {
   switch (category) {
     case "AUTOMOVEL":
-      return "/images/Alegria ao volante no campo.png";
+      return "/images/alegria-ao-volante-no-campo.webp";
     case "IMOVEL":
     case "OUTRO":
     default:
-      return "/images/casas-modernas.jpg";
+      return "/images/casas-modernas.webp";
   }
 }

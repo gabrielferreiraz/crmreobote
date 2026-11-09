@@ -23,6 +23,7 @@ const SIGNATURE_CHECKS: Record<string, (buffer: Buffer) => boolean> = {
   "image/jpeg": (b) => matchesBytes(b, 0, [0xff, 0xd8, 0xff]),
   "image/png": (b) => matchesBytes(b, 0, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
   "image/webp": (b) => matchesAscii(b, 0, "RIFF") && matchesAscii(b, 8, "WEBP"),
+  "application/pdf": (b) => matchesAscii(b, 0, "%PDF-"),
   "image/gif": (b) => matchesAscii(b, 0, "GIF87a") || matchesAscii(b, 0, "GIF89a"),
   "audio/webm": (b) => matchesBytes(b, 0, [0x1a, 0x45, 0xdf, 0xa3]),
   "audio/ogg": (b) => matchesAscii(b, 0, "OggS"),

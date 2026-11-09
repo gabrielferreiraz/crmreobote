@@ -17,6 +17,10 @@ import { brazilDateStringWithNowTimeToUTC, brazilDateKey } from "@/lib/timezone"
 import { recordUndoableAction } from "@/lib/undo/record";
 import type { DeleteSnapshotPayload, FieldUpdatePayload, FieldUpdateTarget } from "@/lib/undo/types";
 import { syncCommissionSalesInBackground } from "@/lib/commissions/sync";
+import { getCurrentMembership } from "@/lib/current-membership";
+import { canWaiveRegistration } from "@/lib/deal-registration/rules";
+import { evaluateWonGate, markRegistrationWon, notifyAdministrativeQuotaRegistration } from "@/lib/deal-registration/service";
+import { logAudit } from "@/lib/audit-log";
 
 export const dynamic = "force-dynamic";
 
@@ -67,6 +71,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     customFieldValues,
     customFieldValuesPatch,
     administratorId,
+    skipRegistrationReason,
   } = body as {
     name?: string;
     status?: "OPEN" | "WON" | "LOST";
@@ -84,6 +89,8 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     customFieldValuesPatch?: Record<string, unknown>;
     /** Administradora do consórcio (ver Deal.administratorId) — pedida no "Marcar como ganho". */
     administratorId?: string | null;
+    /** Dono/Administrativo marca o Ganho sem o cadastro do cliente — o motivo fica registrado. */
+    skipRegistrationReason?: string | null;
   };
 
   if ((value != null && value < 0) || (grossValue != null && grossValue < 0)) {
@@ -119,6 +126,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       }
     }
 
+    let wonRegistrationWaived = false;
     if (status === "WON" && status !== existing.status) {
       const contact = await prisma.contact.findUnique({ where: { id: existing.contactId }, select: { jobTitle: true } });
       const jobTitle = contact?.jobTitle?.trim();
@@ -148,6 +156,21 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
           return NextResponse.json({ error: "Escolha a categoria antes de marcar o negócio como ganho" }, { status: 400 });
         }
       }
+
+      // Cadastro do cliente (dados + documentos que a administradora exige):
+      // completo, ou Dono/Administrativo dispensa com motivo.
+      const membership = await getCurrentMembership();
+      const gate = await evaluateWonGate({
+        organizationId,
+        dealId: id,
+        administratorId: finalAdministratorId,
+        canBypass: !!membership && canWaiveRegistration(membership),
+        bypassReason: skipRegistrationReason,
+      });
+      if (!gate.ok) {
+        return NextResponse.json({ error: gate.message, code: "REGISTRATION_INCOMPLETE", missing: gate.missing }, { status: 422 });
+      }
+      wonRegistrationWaived = gate.waived;
     }
 
     // Passar o negócio pra outra pessoa é do responsável principal (e da
@@ -407,6 +430,32 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     // Depois da resposta (after) — nunca atrasa nem derruba o "Ganho"; se
     // falhar, a tela de Comissões refaz na próxima abertura.
     const statusChanged = !!status && status !== existing.status;
+    if (statusChanged && status === "WON") {
+      const waivedReason = wonRegistrationWaived ? (skipRegistrationReason ?? "").trim() : null;
+      after(() =>
+        runWithTenant(organizationId, async () => {
+          try {
+            if (await prisma.consortiumAdministrator.count({ where: { organizationId, active: true } })) {
+              await markRegistrationWon({ organizationId, dealId: id, userId, waivedReason });
+              if (waivedReason) {
+                await logAudit({
+                  organizationId,
+                  actorUserId: userId,
+                  actorName: access.session?.user?.name ?? "Usuário",
+                  action: "DEAL_REGISTRATION_WAIVED",
+                  targetType: "Deal",
+                  targetId: id,
+                  detail: waivedReason,
+                });
+              }
+              await notifyAdministrativeQuotaRegistration(organizationId, id);
+            }
+          } catch (err) {
+            console.error("[deal-registration] falha ao concluir o cadastro do Ganho", err);
+          }
+        }),
+      );
+    }
     if (statusChanged || (updateData.administratorId !== undefined && deal.status === "WON")) {
       after(() => syncCommissionSalesInBackground(organizationId, [id]));
     }

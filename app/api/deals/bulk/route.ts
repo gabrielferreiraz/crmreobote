@@ -11,6 +11,10 @@ import { recordUserChange } from "@/lib/user-activity";
 import { recordUndoableAction } from "@/lib/undo/record";
 import type { BulkUpdateGroup, BulkUpdatePayload } from "@/lib/undo/types";
 import { syncCommissionSalesInBackground } from "@/lib/commissions/sync";
+import { getCurrentMembership } from "@/lib/current-membership";
+import { canWaiveRegistration } from "@/lib/deal-registration/rules";
+import { evaluateWonGate, markRegistrationWon, notifyAdministrativeQuotaRegistration } from "@/lib/deal-registration/service";
+import { logAudit } from "@/lib/audit-log";
 
 export const dynamic = "force-dynamic";
 
@@ -80,6 +84,8 @@ type Body = {
   lostReason?: string;
   /** Administradora (módulo de Comissões) — mesma pra todos os selecionados, obrigatória no Ganho quando a organização tem alguma ativa (igual ao Ganho individual). */
   administratorId?: string | null;
+  /** Dono/Administrativo marca o Ganho em massa sem o cadastro do cliente (motivo registrado). */
+  skipRegistrationReason?: string | null;
   /** action "owner" */
   ownerId?: string;
   /** action "source" — mora em Contact.source, não no negócio (ver abaixo) */
@@ -373,10 +379,47 @@ async function bulkStatus({ body, scopedWhere, organizationId, userId }: Ctx) {
   });
   if (deals.length === 0) return NextResponse.json({ error: "Nenhum negócio encontrado" }, { status: 404 });
 
-  const changed = deals.filter((d) => d.status !== status);
-  const skipped = deals.length - changed.length;
+  let changed = deals.filter((d) => d.status !== status);
+  let skipped = deals.length - changed.length;
   if (changed.length === 0) {
     return NextResponse.json({ updated: 0, skipped, skippedReason: "Já estavam nesse status" });
+  }
+
+  // Ganho em massa: cada negócio precisa do próprio cadastro completo (dados e
+  // documentos são de cada cliente). Os incompletos ficam de fora e voltam no
+  // aviso; Dono/Administrativo pode dispensar com motivo.
+  let blockedByRegistration = 0;
+  let waivedReason: string | null = null;
+  if (status === "WON") {
+    const membership = await getCurrentMembership();
+    const reason = typeof body.skipRegistrationReason === "string" ? body.skipRegistrationReason.trim() : "";
+    const ready: typeof changed = [];
+    for (const d of changed) {
+      const gate = await evaluateWonGate({
+        organizationId,
+        dealId: d.id,
+        administratorId: wonAdministratorId ?? d.administratorId,
+        canBypass: !!membership && canWaiveRegistration(membership),
+        bypassReason: reason,
+      });
+      if (gate.ok) {
+        ready.push(d);
+        if (gate.waived) waivedReason = reason;
+      } else if (reason && gate.missing.length === 0) {
+        return NextResponse.json({ error: gate.message }, { status: 403 });
+      } else {
+        blockedByRegistration++;
+      }
+    }
+    changed = ready;
+    if (changed.length === 0) {
+      return NextResponse.json({
+        updated: 0,
+        skipped: skipped + blockedByRegistration,
+        skippedReason: "Falta o cadastro do cliente (dados e documentos). Abra cada negócio para completar, ou peça ao administrativo.",
+      });
+    }
+    skipped += blockedByRegistration;
   }
 
   const changedIds = changed.map((d) => d.id);
@@ -435,7 +478,44 @@ async function bulkStatus({ body, scopedWhere, organizationId, userId }: Ctx) {
     after(() => syncCommissionSalesInBackground(organizationId, changedIds));
   }
 
-  return NextResponse.json({ updated: changed.length, skipped, skippedReason: skipped > 0 ? "Já estavam nesse status" : null, undo });
+  if (status === "WON") {
+    after(() =>
+      runWithTenant(organizationId, async () => {
+        for (const dealId of changedIds) {
+          try {
+            if (!(await prisma.consortiumAdministrator.count({ where: { organizationId, active: true } }))) return;
+            await markRegistrationWon({ organizationId, dealId, userId, waivedReason });
+            if (waivedReason) {
+              await logAudit({
+                organizationId,
+                actorUserId: userId,
+                actorName: "Ganho em massa",
+                action: "DEAL_REGISTRATION_WAIVED",
+                targetType: "Deal",
+                targetId: dealId,
+                detail: waivedReason,
+              });
+            }
+            await notifyAdministrativeQuotaRegistration(organizationId, dealId);
+          } catch (err) {
+            console.error("[deal-registration] falha ao concluir o cadastro do Ganho em massa", err);
+          }
+        }
+      }),
+    );
+  }
+
+  return NextResponse.json({
+    updated: changed.length,
+    skipped,
+    skippedReason:
+      blockedByRegistration > 0
+        ? `${blockedByRegistration} sem o cadastro do cliente completo — abra o negócio para completar`
+        : skipped > 0
+          ? "Já estavam nesse status"
+          : null,
+    undo,
+  });
 }
 
 /** Trocar responsável — sincroniza Contact.responsavelId junto, igual ao PUT individual. */

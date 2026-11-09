@@ -422,3 +422,71 @@ export async function deleteTvAdByUrl(url: string, organizationId: string): Prom
   const key = url.slice(`${TV_ADS_PUBLIC_URL}/`.length);
   await client.send(new DeleteObjectCommand({ Bucket: TV_ADS_BUCKET, Key: key }));
 }
+
+// ─── Documentos do cadastro do cliente (CNH/RG, contrato social) ────────────
+
+// Dados sensíveis (LGPD): bucket PRIVADO, chave imprevisível por organização e
+// SEM URL assinada — o download passa por app/api/deals/[id]/registration/documents,
+// que confere quem pode ver antes de entregar o arquivo.
+const REGISTRATION_DOC_PREFIX = "deal-registration/";
+const REGISTRATION_DOC_MAX_SIZE = 10 * 1024 * 1024;
+const REGISTRATION_DOC_TYPES: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+  "application/pdf": "pdf",
+};
+
+export class RegistrationDocUploadError extends Error {}
+
+export function assertValidRegistrationDoc(contentType: string, size: number, buffer: Buffer) {
+  if (!(contentType in REGISTRATION_DOC_TYPES)) {
+    throw new RegistrationDocUploadError("Formato inválido. Envie uma foto (JPG, PNG, WebP) ou um PDF.");
+  }
+  if (size > REGISTRATION_DOC_MAX_SIZE) throw new RegistrationDocUploadError("Arquivo maior que 10MB.");
+  if (size === 0) throw new RegistrationDocUploadError("Arquivo vazio.");
+  if (!matchesFileSignature(buffer, contentType)) {
+    throw new RegistrationDocUploadError("O conteúdo do arquivo não corresponde ao formato declarado.");
+  }
+}
+
+/** Foto: corrige a rotação do celular, tira o EXIF (inclui GPS) e reduz o tamanho. PDF passa intacto. */
+export async function prepareRegistrationDoc(buffer: Buffer, contentType: string): Promise<Buffer> {
+  if (contentType === "application/pdf") return buffer;
+  const resized = sharp(buffer).rotate().resize({ width: 2400, height: 2400, fit: "inside", withoutEnlargement: true });
+  if (contentType === "image/png") return resized.png({ compressionLevel: 8 }).toBuffer();
+  if (contentType === "image/webp") return resized.webp({ quality: 88 }).toBuffer();
+  return resized.jpeg({ quality: 88, mozjpeg: true }).toBuffer();
+}
+
+export function buildRegistrationDocKey(organizationId: string, contentType: string) {
+  const ext = REGISTRATION_DOC_TYPES[contentType] ?? "bin";
+  const random = crypto.randomBytes(16).toString("hex");
+  return `${REGISTRATION_DOC_PREFIX}${organizationId}/${random}.${ext}`;
+}
+
+/** A chave é desta organização (nunca entrega arquivo de outra, mesmo com o id certo). */
+export function isRegistrationDocKey(key: string, organizationId: string): boolean {
+  return key.startsWith(`${REGISTRATION_DOC_PREFIX}${organizationId}/`) && !key.includes("..");
+}
+
+export async function uploadRegistrationDoc(key: string, body: Buffer, contentType: string) {
+  await client.send(new PutObjectCommand({ Bucket: BUCKET_NAME, Key: key, Body: body, ContentType: contentType }));
+}
+
+export async function deleteRegistrationDoc(key: string) {
+  if (!key.startsWith(REGISTRATION_DOC_PREFIX)) return;
+  await client.send(new DeleteObjectCommand({ Bucket: BUCKET_NAME, Key: key }));
+}
+
+export async function getRegistrationDocObject(key: string): Promise<{ body: Uint8Array; contentType: string } | null> {
+  if (!key.startsWith(REGISTRATION_DOC_PREFIX)) return null;
+  try {
+    const res = await client.send(new GetObjectCommand({ Bucket: BUCKET_NAME, Key: key }));
+    const body = await res.Body?.transformToByteArray();
+    if (!body) return null;
+    return { body, contentType: res.ContentType ?? "application/octet-stream" };
+  } catch {
+    return null;
+  }
+}

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Mail, ChevronRight } from "lucide-react";
+import { Mail, ChevronRight, DatabaseBackup } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requireProcessAccess } from "@/lib/processes/access";
@@ -257,6 +257,13 @@ export default async function ConfiguracoesPage() {
                 keywords: ["log", "histórico", "segurança", "quem fez", "auditoria"],
               },
               {
+                href: "/configuracoes/backups",
+                icon: "DatabaseBackup",
+                title: "Backup de mensagens",
+                description: "Histórico de WhatsApp de cada consultor guardado na nuvem — leia e exporte em Excel, CSV ou texto.",
+                keywords: ["backup", "mensagens", "whatsapp", "histórico", "conversas", "exportar", "consultor", "nuvem", "baixar", "desativado"],
+              },
+              {
                 href: "/configuracoes/uso",
                 icon: "BarChart3",
                 title: "Uso do CRM",
@@ -295,6 +302,28 @@ export default async function ConfiguracoesPage() {
           Ajuste o {organization?.name ?? "CRM"} ao jeito do seu time
         </p>
       </div>
+
+      {/* Atalho direto (só Dono): o backup de mensagens também está em Segurança, mas é o que mais se procura. */}
+      {isOwner && (
+        <Link
+          href="/configuracoes/backups"
+          className="card group flex items-center gap-4 p-4 transition-shadow hover:shadow-md"
+        >
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-brand shadow-sm shadow-brand/30">
+            <DatabaseBackup className="h-5 w-5 text-white" strokeWidth={2} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">Backup de mensagens</p>
+            <p className="truncate text-sm text-neutral-500 dark:text-neutral-400">
+              Veja e exporte o histórico de WhatsApp de cada consultor, inclusive de quem já saiu.
+            </p>
+          </div>
+          <ChevronRight
+            className="h-5 w-5 shrink-0 text-neutral-300 transition-transform group-hover:translate-x-0.5 group-hover:text-brand dark:text-neutral-600"
+            strokeWidth={2}
+          />
+        </Link>
+      )}
 
       <ConfigSearch sections={sections} />
 

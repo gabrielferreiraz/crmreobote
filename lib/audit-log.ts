@@ -80,6 +80,13 @@ export type AuditAction =
   | "SHEET_DELETED"
   | "SHEET_IMPORTED"
   | "SHEET_EXPORTED"
+  // Cadastro do cliente no Ganho: documentos e dados bancários são sensíveis (LGPD) — quem baixou e quem dispensou o formulário fica registrado.
+  | "DEAL_REGISTRATION_WAIVED"
+  | "DEAL_REGISTRATION_DOC_DOWNLOADED"
+  | "DEAL_REGISTRATION_DOC_DELETED"
+  | "DEAL_REGISTRATION_DOCS_PURGED"
+  // Histórico de WhatsApp de um consultor baixado pelo Dono (conversa privada de outra pessoa saindo do CRM).
+  | "WHATSAPP_BACKUP_EXPORTED"
   // Campanha sazonal "Lista dos 50" (Novembro Black) ligada/desligada pelo Dono.
   | "LISTA_50_CAMPAIGN_CHANGED"
   // Transferência explícita de responsável de contato via API externa

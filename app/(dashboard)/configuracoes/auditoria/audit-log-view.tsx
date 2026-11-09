@@ -57,6 +57,11 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   SHEET_DELETED: "Planilha apagada permanentemente",
   SHEET_IMPORTED: "Dados importados para planilha",
   SHEET_EXPORTED: "Planilha exportada",
+  DEAL_REGISTRATION_WAIVED: "Ganho sem o cadastro do cliente",
+  DEAL_REGISTRATION_DOC_DOWNLOADED: "Documento do cliente baixado",
+  DEAL_REGISTRATION_DOC_DELETED: "Documento do cliente apagado",
+  DEAL_REGISTRATION_DOCS_PURGED: "Documentos do cliente apagados (prazo de 7 dias)",
+  WHATSAPP_BACKUP_EXPORTED: "Backup de mensagens exportado",
   CAMPAIGN_QUEUE_REORDERED: "Fila de disparo reordenada",
   CAMPAIGN_RECIPIENT_REMOVED: "Contato removido da fila",
   CAMPAIGN_AUTO_PAUSED: "Campanha pausada automaticamente",
@@ -120,6 +125,11 @@ const ACTION_TONE: Record<AuditAction, "neutral" | "success" | "danger" | "warni
   SHEET_DELETED: "danger",
   SHEET_IMPORTED: "neutral",
   SHEET_EXPORTED: "warning", // dados saindo do CRM em massa
+  DEAL_REGISTRATION_WAIVED: "warning",
+  DEAL_REGISTRATION_DOC_DOWNLOADED: "neutral",
+  DEAL_REGISTRATION_DOC_DELETED: "warning",
+  DEAL_REGISTRATION_DOCS_PURGED: "neutral",
+  WHATSAPP_BACKUP_EXPORTED: "warning", // conversa privada saindo do CRM
   CAMPAIGN_QUEUE_REORDERED: "warning", // muda QUEM é contatado primeiro — vale destacar
   CAMPAIGN_RECIPIENT_REMOVED: "warning",
   CAMPAIGN_AUTO_PAUSED: "warning", // a campanha parou sem ninguém mandar — é o que se procura quando "parou sozinha"

@@ -21,6 +21,7 @@ import { ExecutiveMobileNav } from "./executive-mobile-nav";
 import { ExecutivePeriodFilter } from "./executive-period-filter";
 import { ExecutiveRankingTable } from "./executive-ranking-table";
 import { ExecutiveSalesChart } from "./executive-sales-chart";
+import { ExecutiveTeamRanking } from "./executive-team-ranking";
 
 export function ExecutiveReportView({ data, exactValues }: { data: ExecutiveReportData; exactValues: boolean }) {
   const period = `jan–${data.throughMonthLabel}/${String(data.reportYear).slice(-2)}`;
@@ -28,7 +29,6 @@ export function ExecutiveReportView({ data, exactValues }: { data: ExecutiveRepo
   const yearDirection = describeChange(data.yearToDate.changePct);
   const money = (value: number) => formatExecutiveCurrency(value, exactValues);
   const topNames = data.topTwo.names.join(" e ");
-  const maxTeamTotal = Math.max(1, ...data.teams.map((team) => team.total));
   const targetProgress = data.annualScenario.monthlyRequired > 0
     ? (data.annualScenario.currentMonthlyPace / data.annualScenario.monthlyRequired) * 100
     : 0;
@@ -156,63 +156,7 @@ export function ExecutiveReportView({ data, exactValues }: { data: ExecutiveRepo
               Nenhuma equipe teve venda com valor informado nesses três meses.
             </p>
           ) : (
-            <>
-              <div className="mt-5 divide-y divide-neutral-200 lg:hidden dark:divide-neutral-800">
-                {data.teams.map((team) => (
-                  <article key={team.name} className="py-4 first:pt-0 last:pb-0">
-                    <div className="flex items-baseline justify-between gap-3">
-                      <h3 className="min-w-0 truncate text-lg font-semibold text-neutral-900 dark:text-neutral-100">{team.name}</h3>
-                      <span className="shrink-0 text-lg font-semibold tabular-nums text-neutral-950 dark:text-white">{money(team.total)}</span>
-                    </div>
-                    <div className="mt-3 grid grid-cols-3 gap-3">
-                      {team.values.map((value, index) => (
-                        <div key={data.teamMonths[index] ? `${data.teamMonths[index].year}-${data.teamMonths[index].month}` : index}>
-                          <p className="text-sm capitalize text-neutral-400 dark:text-neutral-500">{data.teamMonths[index]?.label}</p>
-                          <p className="mt-0.5 text-base font-medium tabular-nums text-neutral-700 dark:text-neutral-300">{money(value)}</p>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
-                      <div className="h-full rounded-full bg-violet-500" style={{ width: `${Math.max(4, (team.total / maxTeamTotal) * 100)}%` }} />
-                    </div>
-                  </article>
-                ))}
-              </div>
-              <div className="mt-5 hidden overflow-x-auto lg:block">
-                <table className="w-full min-w-[520px] text-base">
-              <thead>
-                <tr className="border-b border-neutral-200 text-left text-sm text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
-                  <th className="pb-2 font-medium">Equipe</th>
-                  {data.teamMonths.map((month) => (
-                    <th key={`${month.year}-${month.month}`} className="pb-2 text-right font-medium capitalize">{month.label}</th>
-                  ))}
-                  <th className="pb-2 text-right font-medium">Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.teams.map((team) => (
-                  <tr key={team.name} className="group border-b border-neutral-100 transition-colors hover:bg-violet-50/50 last:border-0 dark:border-neutral-900 dark:hover:bg-violet-950/15">
-                    <td className="py-3 font-medium text-neutral-900 dark:text-neutral-100">{team.name}</td>
-                    {team.values.map((value, index) => (
-                      <td key={index} className="py-3 text-right tabular-nums text-neutral-600 dark:text-neutral-300">{money(value)}</td>
-                    ))}
-                    <td className="py-3 text-right">
-                      <div className="ml-auto w-28">
-                        <span className="font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">{money(team.total)}</span>
-                        <span className="mt-1 block h-1 overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
-                          <span
-                            className="block h-full rounded-full bg-violet-500 transition-[width] duration-500"
-                            style={{ width: `${Math.max(4, (team.total / maxTeamTotal) * 100)}%` }}
-                          />
-                        </span>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-                </table>
-              </div>
-            </>
+            <ExecutiveTeamRanking teams={data.teams} months={data.teamMonths} exactValues={exactValues} />
           )}
         </div>
 

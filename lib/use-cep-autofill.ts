@@ -16,7 +16,18 @@ type CepAutofillFields = {
   onAutofilled?: (fields: Array<"zipCode" | "address" | "neighborhood" | "city" | "state">) => void;
 };
 
-export function useCepAutofill(zipCode: string, fields: CepAutofillFields) {
+type CepAutofillOptions = {
+  /**
+   * true = um CEP novo SEMPRE atualiza rua, bairro, cidade e UF (mesmo já preenchidos).
+   * Padrão (false) só preenche o que está vazio — o comportamento das telas de cadastro de cliente.
+   */
+  overwrite?: boolean;
+  /** CEP que já veio salvo do servidor: não busca de novo para não trocar um endereço que a pessoa já conferiu. */
+  skipDigits?: string;
+};
+
+export function useCepAutofill(zipCode: string, fields: CepAutofillFields, options: CepAutofillOptions = {}) {
+  const { overwrite = false, skipDigits } = options;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const lastFetchedCep = useRef<string | null>(null);
@@ -24,9 +35,15 @@ export function useCepAutofill(zipCode: string, fields: CepAutofillFields) {
   useEffect(() => {
     const digits = onlyCepDigits(zipCode);
     if (digits.length !== 8) {
+      // CEP apagado ou incompleto: digitar o mesmo CEP de novo volta a buscar o endereço.
+      lastFetchedCep.current = null;
       return;
     }
     if (lastFetchedCep.current === digits) return;
+    if (skipDigits && skipDigits === digits && lastFetchedCep.current === null) {
+      lastFetchedCep.current = digits;
+      return;
+    }
 
     const controller = new AbortController();
     const timer = setTimeout(async () => {
@@ -46,26 +63,31 @@ export function useCepAutofill(zipCode: string, fields: CepAutofillFields) {
         const filled: Array<"zipCode" | "address" | "neighborhood" | "city" | "state"> = ["zipCode"];
         fields.setZipCode(data.zipCode ?? formatCep(digits));
 
-        if (data.address && !fields.address.trim()) {
+        if (data.address && (overwrite || !fields.address.trim())) {
           fields.setAddress(data.address);
           filled.push("address");
         }
-        if (data.neighborhood && !fields.neighborhood.trim()) {
+        if (data.neighborhood && (overwrite || !fields.neighborhood.trim())) {
           fields.setNeighborhood(data.neighborhood);
           filled.push("neighborhood");
         }
-        if (data.city && !fields.city.trim()) {
+        if (data.city && (overwrite || !fields.city.trim())) {
           fields.setCity(data.city);
           filled.push("city");
         }
-        if (data.state && !fields.state.trim()) {
+        if (data.state && (overwrite || !fields.state.trim())) {
           fields.setState(data.state);
           filled.push("state");
         }
 
         fields.onAutofilled?.(filled);
       } catch (err) {
-        if ((err as DOMException).name !== "AbortError") setError("Falha ao consultar o CEP.");
+        if ((err as DOMException).name === "AbortError") {
+          // Interrompida por outra digitação antes de terminar: libera para buscar de novo.
+          if (lastFetchedCep.current === digits) lastFetchedCep.current = null;
+        } else {
+          setError("Falha ao consultar o CEP.");
+        }
       } finally {
         if (!controller.signal.aborted) setLoading(false);
       }
@@ -75,7 +97,7 @@ export function useCepAutofill(zipCode: string, fields: CepAutofillFields) {
       controller.abort();
       clearTimeout(timer);
     };
-  }, [zipCode, fields]);
+  }, [zipCode, fields, overwrite, skipDigits]);
 
   const hasCompleteCep = onlyCepDigits(zipCode).length === 8;
   return { loading: hasCompleteCep && loading, error: hasCompleteCep ? error : null };

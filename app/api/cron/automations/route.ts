@@ -9,6 +9,7 @@ import { isAuthorizedCronRequest } from "@/lib/cron-auth";
 import { acquireCronLock } from "@/lib/cron-lock";
 import { recordCronRun, runLockedCron } from "@/lib/cron-run";
 import { scheduleServopaMonthlySync } from "@/lib/servopa-tables/scheduler";
+import { purgeExpiredRegistrationDocuments } from "@/lib/deal-registration/purge";
 
 export const dynamic = "force-dynamic";
 
@@ -42,7 +43,7 @@ const CRON_NAME = "automations";
 // tick de automations (por isso o .catch em cada um, não deixado estourar
 // pro Promise.all inteiro).
 async function runCronTick() {
-  const [automations, scheduledMessages, meetingReminders, selfReminders, academyCleanup, servopaTables, campaignsBackstop, webhooksBackstop] =
+  const [automations, scheduledMessages, meetingReminders, selfReminders, academyCleanup, servopaTables, registrationDocs, campaignsBackstop, webhooksBackstop] =
     await Promise.all([
       runAutomations(),
       sendDueScheduledTaskMessages(),
@@ -58,6 +59,12 @@ async function runCronTick() {
         console.error("[cron:automations] agendamento das tabelas Servopa falhou", err);
         return { due: false, scheduleFailed: true };
       }),
+      // Retenção de 7 dias dos documentos do cadastro do cliente (LGPD). Uma falha aqui nunca derruba o tick.
+      // Só na primeira janela de cada hora: o tick roda a cada 1-2 min e a varredura é desnecessária fora disso.
+      (new Date().getMinutes() < 3 ? purgeExpiredRegistrationDocuments() : Promise.resolve({ deleted: 0, failed: 0, skipped: true })).catch((err) => {
+        console.error("[cron:automations] limpeza dos documentos do cadastro falhou", err);
+        return { deleted: 0, failed: 0, purgeFailed: true };
+      }),
       runLockedCron("campaigns", runCampaigns).catch((err) => {
         console.error("[cron:automations] backstop de campaigns falhou", err);
         return { backstopFailed: true };
@@ -67,7 +74,7 @@ async function runCronTick() {
         return { backstopFailed: true };
       }),
     ]);
-  return { automations, scheduledMessages, meetingReminders, selfReminders, academyCleanup, servopaTables, campaignsBackstop, webhooksBackstop };
+  return { automations, scheduledMessages, meetingReminders, selfReminders, academyCleanup, servopaTables, registrationDocs, campaignsBackstop, webhooksBackstop };
 }
 
 async function handleCron() {

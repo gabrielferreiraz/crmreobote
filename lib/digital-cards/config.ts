@@ -19,7 +19,7 @@
  * resolveAvatarUrl (isto já é a URL pública final, não uma chave do bucket
  * privado do R2).
  */
-export const DEFAULT_COVER_PHOTO_URL: string | null = "/card-defaults/cover.png";
+export const DEFAULT_COVER_PHOTO_URL: string | null = "/card-defaults/cover.webp";
 
 /**
  * Fundo do CORPO INTEIRO do cartão (atrás dos botões/ícones/rodapé) —

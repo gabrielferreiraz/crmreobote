@@ -19,6 +19,8 @@ export type AdministratorForm = {
   graceMonths: number;
   cutoffDay: number | null;
   paysSellerDirectly: boolean;
+  /** O cadastro do cliente no Ganho também pede dados bancários (ex.: Pontual). */
+  requiresBankData: boolean;
   unpaidPolicy: UnpaidPolicy;
   /** Sempre com a padrão (creditType null) + as de cada categoria que paga diferente. */
   tables: CommissionTableLike[];
@@ -30,6 +32,7 @@ export const EMPTY_ADMINISTRATOR: AdministratorForm = {
   graceMonths: 1,
   cutoffDay: null,
   paysSellerDirectly: false,
+  requiresBankData: false,
   // O mais comum (explicado pelo Financeiro): o consultor recebe todas as parcelas, no ritmo em que o cliente paga.
   unpaidPolicy: "DEFER",
   tables: [],
@@ -147,6 +150,7 @@ export function AdministratorDialog({
           graceMonths: form.graceMonths,
           cutoffDay: hasCutoff ? cutoffDay : null,
           paysSellerDirectly: form.paysSellerDirectly,
+          requiresBankData: form.requiresBankData,
           unpaidPolicy: form.unpaidPolicy,
           tables: [draftToTable(defaultDraft), ...ownCategories.map(([, d]) => draftToTable(d))],
         },
@@ -357,6 +361,17 @@ export function AdministratorDialog({
             options={[
               { value: "company", label: "A empresa" },
               { value: "adm", label: "A administradora" },
+            ]}
+          />
+        </Question>
+
+        <Question title="No Ganho, pedir dados bancários do cliente?">
+          <Choices
+            value={form.requiresBankData ? "yes" : "no"}
+            onChange={(v) => setForm((f) => ({ ...f, requiresBankData: v === "yes" }))}
+            options={[
+              { value: "no", label: "Não" },
+              { value: "yes", label: "Sim (banco, agência e conta)" },
             ]}
           />
         </Question>

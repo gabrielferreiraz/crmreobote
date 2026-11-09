@@ -26,6 +26,7 @@ export type AdministratorInput = {
   graceMonths?: number;
   cutoffDay?: number | null;
   paysSellerDirectly?: boolean;
+  requiresBankData?: boolean;
   unpaidPolicy?: UnpaidPolicy;
   /** Quando vem, SUBSTITUI todas as tabelas da administradora (sempre com uma padrão). */
   tables?: CommissionTableInput[];
@@ -133,6 +134,10 @@ export function parseAdministratorInput(body: Record<string, unknown>, opts: { p
   if (body.paysSellerDirectly !== undefined) {
     if (typeof body.paysSellerDirectly !== "boolean") return { ok: false, error: "Opção inválida" };
     data.paysSellerDirectly = body.paysSellerDirectly;
+  }
+  if (body.requiresBankData !== undefined) {
+    if (typeof body.requiresBankData !== "boolean") return { ok: false, error: "Opção inválida" };
+    data.requiresBankData = body.requiresBankData;
   }
   if (body.unpaidPolicy !== undefined) {
     if (!UNPAID_POLICIES.includes(body.unpaidPolicy as UnpaidPolicy)) return { ok: false, error: "Opção inválida para cliente que não pagou" };

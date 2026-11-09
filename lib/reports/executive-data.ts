@@ -10,6 +10,8 @@ const ANNUAL_SCENARIO = 1_000_000_000;
 type YearMonth = { year: number; month: number };
 type PersonMonthStats = { valueCents: number; sales: number; valuedSales: number };
 type PersonPeriodStats = PersonMonthStats & { months: Set<string> };
+type TeamMemberPeriodStats = { name: string; valuesInCents: number[] };
+type TeamPeriodStats = { valuesInCents: number[]; members: Map<string, TeamMemberPeriodStats> };
 
 export type ExecutiveRankingRow = {
   id: string;
@@ -56,7 +58,12 @@ export type ExecutiveReportData = {
   yearlySeries: { year: number; values: Array<number | null> }[];
   productivity: { month: number; label: string; sellers: number; average: number }[];
   teamMonths: { year: number; month: number; label: string }[];
-  teams: { name: string; values: number[]; total: number }[];
+  teams: {
+    name: string;
+    values: number[];
+    total: number;
+    members: { id: string; name: string; values: number[]; total: number }[];
+  }[];
   ranking: ExecutiveRankingRow[];
   comparisonRanking: ExecutiveComparisonRankingRow[];
   annualScenario: {
@@ -335,21 +342,43 @@ export async function getExecutiveReportData(
     const teamMonths = Array.from({ length: 3 }, (_, index) => addMonths({ year: reportYear, month: throughMonth - 2 }, index)).map(
       ({ year, month }) => ({ year, month, label: EXECUTIVE_MONTHS_SHORT[month] }),
     );
-    const teamMap = new Map<string, number[]>();
+    const teamMap = new Map<string, TeamPeriodStats>();
     teamMonths.forEach(({ year, month }, index) => {
       for (const [userId, result] of peopleByMonth.get(keyOf({ year, month })) ?? []) {
         const team = membershipByUser.get(userId)?.team ?? "Sem equipe";
-        const values = teamMap.get(team) ?? [0, 0, 0];
-        values[index] += result.valueCents;
-        teamMap.set(team, values);
+        const teamStats = teamMap.get(team) ?? { valuesInCents: [0, 0, 0], members: new Map() };
+        teamStats.valuesInCents[index] += result.valueCents;
+
+        const member = teamStats.members.get(userId) ?? {
+          name: personNames.get(userId) ?? membershipByUser.get(userId)?.name ?? "Sem nome",
+          valuesInCents: [0, 0, 0],
+        };
+        member.valuesInCents[index] += result.valueCents;
+        teamStats.members.set(userId, member);
+        teamMap.set(team, teamStats);
       }
     });
     const teams = Array.from(teamMap.entries())
-      .map(([name, valuesInCents]) => ({
-        name,
-        values: valuesInCents.map(centsToValue),
-        total: centsToValue(valuesInCents.reduce((sum, value) => sum + value, 0)),
-      }))
+      .map(([name, team]) => {
+        const members = Array.from(team.members.entries())
+          .map(([id, member]) => {
+            const totalInCents = member.valuesInCents.reduce((sum, value) => sum + value, 0);
+            return {
+              id,
+              name: member.name,
+              values: member.valuesInCents.map(centsToValue),
+              total: centsToValue(totalInCents),
+            };
+          })
+          .filter((member) => member.total > 0)
+          .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name, "pt-BR"));
+        return {
+          name,
+          values: team.valuesInCents.map(centsToValue),
+          total: centsToValue(team.valuesInCents.reduce((sum, value) => sum + value, 0)),
+          members,
+        };
+      })
       .filter((team) => team.total > 0)
       .sort((a, b) => b.total - a.total);
 

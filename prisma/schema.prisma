@@ -155,6 +155,8 @@ model Organization {
   academyAccessTokens    AcademyAccessToken[]
   academyRefreshTokens   AcademyRefreshToken[]
   consortiumAdministrators ConsortiumAdministrator[]
+  dealRegistrations      DealRegistration[]
+  dealRegistrationDocuments DealRegistrationDocument[]
   commissionRules        CommissionRule[]
   commissionSales        CommissionSale[]
   commissionEntries      CommissionEntry[]
@@ -1987,6 +1989,8 @@ model Deal {
   // lib/processes/create.ts, chamado em PUT /api/deals/[id] na transição pra
   // WON) — nunca mais de um por negócio.
   process            Process?
+  // Cadastro do cliente exigido pela administradora antes do Ganho (ver DealRegistration).
+  registration       DealRegistration?
 
   @@index([organizationId, pipelineId, stageId])
   @@index([organizationId, status])
@@ -2114,6 +2118,8 @@ model ConsortiumAdministrator {
   // vendedor aparece pra ele normalmente, mas fica fora do "a pagar" da
   // empresa (não é dinheiro que sai do caixa da corretora).
   paysSellerDirectly Boolean @default(false)
+  // Cadastro do cliente no Ganho: esta administradora também pede dados bancários (ex.: Pontual, na análise).
+  requiresBankData Boolean @default(false)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -4365,4 +4371,83 @@ model SheetActivity {
 
   @@index([sheetId, createdAt])
   @@index([rowId, createdAt])
+}
+
+// ─── Cadastro do cliente para o Ganho ────────────────────────────────
+
+enum DealRegistrationPersonType {
+  PF
+  PJ
+}
+
+enum DealRegistrationDocKind {
+  PHOTO_ID
+  SOCIAL_CONTRACT
+  OTHER
+}
+
+// O que a administradora exige para cadastrar a cota (dados + documentos),
+// preenchido pelo consultor ANTES de marcar o negócio como Ganho. Endereço,
+// e-mail e celular continuam no Contact (fonte única); aqui ficam só os dados
+// que não existem na ficha do cliente. Um por negócio. Pode ficar em
+// rascunho (completedAt null) até o Ganho; waivedReason = Dono/Administrativo
+// marcou o Ganho sem o formulário (motivo obrigatório).
+model DealRegistration {
+  id             String @id @default(cuid())
+  organizationId String
+  dealId         String @unique
+
+  personType     DealRegistrationPersonType @default(PF)
+  cpf            String?
+  cnpj           String?
+  profession     String?
+  maritalStatus  String?
+  monthlyIncome  Decimal? @db.Decimal(12, 2)
+  groupNumber    String?
+  termMonths     Int?
+  paymentMethod  String?
+
+  bankName        String?
+  bankAgency      String?
+  bankAccount     String?
+  bankAccountType String?
+
+  completedAt    DateTime?
+  completedById  String?
+  waivedReason   String?
+  waivedAt       DateTime?
+  waivedById     String?
+  // O administrativo marcou que a cota já foi cadastrada na administradora.
+  quotaRegisteredAt DateTime?
+  quotaRegisteredById String?
+  // Os documentos pessoais foram apagados do R2 (retenção de 7 dias após o Ganho, LGPD). Quem lê trata como "documentos já entregues".
+  documentsPurgedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  deal         Deal         @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  documents    DealRegistrationDocument[]
+
+  @@index([organizationId, completedAt])
+}
+
+model DealRegistrationDocument {
+  id             String @id @default(cuid())
+  organizationId String
+  registrationId String
+  kind           DealRegistrationDocKind
+  fileName       String
+  contentType    String
+  size           Int
+  // Chave no R2 (bucket privado); nunca exposta — o download passa por rota com checagem de permissão.
+  storageKey     String
+  uploadedById   String?
+  createdAt      DateTime @default(now())
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  registration DealRegistration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+
+  @@index([registrationId])
 }

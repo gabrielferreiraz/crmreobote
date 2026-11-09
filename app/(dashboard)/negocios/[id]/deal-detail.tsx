@@ -33,6 +33,7 @@ import { LossReasonDialog, type LossReasonOption } from "@/components/loss-reaso
 import { useUndoToast } from "@/components/undo-provider";
 import { requestJson } from "@/lib/client-request";
 import { ProposalsCard } from "@/components/proposals/proposals-card";
+import { RegistrationSummary } from "@/components/deal-registration/registration-summary";
 import type { ProposalDTO } from "@/lib/proposals/types";
 import { trackUse } from "@/lib/feature-usage/track";
 import { CompleteRequiredFieldsDialog, type RequirableFieldValues } from "@/components/complete-required-fields-dialog";
@@ -784,7 +785,7 @@ export function DealDetail({
     if (res.ok) pushUndoToast(res.data?.undo);
   }
 
-  async function confirmWon(closedAt: string, extra: { administratorId: string | null; creditType: string | null }) {
+  async function confirmWon(closedAt: string, extra: { administratorId: string | null; creditType: string | null; skipRegistrationReason?: string }) {
     const wasWon = deal.status === "WON";
     const res = await requestJson(
       `/api/deals/${deal.id}`,
@@ -795,6 +796,7 @@ export function DealDetail({
           closedAt,
           ...(extra.administratorId ? { administratorId: extra.administratorId } : {}),
           ...(extra.creditType ? { creditType: extra.creditType } : {}),
+          ...(extra.skipRegistrationReason ? { skipRegistrationReason: extra.skipRegistrationReason } : {}),
         },
       },
       { silent: true, errorMessage: "Não foi possível marcar o negócio como ganho" },
@@ -1425,6 +1427,8 @@ export function DealDetail({
           </Link>
         </div>
       </section>
+
+      {deal.status === "WON" && <RegistrationSummary dealId={deal.id} />}
 
       <div className="hidden">
         {/* Nome do Negócio & Valor */}
@@ -2739,6 +2743,7 @@ export function DealDetail({
           initialAdministratorId={deal.administratorId ?? null}
           initialCreditType={deal.creditType ?? null}
           previewDealId={deal.id}
+          registrationDealId={deal.id}
         />
       )}
 

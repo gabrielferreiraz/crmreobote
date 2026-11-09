@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Loader2 } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { ArrowLeft, Loader2 } from "lucide-react";
 import { Modal } from "./modal";
 import { LoadingDots } from "./loading-dots";
 import { DatePicker } from "./date-picker";
@@ -10,6 +10,7 @@ import { brazilDateKey } from "@/lib/timezone";
 import { getServerTodayKey } from "@/app/actions/date-actions";
 import { formatCurrency } from "@/lib/format";
 import { formatMonthLong } from "@/lib/commissions/engine";
+import { RegistrationForm, type RegistrationApi, type RegistrationStatus } from "@/components/deal-registration/registration-form";
 
 type CommissionPreview =
   | { status: "inactive" }
@@ -62,17 +63,23 @@ export function ClosedAtDialog({
   initialAdministratorId = null,
   initialCreditType = null,
   previewDealId,
+  registrationDealId,
 }: {
   title: string;
   confirmLabel: string;
   confirmClassName: string;
   onClose: () => void;
-  onConfirm: (closedAt: string, extra: { administratorId: string | null; creditType: string | null }) => Promise<void>;
+  onConfirm: (
+    closedAt: string,
+    extra: { administratorId: string | null; creditType: string | null; skipRegistrationReason?: string },
+  ) => Promise<void>;
   askAdministrator?: boolean;
   initialAdministratorId?: string | null;
   /** Categoria (Imóvel, Automóvel…) que o negócio já tem — pré-seleciona. */
   initialCreditType?: string | null;
   previewDealId?: string;
+  /** Ganho de UM negócio: pede também o cadastro do cliente (dados + documentos da administradora) antes de concluir. */
+  registrationDealId?: string;
 }) {
   // Fallback local enquanto a server action não respondeu — evita campo vazio
   // piscando, mas não permite confirmar com esse valor (ready=false).
@@ -126,6 +133,14 @@ export function ClosedAtDialog({
   }, [askAdministrator]);
 
   const needsAdministrator = administrators.length > 0;
+  // Com cadastro (Ganho de UM negócio): a janela vira dois passos — 1) a venda, 2) o cadastro do cliente.
+  const registrationEnabled = !!registrationDealId && needsAdministrator;
+  const [step, setStep] = useState<"sale" | "registration">("sale");
+  const inRegistration = registrationEnabled && step === "registration" && !!administratorId;
+  const [regStatus, setRegStatus] = useState<RegistrationStatus>({ loading: true, ready: false, summary: "", canBypass: false, done: 0, total: 0 });
+  const regApi = useRef<RegistrationApi | null>(null);
+  const [showErrors, setShowErrors] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const needsCreditType = needsAdministrator && creditTypes.length > 0;
 
   const [preview, setPreview] = useState<CommissionPreview | null>(null);
@@ -145,13 +160,91 @@ export function ClosedAtDialog({
     e.preventDefault();
     if (needsAdministrator && !administratorId) return;
     if (needsCreditType && !creditType) return;
+    if (registrationEnabled && step === "sale") {
+      setStep("registration");
+      return;
+    }
+    if (registrationEnabled && !regStatus.ready) {
+      // Em vez de um botão travado sem explicação: mostra o que falta e leva até lá.
+      setShowErrors(true);
+      regApi.current?.focusFirstMissing();
+      return;
+    }
     setLoading(true);
+    setSubmitError(null);
     try {
-      await onConfirm(closedAt, { administratorId: needsAdministrator ? administratorId : null, creditType: needsCreditType ? creditType : null });
+      // Garante que o rascunho do cadastro chegou ao servidor antes do Ganho conferir.
+      if (registrationEnabled && regApi.current && !(await regApi.current.flush())) {
+        setSubmitError("Não foi possível salvar o cadastro. Tente de novo.");
+        return;
+      }
+      await onConfirm(closedAt, {
+        administratorId: needsAdministrator ? administratorId : null,
+        creditType: needsCreditType ? creditType : null,
+      });
     } finally {
       // Mesmo se a confirmação lançar, o botão volta — nunca fica girando pra sempre.
       setLoading(false);
     }
+  }
+
+  const adminName = administrators.find((a) => a.id === administratorId)?.name;
+  const submitLabel = (
+    <>
+      {loading && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
+      {loading ? (
+        <span className="inline-flex items-center gap-1">
+          Salvando
+          <LoadingDots />
+        </span>
+      ) : registrationEnabled && step === "sale" ? (
+        "Continuar"
+      ) : (
+        confirmLabel
+      )}
+    </>
+  );
+
+  if (inRegistration) {
+    return (
+      <Modal onClose={onClose} maxWidth="max-w-2xl">
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <button type="button" onClick={() => setStep("sale")} className="mb-1 inline-flex items-center gap-1 text-xs font-medium text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200">
+              <ArrowLeft className="h-3.5 w-3.5" /> Voltar
+            </button>
+            <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Cadastro do cliente</h2>
+            <p className="text-sm text-neutral-500 dark:text-neutral-400">
+              Dados e documentos que {adminName ? `a ${adminName}` : "a administradora"} pede para cadastrar a cota. Você pode fechar e continuar depois: tudo fica salvo.
+            </p>
+          </div>
+
+          <RegistrationForm
+            dealId={registrationDealId!}
+            administratorId={administratorId}
+            showErrors={showErrors}
+            onStatus={setRegStatus}
+            registerApi={(api) => {
+              regApi.current = api;
+            }}
+          />
+
+          {submitError && <p className="text-sm text-red-600">{submitError}</p>}
+
+          <div className="sticky bottom-0 -mx-5 -mb-5 flex items-center gap-3 border-t border-neutral-200 bg-white px-5 py-3 dark:border-neutral-800 dark:bg-neutral-900">
+            <p className={`mr-auto min-w-0 text-xs ${regStatus.ready ? "text-emerald-600 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}`}>
+              {regStatus.ready ? "Tudo certo para marcar o ganho." : regStatus.summary}
+            </p>
+            <button type="button" onClick={onClose} className="btn-ghost shrink-0">
+              Fechar
+            </button>
+            <button type="submit" disabled={loading || regStatus.loading} className={`${confirmClassName} shrink-0`}>
+              {submitLabel}
+            </button>
+          </div>
+        </form>
+      </Modal>
+    );
   }
 
   return (
@@ -208,6 +301,12 @@ export function ClosedAtDialog({
           </div>
         )}
 
+        {registrationEnabled && (
+          <p className="text-xs text-neutral-500 dark:text-neutral-400">Próximo passo: dados e documentos do cliente.</p>
+        )}
+
+        {submitError && <p className="text-sm text-red-600">{submitError}</p>}
+
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" onClick={onClose} className="btn-ghost">
             Cancelar
@@ -217,15 +316,7 @@ export function ClosedAtDialog({
             disabled={loading || !closedAt || !ready || !administratorsReady || (needsAdministrator && !administratorId) || (needsCreditType && !creditType)}
             className={confirmClassName}
           >
-            {loading && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
-            {loading ? (
-              <span className="inline-flex items-center gap-1">
-                Salvando
-                <LoadingDots />
-              </span>
-            ) : (
-              confirmLabel
-            )}
+            {submitLabel}
           </button>
         </div>
       </form>

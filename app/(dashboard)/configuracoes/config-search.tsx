@@ -30,6 +30,7 @@ import {
   BarChart3,
   FileText,
   ListOrdered,
+  DatabaseBackup,
 } from "lucide-react";
 
 export type ConfigItem = {
@@ -92,6 +93,7 @@ const ICONS: Record<string, IconComponent> = {
   BarChart3,
   FileText,
   ListOrdered,
+  DatabaseBackup,
 };
 const SECTION_FALLBACK_ICON = SlidersHorizontal;
 

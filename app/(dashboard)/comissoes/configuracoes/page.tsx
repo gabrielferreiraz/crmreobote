@@ -66,6 +66,7 @@ export default async function CommissionSettingsPage() {
           graceMonths: a.graceMonths,
           cutoffDay: a.cutoffDay,
           paysSellerDirectly: a.paysSellerDirectly,
+          requiresBankData: a.requiresBankData,
           unpaidPolicy: a.unpaidPolicy,
           tables: a.tables.map((t) => ({
             creditType: t.creditType,
