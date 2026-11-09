@@ -85,11 +85,13 @@ export function ExecutivePeriodFilter({
           <button
             type="button"
             onClick={reset}
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-neutral-500 transition-[color,background-color,transform] hover:bg-neutral-200/70 hover:text-neutral-900 active:scale-95 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
+            className="flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold text-neutral-600 transition-[color,background-color,transform] hover:bg-neutral-200/70 hover:text-neutral-900 active:scale-[0.98] dark:text-neutral-300 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
             aria-label="Usar todo o histórico disponível"
             title="Usar todo o histórico"
           >
             <RotateCcw className="h-4.5 w-4.5" strokeWidth={2} />
+            <span className="sm:hidden">Ver tudo</span>
+            <span className="hidden sm:inline">Todo o histórico</span>
           </button>
         )}
       </div>

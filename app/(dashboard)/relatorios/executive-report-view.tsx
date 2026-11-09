@@ -30,8 +30,9 @@ export function ExecutiveReportView({ data, exactValues }: { data: ExecutiveRepo
   const topNames = data.topTwo.names.join(" e ");
   const maxTeamTotal = Math.max(1, ...data.teams.map((team) => team.total));
   const targetProgress = data.annualScenario.monthlyRequired > 0
-    ? Math.min(100, (data.annualScenario.currentMonthlyPace / data.annualScenario.monthlyRequired) * 100)
+    ? (data.annualScenario.currentMonthlyPace / data.annualScenario.monthlyRequired) * 100
     : 0;
+  const targetGap = data.annualScenario.monthlyRequired - data.annualScenario.currentMonthlyPace;
 
   return (
     <div className="pb-6 lg:pb-10">
@@ -54,7 +55,7 @@ export function ExecutiveReportView({ data, exactValues }: { data: ExecutiveRepo
             <span><strong className="font-semibold text-neutral-950 dark:text-white">{data.sellerAverage.valuedSellers} responsáveis</strong> compõem a média de {data.throughMonthLabel}</span>
           </div>
         </div>
-        <ExecutiveQuickActions data={data} exactValues={exactValues} />
+        <ExecutiveQuickActions data={data} />
       </header>
 
       <ExecutivePeriodFilter range={data.range} throughMonth={data.throughMonth} exactValues={exactValues} />
@@ -103,7 +104,11 @@ export function ExecutiveReportView({ data, exactValues }: { data: ExecutiveRepo
           tone="blue"
         />
         <div className="border-y border-neutral-200 bg-white p-4 shadow-sm transition-[border-color,box-shadow] duration-300 hover:border-blue-200 hover:shadow-md dark:border-neutral-800 dark:bg-neutral-950 dark:hover:border-blue-900 lg:rounded-lg lg:border lg:p-6">
-          <ExecutiveSalesChart series={data.yearlySeries} exactValues={exactValues} />
+          <ExecutiveSalesChart
+            key={`${data.range.startYear}-${data.range.endYear}-${data.throughMonth}`}
+            series={data.yearlySeries}
+            exactValues={exactValues}
+          />
         </div>
       </section>
 
@@ -146,29 +151,35 @@ export function ExecutiveReportView({ data, exactValues }: { data: ExecutiveRepo
             </div>
             <span className="text-sm text-neutral-400 dark:text-neutral-500">Equipe atual, não histórica</span>
           </div>
-          <div className="mt-5 divide-y divide-neutral-200 lg:hidden dark:divide-neutral-800">
-            {data.teams.map((team) => (
-              <article key={team.name} className="py-4 first:pt-0 last:pb-0">
-                <div className="flex items-baseline justify-between gap-3">
-                  <h3 className="min-w-0 truncate text-lg font-semibold text-neutral-900 dark:text-neutral-100">{team.name}</h3>
-                  <span className="shrink-0 text-lg font-semibold tabular-nums text-neutral-950 dark:text-white">{money(team.total)}</span>
-                </div>
-                <div className="mt-3 grid grid-cols-3 gap-3">
-                  {team.values.map((value, index) => (
-                    <div key={data.teamMonths[index] ? `${data.teamMonths[index].year}-${data.teamMonths[index].month}` : index}>
-                      <p className="text-sm capitalize text-neutral-400 dark:text-neutral-500">{data.teamMonths[index]?.label}</p>
-                      <p className="mt-0.5 text-base font-medium tabular-nums text-neutral-700 dark:text-neutral-300">{money(value)}</p>
+          {data.teams.length === 0 ? (
+            <p className="mt-6 border-t border-neutral-200 pt-6 text-base text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
+              Nenhuma equipe teve venda com valor informado nesses três meses.
+            </p>
+          ) : (
+            <>
+              <div className="mt-5 divide-y divide-neutral-200 lg:hidden dark:divide-neutral-800">
+                {data.teams.map((team) => (
+                  <article key={team.name} className="py-4 first:pt-0 last:pb-0">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <h3 className="min-w-0 truncate text-lg font-semibold text-neutral-900 dark:text-neutral-100">{team.name}</h3>
+                      <span className="shrink-0 text-lg font-semibold tabular-nums text-neutral-950 dark:text-white">{money(team.total)}</span>
                     </div>
-                  ))}
-                </div>
-                <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
-                  <div className="h-full rounded-full bg-violet-500" style={{ width: `${Math.max(4, (team.total / maxTeamTotal) * 100)}%` }} />
-                </div>
-              </article>
-            ))}
-          </div>
-          <div className="mt-5 hidden overflow-x-auto lg:block">
-            <table className="w-full min-w-[520px] text-base">
+                    <div className="mt-3 grid grid-cols-3 gap-3">
+                      {team.values.map((value, index) => (
+                        <div key={data.teamMonths[index] ? `${data.teamMonths[index].year}-${data.teamMonths[index].month}` : index}>
+                          <p className="text-sm capitalize text-neutral-400 dark:text-neutral-500">{data.teamMonths[index]?.label}</p>
+                          <p className="mt-0.5 text-base font-medium tabular-nums text-neutral-700 dark:text-neutral-300">{money(value)}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
+                      <div className="h-full rounded-full bg-violet-500" style={{ width: `${Math.max(4, (team.total / maxTeamTotal) * 100)}%` }} />
+                    </div>
+                  </article>
+                ))}
+              </div>
+              <div className="mt-5 hidden overflow-x-auto lg:block">
+                <table className="w-full min-w-[520px] text-base">
               <thead>
                 <tr className="border-b border-neutral-200 text-left text-sm text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
                   <th className="pb-2 font-medium">Equipe</th>
@@ -199,8 +210,10 @@ export function ExecutiveReportView({ data, exactValues }: { data: ExecutiveRepo
                   </tr>
                 ))}
               </tbody>
-            </table>
-          </div>
+                </table>
+              </div>
+            </>
+          )}
         </div>
 
         <div className="border-y border-amber-200 bg-amber-50/40 p-5 shadow-sm transition-shadow duration-300 hover:shadow-md dark:border-amber-950 dark:bg-amber-950/10 lg:rounded-lg lg:border lg:p-6">
@@ -219,15 +232,22 @@ export function ExecutiveReportView({ data, exactValues }: { data: ExecutiveRepo
               <p className="text-xl font-semibold tabular-nums text-amber-700 dark:text-amber-300">{formatPercent(targetProgress)}</p>
             </div>
             <div className="mt-2 h-2 overflow-hidden rounded-full bg-amber-100 dark:bg-neutral-800">
-              <div className="h-full rounded-full bg-amber-500 transition-[width] duration-700" style={{ width: `${Math.max(2, targetProgress)}%` }} />
+              <div
+                className="h-full rounded-full bg-amber-500 transition-[width] duration-700"
+                style={{ width: `${Math.min(100, Math.max(2, targetProgress))}%` }}
+              />
             </div>
           </div>
           <div className="mt-6 space-y-5">
             <TargetLine label="Média necessária por mês" value={money(data.annualScenario.monthlyRequired)} />
             <TargetLine label={`Ritmo mensal em ${data.reportYear}`} value={money(data.annualScenario.currentMonthlyPace)} />
             <TargetLine
-              label="Aceleração do ritmo necessária"
-              value={data.annualScenario.multiplier === null ? "—" : `${data.annualScenario.multiplier.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}x`}
+              label={targetGap > 0
+                ? "Falta por mês para o ritmo necessário"
+                : targetGap < 0
+                  ? "Acima do ritmo necessário por mês"
+                  : "Diferença para o ritmo necessário"}
+              value={money(Math.abs(targetGap))}
               strong
             />
           </div>
@@ -279,12 +299,12 @@ export function ExecutiveReportView({ data, exactValues }: { data: ExecutiveRepo
             </span>
           </summary>
           <p className="mt-4 max-w-6xl text-sm leading-6 text-neutral-500 dark:text-neutral-400">
-            Base: negócios ganhos pela data de fechamento. No período, {data.coverage.periodWonDeals.toLocaleString("pt-BR")} negócios
+            Base: negócios ganhos pela data de fechamento. Em {data.reportYear}, {data.coverage.periodWonDeals.toLocaleString("pt-BR")} negócios
             {data.coverage.periodMissingValue > 0 ? ` · ${data.coverage.periodMissingValue} sem valor líquido, contados nas quantidades mas fora dos totais monetários` : ""}.
             {data.coverage.possibleDuplicateGroups > 0
               ? ` ${data.coverage.possibleDuplicateGroups} coincidências de cliente, valor e data (${data.coverage.possibleDuplicateDeals} negócios) foram mantidas e precisam de conferência.`
               : ""}
-            Série desde {data.range.startYear}: {data.coverage.wonDeals.toLocaleString("pt-BR")} negócios
+            Série selecionada ({data.range.startYear}–{data.range.endYear}): {data.coverage.wonDeals.toLocaleString("pt-BR")} negócios
             {data.coverage.missingValue > 0 ? ` · ${data.coverage.missingValue} sem valor` : ""}. Administradoras e cotas ficam fora até o histórico estar completo.
           </p>
         </details>
@@ -318,8 +338,8 @@ function ExecutiveMetric({
   return (
     <div className={`group relative overflow-hidden border-b border-neutral-200 p-5 transition-colors duration-300 last:border-b-0 dark:border-neutral-800 xl:border-r xl:border-b-0 xl:last:border-r-0 ${tones.hover} ${className}`}>
       <span className={`absolute top-0 left-0 h-0.5 w-full origin-left scale-x-0 transition-transform duration-300 group-hover:scale-x-100 ${tones.line}`} aria-hidden="true" />
-      <p className="text-base text-neutral-500 dark:text-neutral-400">{label}</p>
-      <div className="mt-2 flex items-end justify-between gap-3">
+      <p className="min-h-12 text-base leading-6 text-neutral-500 dark:text-neutral-400">{label}</p>
+      <div className="mt-2 flex items-baseline justify-between gap-3">
         <p className="text-3xl font-semibold tabular-nums text-neutral-950 transition-transform duration-300 group-hover:-translate-y-0.5 dark:text-white">{value}</p>
         {change !== undefined && <ChangeBadge value={change} />}
       </div>
@@ -329,12 +349,12 @@ function ExecutiveMetric({
 }
 
 function ChangeBadge({ value }: { value: number | null }) {
-  if (value === null) return <span className="text-sm text-neutral-400">sem comparação</span>;
+  if (value === null) return <span className="self-baseline text-sm text-neutral-400">sem comparação</span>;
   const positive = value > 0;
   const negative = value < 0;
   const Icon = positive ? ArrowUpRight : negative ? ArrowDownRight : Minus;
   return (
-    <span className={`inline-flex shrink-0 items-center gap-0.5 text-sm font-semibold tabular-nums ${positive ? "text-emerald-600 dark:text-emerald-400" : negative ? "text-red-600 dark:text-red-400" : "text-neutral-500"}`}>
+    <span className={`inline-flex shrink-0 self-baseline items-center gap-0.5 text-sm font-semibold tabular-nums ${positive ? "text-emerald-600 dark:text-emerald-400" : negative ? "text-red-600 dark:text-red-400" : "text-neutral-500"}`}>
       <Icon className="h-3.5 w-3.5" strokeWidth={2.5} />
       {Math.abs(value).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%
     </span>

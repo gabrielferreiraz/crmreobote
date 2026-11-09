@@ -21,6 +21,16 @@ export type ExecutiveRankingRow = {
   activeMonths: number;
 };
 
+export type ExecutiveComparisonRankingRow = {
+  id: string;
+  name: string;
+  team: string;
+  yearlyValues: { year: number; value: number }[];
+  totalValue: number;
+  sales: number;
+  activeMonths: number;
+};
+
 export type ExecutiveReportSelection = {
   startYear?: number;
   endYear?: number;
@@ -48,10 +58,10 @@ export type ExecutiveReportData = {
   teamMonths: { year: number; month: number; label: string }[];
   teams: { name: string; values: number[]; total: number }[];
   ranking: ExecutiveRankingRow[];
+  comparisonRanking: ExecutiveComparisonRankingRow[];
   annualScenario: {
     monthlyRequired: number;
     currentMonthlyPace: number;
-    multiplier: number | null;
   };
   clients: { unique: number; repeat: number };
   coverage: {
@@ -301,7 +311,8 @@ export async function getExecutiveReportData(
       .sort((a, b) => b[1].valueCents - a[1].valueCents)
       .slice(0, 2);
 
-    const yearlySeries = availableYears.filter((year) => year >= startYear && year <= reportYear).map((year) => ({
+    const selectedYears = availableYears.filter((year) => year >= startYear && year <= reportYear);
+    const yearlySeries = selectedYears.map((year) => ({
       year,
       values: Array.from({ length: 12 }, (_, month) => {
         if (month > throughMonth) return null;
@@ -355,6 +366,47 @@ export async function getExecutiveReportData(
       }))
       .sort((a, b) => b.yearValue - a.yearValue || b.sales - a.sales);
 
+    const comparisonPeople = new Map<string, {
+      yearlyCents: Map<number, number>;
+      totalCents: number;
+      sales: number;
+      months: Set<string>;
+    }>();
+    for (const year of selectedYears) {
+      const yearlyPeople = personTotals(
+        monthStart({ year, month: 0 }),
+        monthStart({ year, month: throughMonth + 1 }),
+      );
+      for (const [userId, result] of yearlyPeople) {
+        const current = comparisonPeople.get(userId) ?? {
+          yearlyCents: new Map<number, number>(),
+          totalCents: 0,
+          sales: 0,
+          months: new Set<string>(),
+        };
+        current.yearlyCents.set(year, result.valueCents);
+        current.totalCents += result.valueCents;
+        current.sales += result.sales;
+        for (const month of result.months) current.months.add(month);
+        comparisonPeople.set(userId, current);
+      }
+    }
+    const comparisonRanking: ExecutiveComparisonRankingRow[] = Array.from(comparisonPeople.entries())
+      .filter(([, result]) => result.sales > 0)
+      .map(([userId, result]) => ({
+        id: userId,
+        name: personNames.get(userId) ?? membershipByUser.get(userId)?.name ?? "Sem nome",
+        team: membershipByUser.get(userId)?.team ?? "Sem equipe",
+        yearlyValues: selectedYears.map((year) => ({
+          year,
+          value: centsToValue(result.yearlyCents.get(year) ?? 0),
+        })),
+        totalValue: centsToValue(result.totalCents),
+        sales: result.sales,
+        activeMonths: result.months.size,
+      }))
+      .sort((a, b) => b.totalValue - a.totalValue || b.sales - a.sales || a.name.localeCompare(b.name, "pt-BR"));
+
     const completedMonths = throughMonth + 1;
     const currentMonthlyPace = completedMonths > 0 ? currentYearValue / completedMonths : 0;
     const monthlyRequired = ANNUAL_SCENARIO / 12;
@@ -397,10 +449,10 @@ export async function getExecutiveReportData(
       teamMonths,
       teams,
       ranking,
+      comparisonRanking,
       annualScenario: {
         monthlyRequired,
         currentMonthlyPace,
-        multiplier: currentMonthlyPace > 0 ? monthlyRequired / currentMonthlyPace : null,
       },
       clients: {
         unique: wonContacts.length,

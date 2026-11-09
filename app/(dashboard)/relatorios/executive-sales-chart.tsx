@@ -56,6 +56,8 @@ export function ExecutiveSalesChart({
   const desktopChartRef = useRef<HTMLDivElement | null>(null);
   const [desktopWidth, setDesktopWidth] = useState(WIDTH);
   const desktopPlotWidth = desktopWidth - LEFT - RIGHT;
+  const lastMonth = findLastMonthWithValue(series);
+  const monthDivisor = Math.max(1, lastMonth);
   const maxValue = useMemo(
     () => niceMaximum(Math.max(1, ...series.flatMap((year) => year.values.map((value) => value ?? 0)))),
     [series],
@@ -78,11 +80,11 @@ export function ExecutiveSalesChart({
   }, []);
 
   const point = (month: number, value: number) => ({
-    x: LEFT + (month / 11) * desktopPlotWidth,
+    x: lastMonth === 0 ? LEFT + desktopPlotWidth / 2 : LEFT + (month / monthDivisor) * desktopPlotWidth,
     y: TOP + (1 - value / maxValue) * PLOT_HEIGHT,
   });
   const mobilePoint = (month: number, value: number) => ({
-    x: MOBILE_LEFT + (month / 11) * MOBILE_PLOT_WIDTH,
+    x: lastMonth === 0 ? MOBILE_LEFT + MOBILE_PLOT_WIDTH / 2 : MOBILE_LEFT + (month / monthDivisor) * MOBILE_PLOT_WIDTH,
     y: MOBILE_TOP + (1 - value / maxValue) * MOBILE_PLOT_HEIGHT,
   });
 
@@ -95,7 +97,9 @@ export function ExecutiveSalesChart({
       setFocusedSeries(null);
       return;
     }
-    const month = clamp(Math.round(((svgX - LEFT) / desktopPlotWidth) * 11), 0, 11);
+    const month = lastMonth === 0
+      ? 0
+      : clamp(Math.round(((svgX - LEFT) / desktopPlotWidth) * lastMonth), 0, lastMonth);
     const nearestSeries = series.reduce(
       (nearest, year, index) => {
         const value = year.values[month];
@@ -105,25 +109,32 @@ export function ExecutiveSalesChart({
       },
       { index: series.length - 1, distance: Number.POSITIVE_INFINITY },
     );
+    if (!Number.isFinite(nearestSeries.distance)) {
+      setHover(null);
+      setFocusedSeries(null);
+      return;
+    }
 
     setHover({ month, seriesIndex: nearestSeries.index });
     setFocusedSeries(nearestSeries.index);
   };
 
   const selectMonth = (month: number) => {
-    const seriesIndex = findLatestSeriesWithValue(series, month);
-    setHover({ month, seriesIndex });
+    const boundedMonth = clamp(month, 0, lastMonth);
+    const seriesIndex = findLatestSeriesWithValue(series, boundedMonth);
+    setHover({ month: boundedMonth, seriesIndex });
     setFocusedSeries(seriesIndex);
   };
 
   const monthAtMobilePointer = (event: PointerEvent<SVGSVGElement>) => {
     const bounds = event.currentTarget.getBoundingClientRect();
     const svgX = ((event.clientX - bounds.left) / bounds.width) * MOBILE_WIDTH;
-    return clamp(Math.round(((svgX - MOBILE_LEFT) / MOBILE_PLOT_WIDTH) * 11), 0, 11);
+    if (lastMonth === 0) return 0;
+    return clamp(Math.round(((svgX - MOBILE_LEFT) / MOBILE_PLOT_WIDTH) * lastMonth), 0, lastMonth);
   };
 
   const changeMobileMonth = (nextMonth: number) => {
-    const next = clamp(nextMonth, 0, 11);
+    const next = clamp(nextMonth, 0, lastMonth);
     if (next === mobileMonth) return;
     setMobileDirection(next > mobileMonth ? 1 : -1);
     setMobileMonth(next);
@@ -135,14 +146,14 @@ export function ExecutiveSalesChart({
 
   const moveMobileGesture = (event: PointerEvent<SVGSVGElement>) => {
     const start = gestureStart.current;
-    if (!start) return;
+    if (!start || lastMonth === 0) return;
     const deltaX = event.clientX - start.x;
     const deltaY = event.clientY - start.y;
     if (Math.abs(deltaX) < 6 || Math.abs(deltaX) <= Math.abs(deltaY)) return;
 
     const bounds = event.currentTarget.getBoundingClientRect();
-    const pixelsPerMonth = (bounds.width / MOBILE_WIDTH) * (MOBILE_PLOT_WIDTH / 11);
-    setDragMonth(clamp(mobileMonth - deltaX / pixelsPerMonth, 0, 11));
+    const pixelsPerMonth = (bounds.width / MOBILE_WIDTH) * (MOBILE_PLOT_WIDTH / monthDivisor);
+    setDragMonth(clamp(mobileMonth - deltaX / pixelsPerMonth, 0, lastMonth));
   };
 
   const finishMobileGesture = (event: PointerEvent<SVGSVGElement>) => {
@@ -157,7 +168,7 @@ export function ExecutiveSalesChart({
 
     if (isHorizontalSwipe) {
       const bounds = event.currentTarget.getBoundingClientRect();
-      const pixelsPerMonth = (bounds.width / MOBILE_WIDTH) * (MOBILE_PLOT_WIDTH / 11);
+      const pixelsPerMonth = (bounds.width / MOBILE_WIDTH) * (MOBILE_PLOT_WIDTH / monthDivisor);
       const steps = clamp(Math.max(1, Math.round(Math.abs(deltaX) / pixelsPerMonth)), 1, 3);
       changeMobileMonth(mobileMonth + (deltaX < 0 ? steps : -steps));
       return;
@@ -172,7 +183,7 @@ export function ExecutiveSalesChart({
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
     event.preventDefault();
     const direction = event.key === "ArrowRight" ? 1 : -1;
-    selectMonth(clamp((hover?.month ?? 0) + direction, 0, 11));
+    selectMonth(clamp((hover?.month ?? 0) + direction, 0, lastMonth));
   };
 
   const hoveredPoint = hover
@@ -186,7 +197,7 @@ export function ExecutiveSalesChart({
   const mobileYearChange = calculatePercentageChange(latestMonthValue, previousMonthValue);
   const mobileIndicatorMonth = dragMonth ?? mobileMonth;
   const mobileIndicatorX = mobilePoint(mobileIndicatorMonth, 0).x;
-  const mobileBandWidth = MOBILE_PLOT_WIDTH / 12;
+  const mobileBandWidth = MOBILE_PLOT_WIDTH / (lastMonth + 1);
   const mobileBandX = clamp(
     mobileIndicatorX - mobileBandWidth / 2,
     MOBILE_LEFT,
@@ -307,7 +318,7 @@ export function ExecutiveSalesChart({
             );
           })}
 
-          {EXECUTIVE_MONTHS_SHORT.map((month, index) => {
+          {EXECUTIVE_MONTHS_SHORT.slice(0, lastMonth + 1).map((month, index) => {
             const x = mobilePoint(index, 0).x;
             const selected = mobileMonth === index;
             return (
@@ -349,7 +360,7 @@ export function ExecutiveSalesChart({
             <button
               type="button"
               onClick={() => changeMobileMonth(mobileMonth + 1)}
-              disabled={mobileMonth === 11}
+              disabled={mobileMonth === lastMonth}
               className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-neutral-200 text-neutral-600 transition-[color,background-color,transform] hover:bg-neutral-100 active:scale-95 disabled:opacity-30 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
               aria-label="Próximo mês"
             >
@@ -400,9 +411,13 @@ export function ExecutiveSalesChart({
           >
             {hover && (
               <rect
-                x={Math.max(LEFT, point(hover.month, 0).x - desktopPlotWidth / 24)}
+                x={clamp(
+                  point(hover.month, 0).x - desktopPlotWidth / (lastMonth + 1) / 2,
+                  LEFT,
+                  desktopWidth - RIGHT - desktopPlotWidth / (lastMonth + 1),
+                )}
                 y={TOP}
-                width={hover.month === 0 || hover.month === 11 ? desktopPlotWidth / 24 : desktopPlotWidth / 12}
+                width={desktopPlotWidth / (lastMonth + 1)}
                 height={PLOT_HEIGHT}
                 rx="6"
                 className="fill-blue-500/5 dark:fill-blue-400/5"
@@ -421,8 +436,8 @@ export function ExecutiveSalesChart({
               );
             })}
 
-            {EXECUTIVE_MONTHS_SHORT.map((month, index) => {
-              const x = LEFT + (index / 11) * desktopPlotWidth;
+            {EXECUTIVE_MONTHS_SHORT.slice(0, lastMonth + 1).map((month, index) => {
+              const x = point(index, 0).x;
               const selected = hover?.month === index;
               return (
                 <text
@@ -499,6 +514,7 @@ export function ExecutiveSalesChart({
               x={hoveredPoint.x}
               y={hoveredPoint.y}
               chartWidth={desktopWidth}
+              lastMonth={lastMonth}
               exactValues={exactValues}
             />
           )}
@@ -515,6 +531,7 @@ function ChartTooltip({
   x,
   y,
   chartWidth,
+  lastMonth,
   exactValues,
 }: {
   month: number;
@@ -523,9 +540,15 @@ function ChartTooltip({
   x: number;
   y: number;
   chartWidth: number;
+  lastMonth: number;
   exactValues: boolean;
 }) {
-  const horizontalTransform = month <= 2 ? "translateX(8px)" : month >= 9 ? "translateX(calc(-100% - 8px))" : "translateX(-50%)";
+  const horizontalPosition = lastMonth === 0 ? 0.5 : month / lastMonth;
+  const horizontalTransform = horizontalPosition <= 0.25
+    ? "translateX(8px)"
+    : horizontalPosition >= 0.75
+      ? "translateX(calc(-100% - 8px))"
+      : "translateX(-50%)";
   const showBelow = y < 130;
   const top = showBelow ? y + 14 : y - 14;
   const verticalTransform = showBelow ? "translateY(0)" : "translateY(-100%)";

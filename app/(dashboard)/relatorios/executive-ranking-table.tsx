@@ -28,12 +28,18 @@ export function ExecutiveRankingTable({
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortKey>("yearValue");
 
+  const rankedRows = useMemo(
+    () => [...rows].sort((a, b) => b[sort] - a[sort] || b.yearValue - a.yearValue || a.name.localeCompare(b.name, "pt-BR")),
+    [rows, sort],
+  );
+  const positionById = useMemo(
+    () => new Map(rankedRows.map((row, index) => [row.id, index + 1])),
+    [rankedRows],
+  );
   const visibleRows = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase("pt-BR");
-    return rows
-      .filter((row) => !normalized || `${row.name} ${row.team}`.toLocaleLowerCase("pt-BR").includes(normalized))
-      .sort((a, b) => b[sort] - a[sort] || b.yearValue - a.yearValue || a.name.localeCompare(b.name, "pt-BR"));
-  }, [query, rows, sort]);
+    return rankedRows.filter((row) => !normalized || `${row.name} ${row.team}`.toLocaleLowerCase("pt-BR").includes(normalized));
+  }, [query, rankedRows]);
 
   const maxYearValue = Math.max(1, ...visibleRows.map((row) => row.yearValue));
 
@@ -46,6 +52,7 @@ export function ExecutiveRankingTable({
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Buscar vendedor ou equipe"
+            aria-label="Buscar vendedor ou equipe"
             className="field-input w-full pl-9 text-base"
           />
         </div>
@@ -84,52 +91,58 @@ export function ExecutiveRankingTable({
                 </tr>
               </thead>
               <tbody>
-                {visibleRows.map((row, index) => (
-                  <tr key={row.id} className="group border-b border-neutral-100 transition-colors hover:bg-violet-50/50 last:border-0 dark:border-neutral-900 dark:hover:bg-violet-950/15">
-                    <td className="px-3 py-4">
-                      <div className="flex items-center gap-3">
-                        <span className={`w-6 shrink-0 text-right text-sm font-semibold tabular-nums ${rankColor(index)}`}>{index + 1}</span>
-                        <span className="font-medium text-neutral-900 transition-colors group-hover:text-violet-700 dark:text-neutral-100 dark:group-hover:text-violet-300">{row.name}</span>
-                      </div>
-                    </td>
-                    <td className="px-3 py-4 text-neutral-500 dark:text-neutral-400">{row.team}</td>
-                    <td className="px-3 py-4 text-right">
-                      <div className="ml-auto flex max-w-56 items-center justify-end gap-2">
-                        <span className="h-1.5 min-w-0 rounded-full bg-blue-500 transition-[width,filter] duration-300 group-hover:brightness-110" style={{ width: `${Math.max(3, (row.yearValue / maxYearValue) * 72)}px` }} />
-                        <span className="min-w-24 font-medium tabular-nums text-neutral-900 dark:text-neutral-100">{formatExecutiveCurrency(row.yearValue, exactValues)}</span>
-                      </div>
-                    </td>
-                    <td className="px-3 py-4 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{formatExecutiveCurrency(row.recentValue, exactValues)}</td>
-                    <td className="px-3 py-4 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{row.sales}</td>
-                    <td className="px-3 py-4 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{row.activeMonths}</td>
-                  </tr>
-                ))}
+                {visibleRows.map((row) => {
+                  const position = positionById.get(row.id) ?? 0;
+                  return (
+                    <tr key={row.id} className="group border-b border-neutral-100 transition-colors hover:bg-violet-50/50 last:border-0 dark:border-neutral-900 dark:hover:bg-violet-950/15">
+                      <td className="px-3 py-4">
+                        <div className="flex items-center gap-3">
+                          <span className={`w-6 shrink-0 text-right text-sm font-semibold tabular-nums ${rankColor(position - 1)}`}>{position}</span>
+                          <span className="font-medium text-neutral-900 transition-colors group-hover:text-violet-700 dark:text-neutral-100 dark:group-hover:text-violet-300">{row.name}</span>
+                        </div>
+                      </td>
+                      <td className="px-3 py-4 text-neutral-500 dark:text-neutral-400">{row.team}</td>
+                      <td className="px-3 py-4 text-right">
+                        <div className="ml-auto flex max-w-56 items-center justify-end gap-2">
+                          <span className="h-1.5 min-w-0 rounded-full bg-blue-500 transition-[width,filter] duration-300 group-hover:brightness-110" style={{ width: `${Math.max(3, (row.yearValue / maxYearValue) * 72)}px` }} />
+                          <span className="min-w-24 font-medium tabular-nums text-neutral-900 dark:text-neutral-100">{formatExecutiveCurrency(row.yearValue, exactValues)}</span>
+                        </div>
+                      </td>
+                      <td className="px-3 py-4 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{formatExecutiveCurrency(row.recentValue, exactValues)}</td>
+                      <td className="px-3 py-4 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{row.sales}</td>
+                      <td className="px-3 py-4 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{row.activeMonths}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
 
           <div className="divide-y divide-neutral-200 lg:hidden dark:divide-neutral-800">
-            {visibleRows.map((row, index) => (
-              <article key={row.id} className="-mx-2 px-2 py-4 transition-colors hover:bg-violet-50/50 dark:hover:bg-violet-950/15">
-                <div className="flex items-start gap-3">
-                  <span className={`mt-0.5 w-6 shrink-0 text-right text-sm font-semibold tabular-nums ${rankColor(index)}`}>{index + 1}</span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <h3 className="truncate text-lg font-medium text-neutral-900 dark:text-neutral-100">{row.name}</h3>
-                        <p className="truncate text-base text-neutral-500 dark:text-neutral-400">{row.team}</p>
+            {visibleRows.map((row) => {
+              const position = positionById.get(row.id) ?? 0;
+              return (
+                <article key={row.id} className="-mx-2 px-2 py-4 transition-colors hover:bg-violet-50/50 dark:hover:bg-violet-950/15">
+                  <div className="flex items-start gap-3">
+                    <span className={`mt-0.5 w-6 shrink-0 text-right text-sm font-semibold tabular-nums ${rankColor(position - 1)}`}>{position}</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <h3 className="truncate text-lg font-medium text-neutral-900 dark:text-neutral-100">{row.name}</h3>
+                          <p className="truncate text-base text-neutral-500 dark:text-neutral-400">{row.team}</p>
+                        </div>
+                        <p className="shrink-0 text-lg font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">{formatExecutiveCurrency(row.yearValue, exactValues)}</p>
                       </div>
-                      <p className="shrink-0 text-lg font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">{formatExecutiveCurrency(row.yearValue, exactValues)}</p>
-                    </div>
-                    <div className="mt-3 grid grid-cols-3 gap-3">
-                      <MobileMetric label="Últimos 3 meses" value={formatExecutiveCurrency(row.recentValue, exactValues)} />
-                      <MobileMetric label="Participações" value={String(row.sales)} />
-                      <MobileMetric label="Meses ativos" value={String(row.activeMonths)} />
+                      <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2">
+                        <MobileMetric className="col-span-2" label="Últimos 3 meses" value={formatExecutiveCurrency(row.recentValue, exactValues)} />
+                        <MobileMetric label="Participações" value={String(row.sales)} />
+                        <MobileMetric label="Meses ativos" value={String(row.activeMonths)} />
+                      </div>
                     </div>
                   </div>
-                </div>
-              </article>
-            ))}
+                </article>
+              );
+            })}
           </div>
         </>
       )}
@@ -137,9 +150,9 @@ export function ExecutiveRankingTable({
   );
 }
 
-function MobileMetric({ label, value }: { label: string; value: string }) {
+function MobileMetric({ label, value, className = "" }: { label: string; value: string; className?: string }) {
   return (
-    <div>
+    <div className={className}>
       <p className="text-sm text-neutral-400 dark:text-neutral-500">{label}</p>
       <p className="mt-0.5 text-base font-medium tabular-nums text-neutral-700 dark:text-neutral-300">{value}</p>
     </div>
