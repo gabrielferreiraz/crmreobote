@@ -61,6 +61,8 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   DEAL_REGISTRATION_DOC_DOWNLOADED: "Documento do cliente baixado",
   DEAL_REGISTRATION_DOC_DELETED: "Documento do cliente apagado",
   DEAL_REGISTRATION_DOCS_PURGED: "Documentos do cliente apagados (prazo de 7 dias)",
+  DEAL_DOCUMENT_REQUESTED: "Documento pedido ao consultor",
+  DEAL_DOCUMENT_REQUEST_CANCELLED: "Pedido de documento cancelado",
   WHATSAPP_BACKUP_EXPORTED: "Backup de mensagens exportado",
   CAMPAIGN_QUEUE_REORDERED: "Fila de disparo reordenada",
   CAMPAIGN_RECIPIENT_REMOVED: "Contato removido da fila",
@@ -129,6 +131,8 @@ const ACTION_TONE: Record<AuditAction, "neutral" | "success" | "danger" | "warni
   DEAL_REGISTRATION_DOC_DOWNLOADED: "neutral",
   DEAL_REGISTRATION_DOC_DELETED: "warning",
   DEAL_REGISTRATION_DOCS_PURGED: "neutral",
+  DEAL_DOCUMENT_REQUESTED: "neutral",
+  DEAL_DOCUMENT_REQUEST_CANCELLED: "neutral",
   WHATSAPP_BACKUP_EXPORTED: "warning", // conversa privada saindo do CRM
   CAMPAIGN_QUEUE_REORDERED: "warning", // muda QUEM é contatado primeiro — vale destacar
   CAMPAIGN_RECIPIENT_REMOVED: "warning",

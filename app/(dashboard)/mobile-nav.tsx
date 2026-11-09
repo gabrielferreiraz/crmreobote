@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Kanban, MessageCircle, CalendarDays, Menu, X, Plus, Users, BarChart3, Settings, LogOut, ChevronRight, Moon, Calculator, ClipboardList, MessageSquare, GraduationCap, Wallet, Table2, FileSpreadsheet } from "lucide-react";
+import { Home, Kanban, MessageCircle, CalendarDays, Menu, X, Plus, Users, BarChart3, Settings, LogOut, ChevronRight, Moon, Calculator, ClipboardList, MessageSquare, GraduationCap, Wallet, Table2, FileSpreadsheet, ClipboardCheck } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { usePushSubscription } from "@/lib/use-push-subscription";
 import { LoadingDots } from "@/components/loading-dots";
@@ -88,11 +88,14 @@ export function MobileNav({
   academyHref,
   showCommissions = false,
   showSheets = false,
+  showRegistrations = false,
 }: {
   signOutAction: () => Promise<void>;
   isAdministrativo: boolean;
   /** "Planilhas" na folha "Mais" — só Administrativo e Dono (ver lib/sheets/access.ts). */
   showSheets?: boolean;
+  /** "Cadastros" (fila de cotas) na folha "Mais" — só Administrativo e Dono. */
+  showRegistrations?: boolean;
   /** "Comissões" na folha "Mais" — mesma regra do menu de cima (ver layout.tsx). */
   showCommissions?: boolean;
   /** Link "Treinamento" (Reobote Academy) — calculado no servidor (ver
@@ -106,6 +109,7 @@ export function MobileNav({
   const primaryItems = isAdministrativo ? PRIMARY_ITEMS_ADMINISTRATIVO : PRIMARY_ITEMS_VENDAS;
   const baseOverflowItems = isAdministrativo ? OVERFLOW_ITEMS_ADMINISTRATIVO : OVERFLOW_ITEMS_VENDAS;
   const extraItems: NavItem[] = [
+    ...(showRegistrations ? [{ href: "/cadastros", label: "Cadastros", icon: ClipboardCheck }] : []),
     ...(showSheets ? [{ href: "/planilhas", label: "Planilhas", icon: FileSpreadsheet }] : []),
     ...(showCommissions ? [{ href: "/comissoes", label: "Comissões", icon: Wallet }] : []),
   ];

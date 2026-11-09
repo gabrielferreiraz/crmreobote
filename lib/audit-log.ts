@@ -85,6 +85,8 @@ export type AuditAction =
   | "DEAL_REGISTRATION_DOC_DOWNLOADED"
   | "DEAL_REGISTRATION_DOC_DELETED"
   | "DEAL_REGISTRATION_DOCS_PURGED"
+  | "DEAL_DOCUMENT_REQUESTED"
+  | "DEAL_DOCUMENT_REQUEST_CANCELLED"
   // Histórico de WhatsApp de um consultor baixado pelo Dono (conversa privada de outra pessoa saindo do CRM).
   | "WHATSAPP_BACKUP_EXPORTED"
   // Campanha sazonal "Lista dos 50" (Novembro Black) ligada/desligada pelo Dono.

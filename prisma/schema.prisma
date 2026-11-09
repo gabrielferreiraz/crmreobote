@@ -157,6 +157,7 @@ model Organization {
   consortiumAdministrators ConsortiumAdministrator[]
   dealRegistrations      DealRegistration[]
   dealRegistrationDocuments DealRegistrationDocument[]
+  dealDocumentRequests   DealDocumentRequest[]
   commissionRules        CommissionRule[]
   commissionSales        CommissionSale[]
   commissionEntries      CommissionEntry[]
@@ -1991,6 +1992,8 @@ model Deal {
   process            Process?
   // Cadastro do cliente exigido pela administradora antes do Ganho (ver DealRegistration).
   registration       DealRegistration?
+  // Pedidos de documento/correção do administrativo ao consultor (ver DealDocumentRequest).
+  documentRequests   DealDocumentRequest[]
 
   @@index([organizationId, pipelineId, stageId])
   @@index([organizationId, status])
@@ -4431,6 +4434,36 @@ model DealRegistration {
   documents    DealRegistrationDocument[]
 
   @@index([organizationId, completedAt])
+}
+
+enum DealDocumentRequestStatus {
+  OPEN
+  FULFILLED
+  CANCELLED
+}
+
+/// Pedido do administrativo ao consultor: "falta este documento / corrija isto".
+/// items = [{ key, label, kind, needsFile, doneAt, documentIds, note }] — cada item
+/// é atendido sozinho (envio do arquivo ou resposta); com todos atendidos o
+/// pedido vira FULFILLED e o administrativo é avisado.
+model DealDocumentRequest {
+  id              String @id @default(cuid())
+  organizationId  String
+  dealId          String
+  requestedById   String
+  requestedByName String
+  items           Json
+  message         String?
+  status          DealDocumentRequestStatus @default(OPEN)
+  resolvedAt      DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  deal         Deal         @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, status])
+  @@index([dealId, status])
 }
 
 model DealRegistrationDocument {

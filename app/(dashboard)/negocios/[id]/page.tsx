@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { Lock } from "lucide-react";
 import { auth } from "@/lib/auth";
@@ -7,6 +7,8 @@ import { prisma } from "@/lib/prisma";
 import { USER_PUBLIC_SELECT } from "@/lib/user-public";
 import { resolveAvatarUrlMap } from "@/lib/r2";
 import { runWithTenant } from "@/lib/tenant-context";
+import { getCurrentMembership } from "@/lib/current-membership";
+import { canBypassRegistration } from "@/lib/deal-registration/rules";
 import { dealScopeWhere } from "@/lib/deals/split";
 import { computeDealShares } from "@/lib/deals/split-shares";
 import { getSharedScope } from "@/lib/share-groups";
@@ -93,9 +95,14 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
       // mostrar quem é o responsável em vez de um 404 sem nenhuma pista.
       const stub = await prisma.deal.findFirst({
         where: { id, organizationId },
-        select: { name: true, contact: { select: { name: true } }, owner: { select: { name: true } } },
+        select: { name: true, status: true, contact: { select: { name: true } }, owner: { select: { name: true } } },
       });
       if (!stub) notFound();
+      // Administrativo (e Dono) numa venda ganha de outro consultor: o trabalho dele é o cadastro da cota — vai direto para a tela própria.
+      if (stub.status === "WON") {
+        const membership = await getCurrentMembership();
+        if (membership?.active && canBypassRegistration(membership)) redirect(`/cadastros/${id}`);
+      }
       return <DealOwnershipStub dealName={stub.name} contactName={stub.contact.name} ownerName={stub.owner.name} />;
     }
 

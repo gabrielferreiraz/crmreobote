@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Users, Kanban, MessageCircle, CalendarDays, ClipboardList, BarChart3, Wallet, Table2, FileSpreadsheet } from "lucide-react";
+import { Home, Users, Kanban, MessageCircle, CalendarDays, ClipboardList, BarChart3, Wallet, Table2, FileSpreadsheet, ClipboardCheck } from "lucide-react";
 import { LoadingDots } from "@/components/loading-dots";
 import { Lista50Button } from "./lista-50-button";
 
@@ -18,6 +18,8 @@ const NAV_ITEMS = [
   { href: "/agenda", label: "Agenda", icon: CalendarDays },
   { href: "/processos", label: "Processos", icon: ClipboardList },
   { href: "/relatorios", label: "Relatórios", icon: BarChart3 },
+  // Fila de cadastro de cotas: só Administrativo e Dono.
+  { href: "/cadastros", label: "Cadastros", icon: ClipboardCheck, registrationsOnly: true },
   { href: "/tabelas", label: "Tabelas", icon: Table2 },
   // Planilhas do Administrativo: só área Administrativo e Dono (ver lib/sheets/access.ts).
   { href: "/planilhas", label: "Planilhas", icon: FileSpreadsheet, sheetsOnly: true },
@@ -56,14 +58,16 @@ export function TopNavLinks({
   isAdministrativo,
   showCommissions = false,
   showSheets = false,
+  showRegistrations = false,
 }: {
   isAdministrativo: boolean;
   showCommissions?: boolean;
   showSheets?: boolean;
+  showRegistrations?: boolean;
 }) {
   const pathname = usePathname();
   const items = NAV_ITEMS.filter(
-    (item) => !(isAdministrativo && item.salesOnly) && !(item.commissionsOnly && !showCommissions) && !(item.sheetsOnly && !showSheets),
+    (item) => !(isAdministrativo && item.salesOnly) && !(item.commissionsOnly && !showCommissions) && !(item.sheetsOnly && !showSheets) && !(item.registrationsOnly && !showRegistrations),
   );
 
   const scrollRef = useRef<HTMLElement>(null);

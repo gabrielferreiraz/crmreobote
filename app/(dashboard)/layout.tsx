@@ -52,6 +52,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const canUsePainelNichos = membership.role !== "MEMBER";
   // Mesma regra de lib/sheets/access.ts (a página e as rotas conferem de novo).
   const showSheets = canUseSheets(membership);
+  const showRegistrations = membership.role === "OWNER" || isAdministrativo;
   // Comissões: quem cuida delas sempre vê (pra montar o módulo antes de
   // ligar); quem vende, só depois de ligado (Organization.commissionStartDate).
   // Administrativo comum não recebe comissão de venda — não vê.
@@ -161,7 +162,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         </Link>
 
         <AdaptiveHeaderRow
-          nav={<TopNavLinks isAdministrativo={isAdministrativo} showCommissions={commissionsInTopNav} showSheets={showSheets} />}
+          nav={<TopNavLinks isAdministrativo={isAdministrativo} showCommissions={commissionsInTopNav} showSheets={showSheets} showRegistrations={showRegistrations} />}
           fullActions={
             <>
               <CommandPalette />
@@ -225,7 +226,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
       <AppMain>{children}</AppMain>
 
-      <MobileNav signOutAction={handleSignOut} isAdministrativo={isAdministrativo} academyHref={academyHref} showCommissions={showCommissions} showSheets={showSheets} />
+      <MobileNav signOutAction={handleSignOut} isAdministrativo={isAdministrativo} academyHref={academyHref} showCommissions={showCommissions} showSheets={showSheets} showRegistrations={showRegistrations} />
       <InstallPwaPrompt />
       <PresenceHeartbeat />
       <PushNotificationsPrompt />

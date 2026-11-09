@@ -34,6 +34,7 @@ import { useUndoToast } from "@/components/undo-provider";
 import { requestJson } from "@/lib/client-request";
 import { ProposalsCard } from "@/components/proposals/proposals-card";
 import { RegistrationSummary } from "@/components/deal-registration/registration-summary";
+import { ConsultantRequests } from "@/components/deal-registration/document-requests";
 import type { ProposalDTO } from "@/lib/proposals/types";
 import { trackUse } from "@/lib/feature-usage/track";
 import { CompleteRequiredFieldsDialog, type RequirableFieldValues } from "@/components/complete-required-fields-dialog";
@@ -1428,6 +1429,7 @@ export function DealDetail({
         </div>
       </section>
 
+      {deal.status === "WON" && <ConsultantRequests dealId={deal.id} />}
       {deal.status === "WON" && <RegistrationSummary dealId={deal.id} />}
 
       <div className="hidden">

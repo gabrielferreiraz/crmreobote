@@ -288,7 +288,7 @@ export async function notifyAdministrativeQuotaRegistration(organizationId: stri
     credit != null ? `Crédito ${formatCurrency(Number(credit))}` : null,
     `Consultor: ${deal.owner.name}`,
   ].filter(Boolean);
-  const description = `${parts.join(" · ")}. Dados e documentos estão no negócio: baixe os documentos em até ${DOCUMENT_RETENTION_DAYS} dias, depois eles são apagados do servidor. Defina grupo, prazo e forma de pagamento da cota.${
+  const description = `${parts.join(" · ")}. Dados e documentos estão em Cadastros: baixe os documentos em até ${DOCUMENT_RETENTION_DAYS} dias, depois eles são apagados do servidor. Defina grupo, prazo e forma de pagamento da cota.${
     deal.registration?.waivedReason ? ` Atenção: o Ganho foi marcado SEM o cadastro completo (${deal.registration.waivedReason}).` : ""
   }`;
   const title = `Cadastrar cota: ${deal.contact.name}`;
@@ -304,7 +304,7 @@ export async function notifyAdministrativeQuotaRegistration(organizationId: stri
     await sendPushToUser(userId, {
       title: "Nova cota para cadastrar",
       body: `${deal.contact.name} · ${deal.administrator?.name ?? "venda ganha"}`,
-      url: `/negocios/${dealId}`,
+      url: `/cadastros/${dealId}`,
     }).catch((err) => console.error("[deal-registration] falha no push", err));
   }
 }

@@ -32,7 +32,8 @@ export async function purgeExpiredRegistrationDocuments(now = new Date()): Promi
         where: {
           organizationId,
           OR: [
-            { registration: { completedAt: { lte: concludedBefore } } },
+            // Documento enviado DEPOIS do Ganho (resposta a um pedido do administrativo) ganha o próprio prazo de 7 dias.
+            { registration: { completedAt: { lte: concludedBefore } }, createdAt: { lte: concludedBefore } },
             { registration: { completedAt: null }, createdAt: { lte: draftBefore } },
           ],
         },
