@@ -24,6 +24,7 @@ const CONSULTANT_QUOTA_FIELD_SPECS: Record<string, FieldSpec> = {
 /** Dados do cliente e do cadastro que o consultor edita (inclui grupo, prazo e forma de pagamento). */
 export const REGISTRATION_FIELD_SPECS: Record<string, FieldSpec> = {
   ...CONSULTANT_QUOTA_FIELD_SPECS,
+  holderName: { label: "Nome do titular na administradora" },
   personType: { label: "Tipo de cliente", format: (v) => (v === "PJ" ? "Pessoa jurídica" : v === "PF" ? "Pessoa física" : null) },
   cpf: { label: "CPF", sensitive: true },
   cnpj: { label: "CNPJ" },
@@ -75,6 +76,7 @@ export async function loadRegistrationAuditSnapshot(organizationId: string, deal
       registration: {
         select: {
           personType: true,
+          holderName: true,
           cpf: true,
           cnpj: true,
           profession: true,
@@ -97,6 +99,7 @@ export async function loadRegistrationAuditSnapshot(organizationId: string, deal
   return {
     ...(deal?.contact ?? {}),
     personType: r?.personType ?? "PF",
+    holderName: r?.holderName ?? null,
     cpf: r?.cpf ?? null,
     cnpj: r?.cnpj ?? null,
     profession: r?.profession ?? null,

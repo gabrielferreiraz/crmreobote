@@ -44,6 +44,8 @@ export type RegistrationSnapshot = {
   };
   registration: {
     personType: "PF" | "PJ";
+    /** Nome completo (PF) ou razão social (PJ) usado no cadastro da administradora. */
+    holderName: string | null;
     cpf: string | null;
     cnpj: string | null;
     profession: string | null;
@@ -84,6 +86,10 @@ export function findMissingRegistrationItems(snapshot: RegistrationSnapshot, opt
   const { contact: c, registration: r, documents } = snapshot;
   const missing: MissingItem[] = [];
   const add = (key: string, label: string, group: MissingItem["group"]) => missing.push({ key, label, group });
+
+  if (blank(r.holderName)) {
+    add("holderName", r.personType === "PJ" ? "Razão social do titular" : "Nome completo do titular", "registration");
+  }
 
   if (r.personType === "PJ") {
     if (blank(r.cnpj)) add("cnpj", "CNPJ", "registration");

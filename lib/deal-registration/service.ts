@@ -83,6 +83,11 @@ export async function loadRegistrationContext(
   ]);
 
   const r = deal.registration;
+  const personType = r?.personType ?? "PF";
+  const suggestedHolderName =
+    personType === "PJ"
+      ? deal.contact.company?.trim() || deal.contact.name.trim()
+      : deal.contact.name.trim();
   const snapshot: RegistrationSnapshot = {
     contact: {
       email: deal.contact.email,
@@ -97,7 +102,8 @@ export async function loadRegistrationContext(
       company: deal.contact.company,
     },
     registration: {
-      personType: r?.personType ?? "PF",
+      personType,
+      holderName: r?.holderName?.trim() || suggestedHolderName || null,
       cpf: r?.cpf ?? null,
       cnpj: r?.cnpj ?? null,
       profession: r?.profession ?? null,
@@ -150,6 +156,7 @@ export type RegistrationDraftInput = {
   };
   registration?: {
     personType?: "PF" | "PJ";
+    holderName?: string | null;
     cpf?: string | null;
     cnpj?: string | null;
     profession?: string | null;

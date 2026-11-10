@@ -468,7 +468,7 @@ export function ConsultantRequests({ dealId }: { dealId: string }) {
   if (open.length === 0) return null;
 
   return (
-    <section className="card mt-3 space-y-3 border-amber-300/70 p-4 dark:border-amber-500/30" aria-label="Pedido do administrativo">
+    <section id="pedido-administrativo" className="card mt-3 scroll-mt-20 space-y-3 border-amber-300/70 p-4 dark:border-amber-500/30" aria-label="Pedido do administrativo">
       <div className="flex items-center gap-2">
         <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400">
           <BellRing className="h-4 w-4" strokeWidth={2} />

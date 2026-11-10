@@ -36,6 +36,7 @@ type Form = {
   state: string;
   company: string;
   personType: "PF" | "PJ";
+  holderName: string;
   cpf: string;
   cnpj: string;
   profession: string;
@@ -51,6 +52,7 @@ type Form = {
 };
 
 type ServerState = {
+  contactName: string;
   contact: RegistrationSnapshot["contact"];
   registration: RegistrationSnapshot["registration"];
   documents: Doc[];
@@ -74,7 +76,7 @@ export type RegistrationApi = { flush: () => Promise<boolean>; focusFirstMissing
 
 const EMPTY_FORM: Form = {
   email: "", whatsapp: "", zipCode: "", address: "", addressNumber: "", neighborhood: "", city: "", state: "", company: "",
-  personType: "PF", cpf: "", cnpj: "", profession: "", maritalStatus: "", monthlyIncome: "", groupNumber: "", termMonths: "",
+  personType: "PF", holderName: "", cpf: "", cnpj: "", profession: "", maritalStatus: "", monthlyIncome: "", groupNumber: "", termMonths: "",
   paymentMethod: "", bankName: "", bankAgency: "", bankAccount: "", bankAccountType: "",
 };
 
@@ -91,6 +93,7 @@ function toForm(s: ServerState): Form {
     state: c.state ?? "",
     company: c.company ?? "",
     personType: r.personType,
+    holderName: r.holderName ?? "",
     cpf: r.cpf ? maskCpf(r.cpf) : "",
     cnpj: r.cnpj ? formatCnpj(r.cnpj) : "",
     profession: r.profession ?? "",
@@ -115,7 +118,7 @@ function toSnapshot(f: Form, documents: Doc[]): RegistrationSnapshot {
       addressNumber: f.addressNumber, neighborhood: f.neighborhood, city: f.city, state: f.state, company: f.company,
     },
     registration: {
-      personType: f.personType, cpf: f.cpf, cnpj: f.cnpj, profession: f.profession, maritalStatus: f.maritalStatus,
+      personType: f.personType, holderName: f.holderName, cpf: f.cpf, cnpj: f.cnpj, profession: f.profession, maritalStatus: f.maritalStatus,
       monthlyIncome: income != null && Number.isFinite(income) ? income : null,
       groupNumber: f.groupNumber, termMonths: term != null && Number.isFinite(term) ? term : null,
       paymentMethod: f.paymentMethod, bankName: f.bankName, bankAgency: f.bankAgency, bankAccount: f.bankAccount,
@@ -143,6 +146,7 @@ function toPayload(f: Form) {
     },
     registration: {
       personType: f.personType,
+      holderName: t(f.holderName),
       cpf: t(f.cpf),
       cnpj: t(f.cnpj),
       profession: t(f.profession),
@@ -184,6 +188,7 @@ export function RegistrationForm({
   registerApi: (api: RegistrationApi) => void;
 }) {
   const [form, setForm] = useState<Form>(EMPTY_FORM);
+  const [contactName, setContactName] = useState("");
   const [documents, setDocuments] = useState<Doc[]>([]);
   const [viewing, setViewing] = useState<Doc | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
@@ -216,6 +221,7 @@ export function RegistrationForm({
         return data as ServerState;
       })
       .then((data) => {
+        setContactName(data.contactName);
         setMeta({ requiresBankData: data.requiresBankData, documentsWaived: data.documentsWaived, canBypass: data.canWaive });
         // Trocar a administradora só atualiza as exigências — nunca sobrescreve o que a pessoa já digitou.
         if (!dirty.current) {
@@ -319,6 +325,8 @@ export function RegistrationForm({
         setCnpjLookup({ loading: false, error: null, situacao: data.situacao ?? null });
         const name = data.razaoSocial ?? data.name;
         if (name && !formRef.current.company.trim()) set("company", name);
+        const currentHolderName = formRef.current.holderName.trim();
+        if (name && (!currentHolderName || currentHolderName === contactName.trim())) set("holderName", name);
       } catch (err) {
         if ((err as DOMException).name !== "AbortError") setCnpjLookup({ loading: false, error: "Falha ao consultar o CNPJ.", situacao: null });
       }
@@ -327,7 +335,7 @@ export function RegistrationForm({
       controller.abort();
       clearTimeout(timer);
     };
-  }, [form.cnpj, form.personType]);
+  }, [form.cnpj, form.personType, contactName]);
 
   const missing: MissingItem[] = useMemo(
     () => (loaded ? findMissingRegistrationItems(toSnapshot(form, documents), meta) : []),
@@ -503,7 +511,7 @@ export function RegistrationForm({
     );
   };
 
-  const personKeys = ["cnpj", "cpf", "email", "whatsapp", "profession", "maritalStatus", "monthlyIncome"];
+  const personKeys = ["holderName", "cnpj", "cpf", "email", "whatsapp", "profession", "maritalStatus", "monthlyIncome"];
   const addressKeys = ["zipCode", "address", "addressNumber", "neighborhood", "city", "state"];
   const bankKeys = ["bankName", "bankAgency", "bankAccount", "bankAccountType"];
   const quotaKeys = ["groupNumber", "termMonths", "paymentMethod"];
@@ -575,7 +583,16 @@ export function RegistrationForm({
                 <button
                   key={type}
                   type="button"
-                  onClick={() => set("personType", type)}
+                  onClick={() => {
+                    set("personType", type);
+                    if (
+                      type === "PJ" &&
+                      form.company.trim() &&
+                      (!form.holderName.trim() || form.holderName.trim() === contactName.trim())
+                    ) {
+                      set("holderName", form.company);
+                    }
+                  }}
                   aria-pressed={form.personType === type}
                   className={`rounded-md px-3 py-1 text-sm font-medium transition-colors ${form.personType === type ? "bg-white shadow-sm dark:bg-neutral-700" : "text-neutral-500"}`}
                 >
@@ -584,6 +601,28 @@ export function RegistrationForm({
               ))}
             </div>
           </div>
+
+          <div className="space-y-1">
+            <p className="field-label">Nome no CRM</p>
+            <div className="field-input flex items-center bg-neutral-50 text-neutral-700 dark:bg-neutral-900 dark:text-neutral-200" aria-label="Nome no CRM">
+              {contactName || "Não informado"}
+            </div>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">Usado no pipeline, atendimento e busca.</p>
+          </div>
+          {field(
+            "holderName",
+            form.personType === "PJ" ? "Razão social do titular" : "Nome completo do titular",
+            <input
+              className="field-input"
+              autoComplete="name"
+              maxLength={180}
+              value={form.holderName}
+              onChange={(e) => set("holderName", e.target.value)}
+              placeholder={form.personType === "PJ" ? "Como consta no CNPJ" : "Como consta no documento"}
+            />,
+            "",
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">Usado somente no cadastro da administradora.</p>,
+          )}
 
           {form.personType === "PJ" && (
             <>

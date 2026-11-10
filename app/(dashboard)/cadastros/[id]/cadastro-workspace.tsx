@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   AlertTriangle,
@@ -26,6 +26,7 @@ import { Select } from "@/components/select";
 import { DocumentThumb, DocumentViewer, formatFileSize } from "@/components/deal-registration/document-preview";
 import { RequestComposer, RequestHistory } from "@/components/deal-registration/document-requests";
 import { AuditTimeline } from "@/components/audit/audit-timeline";
+import { prefetchDocumentText, warmUpOcr } from "@/lib/ocr/extract-document-text";
 import { DOCUMENT_KIND_LABELS, PAYMENT_METHOD_OPTIONS, formatQuotaLabel } from "@/lib/deal-registration/rules";
 import type { DocumentRequestDTO } from "@/lib/deal-registration/requests";
 import { formatCurrency } from "@/lib/format";
@@ -140,6 +141,12 @@ export function CadastroWorkspace(props: WorkspaceProps) {
   const [quota, setQuota] = useState(initialQuota);
   // O que já está salvo no servidor: serve para saber se há alteração pendente e para o título da página.
   const [savedQuota, setSavedQuota] = useState(initialQuota);
+  const legalNameLabel = r.personType === "PJ" ? "Razão social do titular" : "Nome completo do titular";
+  const initialHolderName = String(r.holderName ?? props.clientName).trim();
+  const [holderName, setHolderName] = useState(initialHolderName);
+  const [savedHolderName, setSavedHolderName] = useState(initialHolderName);
+  const [savingHolderName, setSavingHolderName] = useState(false);
+  const holderNameDirty = holderName.trim() !== savedHolderName;
   const quotaDirty = JSON.stringify(quota) !== JSON.stringify(savedQuota);
   const quotaFilled = Boolean(quota.groupNumber.trim() && quota.quotaNumber.trim() && quota.quotaDigit.trim());
   const [busy, setBusy] = useState(false);
@@ -152,6 +159,28 @@ export function CadastroWorkspace(props: WorkspaceProps) {
   // Sobe a cada ação: o histórico de auditoria abaixo recarrega e mostra o que acabou de acontecer.
   const [auditKey, setAuditKey] = useState(0);
   const refreshAudit = () => setAuditKey((k) => k + 1);
+
+  // Deixa o leitor de texto pronto e lê os documentos em segundo plano (um por vez, o do cliente primeiro),
+  // para o texto já estar na tela quando a pessoa abrir o documento.
+  const docsKey = props.documents.map((d) => d.id).join(",");
+  useEffect(() => {
+    if (!docsKey) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      warmUpOcr();
+      const ordered = [...props.documents].sort((a, b) => Number(b.kind === "PHOTO_ID") - Number(a.kind === "PHOTO_ID")).slice(0, 8);
+      void prefetchDocumentText(
+        ordered.map((d) => ({ src: `/api/deals/${dealId}/registration/documents/${d.id}`, fileName: d.fileName })),
+        controller.signal,
+      );
+    }, 1500);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+    // props.documents muda de identidade a cada render; docsKey representa o conteúdo.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dealId, docsKey]);
 
   const docSrc = (id: string) => `/api/deals/${dealId}/registration/documents/${id}`;
   const openRequest = requests.find((x) => x.status === "OPEN");
@@ -206,9 +235,41 @@ export function CadastroWorkspace(props: WorkspaceProps) {
     return ok;
   }
 
+  async function saveHolderName(): Promise<boolean> {
+    const normalized = holderName.trim();
+    if (!normalized) {
+      setActionError(`Informe ${legalNameLabel.toLowerCase()}.`);
+      return false;
+    }
+    setSavingHolderName(true);
+    setActionError(null);
+    try {
+      const res = await fetch(`/api/deals/${dealId}/registration`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ registration: { holderName: normalized } }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        setActionError(data.error ?? "Não foi possível salvar o nome do titular.");
+        return false;
+      }
+      setHolderName(normalized);
+      setSavedHolderName(normalized);
+      refreshAudit();
+      return true;
+    } catch {
+      setActionError("Sem conexão. Tente de novo.");
+      return false;
+    } finally {
+      setSavingHolderName(false);
+    }
+  }
+
   async function toggleQuota() {
     const done = !quotaAt;
     if (done) {
+      if (holderNameDirty && !(await saveHolderName())) return;
       if (!quotaFilled) {
         setActionError(
           !quota.groupNumber.trim()
@@ -247,7 +308,6 @@ export function CadastroWorkspace(props: WorkspaceProps) {
       title: "Identificação",
       icon: UserRound,
       rows: [
-        ["Nome", props.clientName],
         ["CPF", r.cpf ? maskCpf(String(r.cpf)) : null],
         ...(r.personType === "PJ"
           ? ([["CNPJ", r.cnpj ? formatCnpj(String(r.cnpj)) : null], ["Empresa", c.company]] as DataRow[])
@@ -283,7 +343,11 @@ export function CadastroWorkspace(props: WorkspaceProps) {
       ],
     },
   ];
-  const rows = dataGroups.flatMap((group) => group.rows);
+  const rows: DataRow[] = [
+    [legalNameLabel, savedHolderName || null],
+    ["Nome no CRM", props.clientName],
+    ...dataGroups.flatMap((group) => group.rows),
+  ];
   const quotaLabel = formatQuotaLabel({
     groupNumber: savedQuota.groupNumber,
     quotaNumber: savedQuota.quotaNumber,
@@ -308,7 +372,7 @@ export function CadastroWorkspace(props: WorkspaceProps) {
 
   return (
     <div className="mx-auto max-w-7xl space-y-4">
-      {viewing && <DocumentViewer src={docSrc(viewing.id)} fileName={viewing.fileName} onClose={() => setViewing(null)} />}
+      {viewing && <DocumentViewer src={docSrc(viewing.id)} fileName={viewing.fileName} onClose={() => setViewing(null)} showText />}
 
       <div>
         <Link href="/cadastros" className="inline-flex items-center gap-1.5 text-sm text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100">
@@ -316,8 +380,10 @@ export function CadastroWorkspace(props: WorkspaceProps) {
         </Link>
         <div className="mt-3 flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
-            <h1 className="break-words text-2xl font-semibold tracking-tight text-neutral-900 sm:truncate dark:text-neutral-100">{props.clientName}</h1>
-            <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Cadastro da cota e conferência dos documentos</p>
+            <h1 className="break-words text-2xl font-semibold tracking-tight text-neutral-900 sm:truncate dark:text-neutral-100">{savedHolderName || props.clientName}</h1>
+            <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
+              {savedHolderName && savedHolderName !== props.clientName ? `No CRM: ${props.clientName}` : "Cadastro da cota e conferência dos documentos"}
+            </p>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2 max-sm:w-full max-sm:flex-col max-sm:items-stretch">
             {quotaAt ? (
@@ -389,6 +455,52 @@ export function CadastroWorkspace(props: WorkspaceProps) {
               </button>
             }
           >
+            <div className="mb-5 grid border-b border-neutral-200 pb-5 sm:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] dark:border-neutral-800">
+              <div className="flex min-w-0 items-start gap-3 pb-4 sm:pr-6 sm:pb-0">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-300">
+                  <UserRound className="h-4 w-4" strokeWidth={2} />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Nome no CRM</p>
+                  <p className="mt-1 truncate text-base font-semibold text-neutral-900 dark:text-neutral-100" title={props.clientName}>{props.clientName}</p>
+                  <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">Pipeline e conversas</p>
+                </div>
+              </div>
+
+              <div className="min-w-0 border-t border-neutral-200 pt-4 sm:border-l sm:border-t-0 sm:pl-6 sm:pt-0 dark:border-neutral-800">
+                <label className="flex items-center gap-2 text-xs font-semibold text-neutral-700 dark:text-neutral-200" htmlFor="holder-name">
+                  <Landmark className="h-3.5 w-3.5 text-brand" strokeWidth={2} />
+                  {legalNameLabel}
+                </label>
+                <div className="mt-2 flex gap-2">
+                  <input
+                    id="holder-name"
+                    className="field-input min-w-0 flex-1 font-medium"
+                    maxLength={180}
+                    value={holderName}
+                    onChange={(event) => setHolderName(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && holderNameDirty) void saveHolderName();
+                    }}
+                  />
+                  {holderNameDirty ? (
+                    <button
+                      type="button"
+                      className="btn-primary min-w-24 shrink-0"
+                      disabled={!holderName.trim() || savingHolderName}
+                      onClick={() => void saveHolderName()}
+                    >
+                      {savingHolderName ? "Salvando..." : "Salvar"}
+                    </button>
+                  ) : (
+                    <span className="inline-flex min-w-24 shrink-0 items-center justify-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                      <CheckCircle2 className="h-4 w-4" strokeWidth={2} /> Salvo
+                    </span>
+                  )}
+                </div>
+                <p className="mt-1.5 text-xs text-neutral-500 dark:text-neutral-400">Usado na administradora. O nome do CRM continua igual.</p>
+              </div>
+            </div>
             <div className="grid gap-x-8 gap-y-6 md:grid-cols-2">
               {dataGroups.map((group) => {
                 const Icon = group.icon;

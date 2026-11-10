@@ -20,6 +20,7 @@ import { formatCurrency } from "@/lib/format";
 export type CadastroRow = {
   id: string;
   client: string;
+  holderName: string;
   /** "Grupo 1568 · Cota 0123-00" — vazio enquanto o administrativo não preencheu. */
   quotaLabel: string;
   consultant: string;
@@ -67,7 +68,13 @@ export function CadastrosList({ rows, doneTotal }: { rows: CadastroRow[]; doneTo
   const visible = useMemo(() => {
     const term = q.trim().toLowerCase();
     const list = rows.filter(
-      (r) => (tab === "all" || r.state === tab) && (!term || r.client.toLowerCase().includes(term) || r.consultant.toLowerCase().includes(term) || r.quotaLabel.toLowerCase().includes(term)),
+      (r) =>
+        (tab === "all" || r.state === tab) &&
+        (!term ||
+          r.client.toLowerCase().includes(term) ||
+          r.holderName.toLowerCase().includes(term) ||
+          r.consultant.toLowerCase().includes(term) ||
+          r.quotaLabel.toLowerCase().includes(term)),
     );
     // Pendentes: a venda mais antiga primeiro (fila); cadastradas: as mais recentes.
     const dir = tab === "done" ? -1 : 1;
@@ -201,7 +208,10 @@ export function CadastrosList({ rows, doneTotal }: { rows: CadastroRow[]; doneTo
                           <StateIcon className="h-[18px] w-[18px]" strokeWidth={2} />
                         </span>
                         <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100">{row.client}</p>
+                          <p className="truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100">{row.holderName}</p>
+                          {row.holderName !== row.client && (
+                            <p className="mt-0.5 truncate text-xs text-neutral-500 dark:text-neutral-400">No CRM: {row.client}</p>
+                          )}
                           <p className="mt-0.5 truncate text-xs text-neutral-500 dark:text-neutral-400">
                             {[row.administrator, row.quotaLabel || null].filter(Boolean).join(" · ") || "Administradora não informada"}
                           </p>

@@ -2,7 +2,20 @@
 
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Bell, BellOff, Loader2, UserPlus, Check, X as XIcon, Eye, ClipboardCheck } from "lucide-react";
+import {
+  Bell,
+  BellOff,
+  BellRing,
+  Check,
+  CircleCheck,
+  ClipboardCheck,
+  Clock3,
+  Eye,
+  FileWarning,
+  Loader2,
+  UserPlus,
+  X as XIcon,
+} from "lucide-react";
 import { TASK_TYPE_LABELS, TASK_TYPE_ICON } from "@/lib/task-icons";
 import { formatCurrency } from "@/lib/format";
 import { usePushSubscription } from "@/lib/use-push-subscription";
@@ -21,6 +34,11 @@ type NotificationTask = {
     value: number | null;
     requestedAt: string;
   } | null;
+  consultantRequest: {
+    requestedBy: string;
+    text: string;
+    requestedAt: string;
+  } | null;
   /** true = dueAt já passou de verdade; false = ainda dentro de hoje (ver app/api/tasks/notifications/route.ts). */
   overdue: boolean;
 };
@@ -36,11 +54,12 @@ type LeadRequestNotification = {
   assignee: { id: string; name: string } | null;
 };
 
-const POLL_INTERVAL_MS = 60_000;
+const POLL_INTERVAL_MS = 30_000;
 
 type NotificationBellContextValue = {
   tasks: NotificationTask[];
   leadRequests: LeadRequestNotification[];
+  removeTask: (id: string) => void;
   removeLeadRequest: (id: string) => void;
 };
 
@@ -66,8 +85,12 @@ export function NotificationBellProvider({ children }: { children: React.ReactNo
     setLeadRequests((current) => current.filter((request) => request.id !== id));
   }
 
+  function removeTask(id: string) {
+    setTasks((current) => current.filter((task) => task.id !== id));
+  }
+
   return (
-    <NotificationBellContext.Provider value={{ tasks, leadRequests, removeLeadRequest }}>
+    <NotificationBellContext.Provider value={{ tasks, leadRequests, removeTask, removeLeadRequest }}>
       {children}
     </NotificationBellContext.Provider>
   );
@@ -76,8 +99,10 @@ export function NotificationBellProvider({ children }: { children: React.ReactNo
 export function NotificationBell() {
   const notifications = useContext(NotificationBellContext);
   if (!notifications) throw new Error("NotificationBell must be rendered inside NotificationBellProvider");
-  const { tasks, leadRequests, removeLeadRequest } = notifications;
+  const { tasks, leadRequests, removeTask, removeLeadRequest } = notifications;
   const [resolvingId, setResolvingId] = useState<string | null>(null);
+  const [handlingTaskId, setHandlingTaskId] = useState<string | null>(null);
+  const [taskActionError, setTaskActionError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   // Pedido de lead que está aberto no popup "Ver cliente" (ver
   // LeadRequestContactModal) — guarda o request inteiro, não só o
@@ -86,6 +111,31 @@ export function NotificationBell() {
   const [previewRequest, setPreviewRequest] = useState<LeadRequestNotification | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const { status: pushStatus, loading: pushLoading, subscribe, unsubscribe } = usePushSubscription();
+
+  async function handleConsultantRequestTask(taskId: string, action: "snooze" | "complete") {
+    setHandlingTaskId(taskId);
+    setTaskActionError(null);
+    try {
+      const body = action === "complete"
+        ? { completed: true }
+        : { dueAt: new Date(Date.now() + 60 * 60_000).toISOString() };
+      const res = await fetch(`/api/tasks/${taskId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        setTaskActionError(data.error ?? "Não foi possível atualizar o lembrete.");
+        return;
+      }
+      removeTask(taskId);
+    } catch {
+      setTaskActionError("Sem conexão. Tente novamente.");
+    } finally {
+      setHandlingTaskId(null);
+    }
+  }
 
   // Aprovar/recusar direto do sino — sem sair da tela nem abrir mais nada
   // (pedido explícito: "mostra um modal pequeno logo abaixo do sino"; este
@@ -124,7 +174,8 @@ export function NotificationBell() {
   // Cadastro de cota e uma fila administrativa, nao uma tarefa atrasada.
   // As tarefas de agenda continuam divididas pela urgencia real.
   const quotaRegistrationTasks = tasks.filter((task) => task.quotaRegistration !== null);
-  const scheduleTasks = tasks.filter((task) => task.quotaRegistration === null);
+  const consultantRequestTasks = tasks.filter((task) => task.consultantRequest !== null);
+  const scheduleTasks = tasks.filter((task) => task.quotaRegistration === null && task.consultantRequest === null);
   // Atrasadas primeiro (mais urgente), depois as de hoje ainda não vencidas
   // — os dois grupos já vêm ordenados por dueAt crescente (ver a query),
   // então só filtrar preserva a ordem cronológica dentro de cada um.
@@ -139,15 +190,31 @@ export function NotificationBell() {
         aria-label="Notificações"
         // Âncora do tour guiado da Central de ajuda (ver lib/help/tours.ts).
         data-help="notifications"
-        className="icon-btn relative h-9 w-9"
+        className={`icon-btn relative h-9 w-9 ${
+          consultantRequestTasks.length > 0
+            ? "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300"
+            : ""
+        }`}
       >
-        <Bell className="h-4 w-4" strokeWidth={2} />
+        {consultantRequestTasks.length > 0 ? <BellRing className="h-4 w-4" strokeWidth={2} /> : <Bell className="h-4 w-4" strokeWidth={2} />}
         {totalCount > 0 && (
           <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand px-1 text-[10px] font-semibold leading-none text-white">
             {totalCount > 9 ? "9+" : totalCount}
           </span>
         )}
       </button>
+
+      {!open && consultantRequestTasks.length > 0 && (
+        <ConsultantRequestNudge
+          task={consultantRequestTasks[0]}
+          total={consultantRequestTasks.length}
+          busy={handlingTaskId === consultantRequestTasks[0].id}
+          error={taskActionError}
+          onOpen={() => setOpen(true)}
+          onSnooze={() => void handleConsultantRequestTask(consultantRequestTasks[0].id, "snooze")}
+          onComplete={() => void handleConsultantRequestTask(consultantRequestTasks[0].id, "complete")}
+        />
+      )}
 
       {open && (
         <div className="surface-glass-panel animate-pop-in absolute right-0 z-40 mt-2 w-80 rounded-lg">
@@ -177,6 +244,16 @@ export function NotificationBell() {
               )
             ) : (
               <>
+                {consultantRequestTasks.length > 0 && (
+                  <ConsultantRequestGroup
+                    tasks={consultantRequestTasks}
+                    handlingTaskId={handlingTaskId}
+                    error={taskActionError}
+                    onNavigate={() => setOpen(false)}
+                    onSnooze={(id) => void handleConsultantRequestTask(id, "snooze")}
+                    onComplete={(id) => void handleConsultantRequestTask(id, "complete")}
+                  />
+                )}
                 {quotaRegistrationTasks.length > 0 && (
                   <QuotaRegistrationGroup tasks={quotaRegistrationTasks} onNavigate={() => setOpen(false)} />
                 )}
@@ -238,7 +315,135 @@ export function NotificationBell() {
   );
 }
 
-/** "Fulano pediu Beltrano pra carteira dele" — aprovar reatribui o contato na hora (ver PATCH /api/lead-requests/[id]); recusar só fecha o pedido; "Ver cliente" abre o popup de consulta (ver LeadRequestContactModal) antes de decidir. */
+/** Solicitação crítica do administrativo, persistente até adiar ou concluir o lembrete. */
+function consultantRequestHref(task: NotificationTask) {
+  return task.deal ? `/negocios/${task.deal.id}#pedido-administrativo` : "/agenda";
+}
+
+function consultantRequestContact(task: NotificationTask) {
+  return task.contact?.name ?? task.deal?.name ?? task.title.replace(/^Enviar documento:\s*/i, "");
+}
+
+function requestWhen(value: string) {
+  return new Date(value).toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "America/Campo_Grande",
+  });
+}
+
+function ConsultantRequestNudge({
+  task,
+  total,
+  busy,
+  error,
+  onOpen,
+  onSnooze,
+  onComplete,
+}: {
+  task: NotificationTask;
+  total: number;
+  busy: boolean;
+  error: string | null;
+  onOpen: () => void;
+  onSnooze: () => void;
+  onComplete: () => void;
+}) {
+  const request = task.consultantRequest!;
+  return (
+    <div
+      role="status"
+      className="surface-glass-panel animate-pop-in absolute top-11 right-0 z-50 w-[calc(100vw-2rem)] max-w-80 overflow-hidden rounded-md border-l-4 border-l-amber-500 shadow-xl"
+    >
+      <div className="flex items-start gap-3 px-3 py-3">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+          <FileWarning className="h-4 w-4" strokeWidth={2} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">Cadastro aguardando você</p>
+              <p className="truncate text-xs font-medium text-neutral-700 dark:text-neutral-300">{consultantRequestContact(task)}</p>
+            </div>
+            {total > 1 && (
+              <button type="button" onClick={onOpen} className="shrink-0 text-xs font-semibold text-brand hover:underline">
+                +{total - 1}
+              </button>
+            )}
+          </div>
+          <p className="mt-1 line-clamp-2 text-xs leading-4 text-neutral-600 dark:text-neutral-400">{request.text}</p>
+          <p className="mt-1 text-[11px] text-neutral-400 dark:text-neutral-500">Pedido por {request.requestedBy}</p>
+        </div>
+      </div>
+      {error && <p className="px-3 pb-2 text-xs text-red-600 dark:text-red-400">{error}</p>}
+      <div className="grid grid-cols-[1fr_auto_auto] items-center gap-1 border-t border-neutral-100 px-2 py-2 dark:border-neutral-800">
+        <Link href={consultantRequestHref(task)} className="btn-primary btn-sm justify-center" title="Abrir a venda e atender a solicitação">
+          Abrir solicitação
+        </Link>
+        <button type="button" onClick={onSnooze} disabled={busy} className="btn-ghost text-xs" title="Lembrar novamente em 1 hora">
+          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Clock3 className="h-3.5 w-3.5" />}
+          Depois
+        </button>
+        <button type="button" onClick={onComplete} disabled={busy} className="btn-ghost text-xs text-emerald-700 dark:text-emerald-400" title="Concluir lembrete">
+          <CircleCheck className="h-3.5 w-3.5" /> Concluir
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ConsultantRequestGroup({
+  tasks,
+  handlingTaskId,
+  error,
+  onNavigate,
+  onSnooze,
+  onComplete,
+}: {
+  tasks: NotificationTask[];
+  handlingTaskId: string | null;
+  error: string | null;
+  onNavigate: () => void;
+  onSnooze: (id: string) => void;
+  onComplete: (id: string) => void;
+}) {
+  return (
+    <div className="border-b border-amber-200/70 bg-amber-50/60 dark:border-amber-500/20 dark:bg-amber-500/[0.06]">
+      <p className="flex items-center gap-1.5 px-4 pt-2.5 pb-1 text-[11px] font-semibold uppercase text-amber-700 dark:text-amber-300">
+        <FileWarning className="h-3.5 w-3.5" /> Ação necessária para o cadastro
+      </p>
+      {error && <p className="px-4 py-1 text-xs text-red-600 dark:text-red-400">{error}</p>}
+      {tasks.map((task) => {
+        const request = task.consultantRequest!;
+        const busy = handlingTaskId === task.id;
+        return (
+          <div key={task.id} className="border-t border-amber-200/50 px-4 py-3 first:border-t-0 dark:border-amber-500/15">
+            <Link href={consultantRequestHref(task)} onClick={onNavigate} className="block min-w-0 hover:underline">
+              <p className="truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100">{consultantRequestContact(task)}</p>
+              <p className="mt-0.5 line-clamp-2 text-xs leading-4 text-neutral-600 dark:text-neutral-300">{request.text}</p>
+            </Link>
+            <p className="mt-1 text-[11px] text-neutral-500 dark:text-neutral-400">
+              {request.requestedBy} · {requestWhen(request.requestedAt)}
+            </p>
+            <div className="mt-2 flex items-center gap-2">
+              <button type="button" onClick={() => onSnooze(task.id)} disabled={busy} className="btn-ghost text-xs">
+                {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Clock3 className="h-3.5 w-3.5" />}
+                Lembrar em 1h
+              </button>
+              <button type="button" onClick={() => onComplete(task.id)} disabled={busy} className="btn-ghost text-xs text-emerald-700 dark:text-emerald-400">
+                <CircleCheck className="h-3.5 w-3.5" /> Concluir
+              </button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Pedido de lead: aprovar reatribui o contato; recusar apenas encerra o pedido. */
 function LeadRequestsGroup({
   requests,
   resolvingId,

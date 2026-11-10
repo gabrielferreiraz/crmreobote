@@ -3,6 +3,11 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
 import { runWithTenant } from "@/lib/tenant-context";
 import { brazilDateKey, brazilEndOfDayUTC } from "@/lib/timezone";
+import {
+  REQUEST_TASK_TITLE_PREFIX,
+  parseRequestItems,
+  summarizeRequestItems,
+} from "@/lib/deal-registration/request-rules";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +30,13 @@ export async function GET() {
         ownerId: userId,
         completedAt: null,
         OR: [
-          { dueAt: { lte: endOfToday } },
+          // Pedido do administrativo usa dueAt tambem como "lembrar depois".
+          // Diferente da Agenda, ele so volta ao sino quando a hora chegar.
+          { title: { startsWith: REQUEST_TASK_TITLE_PREFIX }, dueAt: { lte: now } },
+          {
+            dueAt: { lte: endOfToday },
+            NOT: { title: { startsWith: REQUEST_TASK_TITLE_PREFIX } },
+          },
           // Cadastro de cota e uma fila sem prazo de agenda. Continua no
           // sino ate ser concluido pela area administrativa.
           { dealId: { not: null }, title: { startsWith: "Cadastrar cota:" } },
@@ -47,6 +58,17 @@ export async function GET() {
             value: true,
             grossValue: true,
             owner: { select: { name: true } },
+            documentRequests: {
+              where: { status: "OPEN" },
+              orderBy: { createdAt: "desc" },
+              take: 1,
+              select: {
+                items: true,
+                message: true,
+                requestedByName: true,
+                createdAt: true,
+              },
+            },
           },
         },
         contact: { select: { id: true, name: true } },
@@ -55,7 +77,12 @@ export async function GET() {
 
     const result = tasks.map((task) => {
       const isQuotaRegistration = task.title.startsWith("Cadastrar cota:") && task.deal !== null;
+      const isConsultantRequest = task.title.startsWith(REQUEST_TASK_TITLE_PREFIX) && task.deal !== null;
       const credit = task.deal?.grossValue ?? task.deal?.value ?? null;
+      const openRequest = task.deal?.documentRequests[0];
+      const requestSummary = openRequest
+        ? summarizeRequestItems(parseRequestItems(openRequest.items), 2)
+        : "Pendência solicitada pelo administrativo";
 
       return {
         id: task.id,
@@ -71,9 +98,16 @@ export async function GET() {
               requestedAt: task.createdAt,
             }
           : null,
+        consultantRequest: isConsultantRequest
+          ? {
+              requestedBy: openRequest?.requestedByName ?? "Administrativo",
+              text: openRequest?.message || requestSummary,
+              requestedAt: openRequest?.createdAt ?? task.createdAt,
+            }
+          : null,
         // Cadastro de cota e uma fila administrativa, nao um compromisso
         // com horario vencido. A data relevante e quando foi solicitado.
-        overdue: !isQuotaRegistration && !!task.dueAt && task.dueAt < now,
+        overdue: !isQuotaRegistration && !isConsultantRequest && !!task.dueAt && task.dueAt < now,
       };
     });
     return NextResponse.json(result);

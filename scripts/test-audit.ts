@@ -145,7 +145,7 @@ test("o Ganho só libera com grupo, prazo e forma de pagamento (do consultor); c
   const { findMissingRegistrationItems } = await import("@/lib/deal-registration/rules");
   const base = {
     contact: { email: "a@b.com", whatsapp: "+55 (67) 99999-1234", phone: null, zipCode: "79002-000", address: "Rua A", addressNumber: "10", neighborhood: "Centro", city: "Campo Grande", state: "MS" },
-    registration: { personType: "PF" as const, cpf: "529.982.247-25", cnpj: null, profession: "Eng", maritalStatus: "Solteiro(a)", monthlyIncome: 8000, groupNumber: null as string | null, termMonths: null as number | null, paymentMethod: null as string | null, bankName: null, bankAgency: null, bankAccount: null, bankAccountType: null },
+    registration: { personType: "PF" as const, holderName: "Ana Maria", cpf: "529.982.247-25", cnpj: null, profession: "Eng", maritalStatus: "Solteiro(a)", monthlyIncome: 8000, groupNumber: null as string | null, termMonths: null as number | null, paymentMethod: null as string | null, bankName: null, bankAgency: null, bankAccount: null, bankAccountType: null },
     documents: [{ kind: "PHOTO_ID" as const }],
   };
   const opts = { requiresBankData: false, documentsWaived: false };

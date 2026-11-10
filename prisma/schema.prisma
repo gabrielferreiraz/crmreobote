@@ -4410,6 +4410,8 @@ model DealRegistration {
   dealId         String @unique
 
   personType     DealRegistrationPersonType @default(PF)
+  // Nome exato usado pela administradora. Pode divergir do nome operacional do Contact.
+  holderName     String?
   cpf            String?
   cnpj           String?
   profession     String?

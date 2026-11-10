@@ -30,6 +30,7 @@ export default async function CadastrosPage() {
       registration: {
         select: {
           completedAt: true,
+          holderName: true,
           waivedReason: true,
           quotaRegisteredAt: true,
           groupNumber: true,
@@ -65,6 +66,7 @@ export default async function CadastrosPage() {
       return {
         id: d.id,
         client: d.contact.name,
+        holderName: reg.holderName?.trim() || d.contact.name,
         quotaLabel: formatQuotaLabel(reg),
         consultant: d.owner.name,
         administrator: d.administrator?.name ?? null,

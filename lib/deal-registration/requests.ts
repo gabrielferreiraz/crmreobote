@@ -158,9 +158,9 @@ export async function createDocumentRequest(params: {
       console.error("[deal-registration] falha ao criar a tarefa do pedido", err);
     }
     await sendPushToUser(userId, {
-      title: "Documento pedido pelo administrativo",
-      body: `${deal.contact.name} · ${summary}`,
-      url: `/negocios/${dealId}`,
+      title: "Cadastro bloqueado: ação necessária",
+      body: `${deal.contact.name} · ${message || summary}`,
+      url: `/negocios/${dealId}#pedido-administrativo`,
     }).catch((err) => console.error("[deal-registration] falha no push do pedido", err));
   }
 

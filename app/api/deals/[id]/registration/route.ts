@@ -41,6 +41,7 @@ const bodySchema = z
     registration: z
       .object({
         personType: z.enum(["PF", "PJ"]).optional(),
+        holderName: text(180),
         cpf: text(20),
         cnpj: text(24),
         profession: text(120),
