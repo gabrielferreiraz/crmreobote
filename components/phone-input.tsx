@@ -1,7 +1,7 @@
 "use client";
 
 import { useLayoutEffect, useRef } from "react";
-import { applyPhoneMask } from "@/lib/phone-normalize";
+import { applyPhoneMask, formatPhoneMask, limitPhoneInput } from "@/lib/phone-normalize";
 
 /**
  * Campo de telefone/WhatsApp com máscara "ao vivo" (ver formatPhoneMask em
@@ -27,6 +27,7 @@ export function PhoneInput({
   error,
   required,
   autoFocus,
+  inputClassName,
 }: {
   label: string;
   value: string;
@@ -34,9 +35,15 @@ export function PhoneInput({
   error?: string | null;
   required?: boolean;
   autoFocus?: boolean;
+  inputClassName?: string;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const nextCaretRef = useRef<number | null>(null);
+  const maskedValue = formatPhoneMask(value);
+
+  // Brasileiro completo ocupa 19 caracteres com a mascara. Para numeros
+  // internacionais, o limite E.164 e de 15 digitos mais o sinal de "+".
+  const maxLength = maskedValue.startsWith("+55") || !maskedValue ? 19 : maskedValue.startsWith("+") ? 16 : 15;
 
   useLayoutEffect(() => {
     if (nextCaretRef.current === null || !inputRef.current) return;
@@ -45,8 +52,8 @@ export function PhoneInput({
   }, [value]);
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const raw = e.target.value;
-    const caret = e.target.selectionStart ?? raw.length;
+    const raw = limitPhoneInput(e.target.value);
+    const caret = Math.min(e.target.selectionStart ?? raw.length, raw.length);
     const { value: masked, caret: caretInMasked } = applyPhoneMask(raw, caret);
 
     nextCaretRef.current = caretInMasked;
@@ -63,11 +70,14 @@ export function PhoneInput({
         ref={inputRef}
         type="tel"
         inputMode="tel"
+        autoComplete="tel"
         autoFocus={autoFocus}
-        value={value}
+        value={maskedValue}
         onChange={handleChange}
+        maxLength={maxLength}
         placeholder="+55 (00) 00000-0000"
-        className="field-input"
+        aria-invalid={!!error}
+        className={`field-input ${inputClassName ?? ""}`}
       />
       {error && <p className="text-xs text-red-500">{error}</p>}
     </div>

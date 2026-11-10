@@ -34,6 +34,15 @@ const PRIMARY_ITEMS_ADMINISTRATIVO: NavItem[] = [
   { href: "/agenda", label: "Agenda", icon: CalendarDays },
 ];
 
+// Financeiro: só o que usa — parcelas/comissões, clientes e agenda.
+const PRIMARY_ITEMS_FINANCEIRO: NavItem[] = [
+  { href: "/", label: "Início", icon: Home, exact: true },
+  { href: "/clientes", label: "Clientes", icon: Users },
+  { href: "/comissoes", label: "Comissões", icon: Wallet },
+  { href: "/agenda", label: "Agenda", icon: CalendarDays },
+];
+const OVERFLOW_ITEMS_FINANCEIRO: NavItem[] = [{ href: "/configuracoes", label: "Configurações", icon: Settings }];
+
 const OVERFLOW_ITEMS_VENDAS: NavItem[] = [
   { href: "/clientes", label: "Clientes", icon: Users },
   { href: "/processos", label: "Processos", icon: ClipboardList },
@@ -84,6 +93,7 @@ function TabContent({ icon: Icon, label, isActive }: { icon: typeof Home; label:
 
 export function MobileNav({
   signOutAction,
+  area = "VENDAS",
   isAdministrativo,
   academyHref,
   showCommissions = false,
@@ -91,6 +101,7 @@ export function MobileNav({
   showRegistrations = false,
 }: {
   signOutAction: () => Promise<void>;
+  area?: string;
   isAdministrativo: boolean;
   /** "Planilhas" na folha "Mais" — só Administrativo e Dono (ver lib/sheets/access.ts). */
   showSheets?: boolean;
@@ -106,12 +117,13 @@ export function MobileNav({
 }) {
   const pathname = usePathname();
   const [sheetOpen, setSheetOpen] = useState(false);
-  const primaryItems = isAdministrativo ? PRIMARY_ITEMS_ADMINISTRATIVO : PRIMARY_ITEMS_VENDAS;
-  const baseOverflowItems = isAdministrativo ? OVERFLOW_ITEMS_ADMINISTRATIVO : OVERFLOW_ITEMS_VENDAS;
+  const financeiro = area === "FINANCEIRO";
+  const primaryItems = financeiro ? PRIMARY_ITEMS_FINANCEIRO : isAdministrativo ? PRIMARY_ITEMS_ADMINISTRATIVO : PRIMARY_ITEMS_VENDAS;
+  const baseOverflowItems = financeiro ? OVERFLOW_ITEMS_FINANCEIRO : isAdministrativo ? OVERFLOW_ITEMS_ADMINISTRATIVO : OVERFLOW_ITEMS_VENDAS;
   const extraItems: NavItem[] = [
     ...(showRegistrations ? [{ href: "/cadastros", label: "Cadastros", icon: ClipboardCheck }] : []),
     ...(showSheets ? [{ href: "/planilhas", label: "Planilhas", icon: FileSpreadsheet }] : []),
-    ...(showCommissions ? [{ href: "/comissoes", label: "Comissões", icon: Wallet }] : []),
+    ...(showCommissions && !financeiro ? [{ href: "/comissoes", label: "Comissões", icon: Wallet }] : []),
   ];
   // Extras entram antes de "Configurações" (sempre o último).
   const overflowItems = [...baseOverflowItems.slice(0, -1), ...extraItems, ...baseOverflowItems.slice(-1)];

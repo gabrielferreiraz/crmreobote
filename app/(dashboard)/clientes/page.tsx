@@ -14,7 +14,7 @@ const DEFAULT_PAGE_SIZE = 50;
 
 export default async function ClientesPage() {
   const area = await getCurrentUserArea();
-  if (area === "ADMINISTRATIVO") return <AdminClientsView />;
+  if (area && area !== "VENDAS") return <AdminClientsView />;
 
   const session = await auth();
   const organizationId = session!.user.organizationId!;

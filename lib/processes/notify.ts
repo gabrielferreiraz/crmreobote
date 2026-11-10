@@ -12,7 +12,7 @@ import { sendPushToUser } from "@/lib/push";
 
 async function getProcessAdminUserIds(organizationId: string): Promise<string[]> {
   const admins = await prisma.organizationUser.findMany({
-    where: { organizationId, active: true, OR: [{ role: "OWNER" }, { canManageProcesses: true }] },
+    where: { organizationId, active: true, OR: [{ role: "OWNER" }, { canManageProcesses: true }, { area: "ADMINISTRATIVO" }, { area: "POS_CONTEMPLACAO" }] },
     select: { userId: true },
   });
   return admins.map((a) => a.userId);

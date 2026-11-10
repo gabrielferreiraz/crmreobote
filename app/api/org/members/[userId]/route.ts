@@ -1,3 +1,4 @@
+import { isValidArea, type AreaValue } from "@/lib/areas";
 import { NextResponse } from "next/server";
 import { prisma, prismaRaw } from "@/lib/prisma";
 import { requireRole } from "@/lib/require-role";
@@ -34,7 +35,7 @@ export async function PATCH(
     active?: boolean;
     name?: string;
     canManageProcesses?: boolean;
-    area?: "VENDAS" | "ADMINISTRATIVO";
+    area?: AreaValue;
     /** "YYYY-MM-DD" (dia civil puro, ver User.birthDate no schema) ou null pra limpar. */
     birthDate?: string | null;
     email?: string;
@@ -50,7 +51,7 @@ export async function PATCH(
   if (role !== undefined && !["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"].includes(role)) {
     return NextResponse.json({ error: "role inválido" }, { status: 400 });
   }
-  if (area !== undefined && area !== "VENDAS" && area !== "ADMINISTRATIVO") {
+  if (area !== undefined && !isValidArea(area)) {
     return NextResponse.json({ error: "area inválida" }, { status: 400 });
   }
 
@@ -177,6 +178,8 @@ export async function PATCH(
     const clearsManagement = (role && role !== "MANAGER") || active === false;
     const nextRole = role ?? membership.role;
     const nextArea = area ?? membership.area;
+    // Quem deixa Vendas para uma área de retaguarda sai dos rankings (não vende), a não ser que o pedido diga outra coisa.
+    const leavesSales = membership.area === "VENDAS" && nextArea !== "VENDAS";
     const nextActive = active ?? membership.active;
     const manualAcademyState = academyOnboardingAction
       ? stateAfterManualAcademyAction(
@@ -227,8 +230,8 @@ export async function PATCH(
           canManageProcesses,
           area,
           countsTowardGoal,
-          showInPodium,
-          showInMonthRanking,
+          showInPodium: showInPodium ?? (leavesSales ? false : undefined),
+          showInMonthRanking: showInMonthRanking ?? (leavesSales ? false : undefined),
           academyOnboardingStatus:
             nextAcademyOnboardingStatus !== membership.academyOnboardingStatus
               ? nextAcademyOnboardingStatus

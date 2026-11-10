@@ -14,7 +14,7 @@ import {
   BANK_ACCOUNT_TYPE_OPTIONS,
   DOCUMENT_KIND_LABELS,
   MARITAL_STATUS_OPTIONS,
-    DOCUMENT_RETENTION_DAYS,
+  DOCUMENT_RETENTION_DAYS,
   findMissingRegistrationItems,
   summarizeMissing,
   type MissingItem,

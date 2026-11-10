@@ -98,7 +98,7 @@ export default async function RelatoriosPage({
   // admin-reports-view.tsx) — não tem relação com o filtro do comercial,
   // só reaproveita os mesmos nomes de parâmetro de URL.
   const area = await getCurrentUserArea();
-  if (area === "ADMINISTRATIVO")
+  if (area && area !== "VENDAS")
     return <AdminReportsView from={fromParam} to={toParam} who={whoParam} pipelineId={processPipelineIdParam} />;
 
   const session = await auth();

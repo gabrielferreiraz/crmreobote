@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { ArrowUpRight, Briefcase, TrendingUp, Users, Inbox, ArrowRight } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -76,7 +77,9 @@ export default async function HomePage() {
   // vendas, que não fazem sentido pra quem não vende (ver conversa que
   // definiu o módulo de Processos).
   const area = await getCurrentUserArea();
-  if (area === "ADMINISTRATIVO") return <HomeAdministrativo />;
+  // Financeiro vai direto para o que faz o dia todo: parcelas e comissões.
+  if (area === "FINANCEIRO") redirect("/comissoes");
+  if (area === "ADMINISTRATIVO" || area === "POS_CONTEMPLACAO") return <HomeAdministrativo />;
 
   return runWithTenant(organizationId, async () => {
   const scope = await getDealScope(organizationId, userId, session!.user.role);

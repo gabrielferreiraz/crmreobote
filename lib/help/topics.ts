@@ -331,11 +331,13 @@ export const HELP_TOPICS: HelpTopic[] = [
     category: "pipeline",
     icon: "Trophy",
     salesOnly: true,
-    keywords: ["ganho", "ganhar", "vendeu", "fechou", "venda", "comissão", "ranking", "contemplado", "sucesso", "fechar negócio", "assinou", "vendi", "fechei", "ganhei"],
+    keywords: ["ganho", "ganhar", "vendeu", "fechou", "venda", "comissão", "ranking", "contemplado", "sucesso", "fechar negócio", "assinou", "vendi", "fechei", "ganhei", "cadastro do cliente", "documento", "cnh", "rg", "administrativo pediu", "pedido do administrativo"],
     steps: [
       "Abra o negócio e marque como ganho.",
       "Informe a data do fechamento — o relatório e o ranking usam essa data, não a de hoje.",
+      "Escolha a administradora: o CRM abre o cadastro do cliente (documento com foto, CPF, endereço, renda…). Ele salva sozinho, dá para fechar e voltar depois, e o botão só libera com tudo preenchido.",
       "Se faltar valor ou cargo do cliente, o CRM pede na hora: esses campos são o que faz o relatório fechar certo.",
+      "Depois do ganho, se o administrativo precisar de mais algum documento, aparece na venda o cartão “Pedido do administrativo” (e você recebe um aviso no celular): envie o arquivo ali mesmo.",
     ],
     note: {
       kind: "tip",

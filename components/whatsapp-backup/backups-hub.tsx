@@ -1,5 +1,6 @@
 "use client";
 
+import { AREA_LABELS } from "@/lib/areas";
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import {
@@ -33,7 +34,7 @@ const ROLE_LABEL: Record<BackupMember["role"], string> = {
 };
 
 function roleLabel(m: BackupMember): string {
-  if (m.role === "MEMBER" && m.area === "ADMINISTRATIVO") return "Administrativo";
+  if (m.role === "MEMBER" && m.area !== "VENDAS") return AREA_LABELS[m.area];
   return ROLE_LABEL[m.role];
 }
 

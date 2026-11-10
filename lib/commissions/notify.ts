@@ -99,7 +99,7 @@ export function notifyDisputeOpened(organizationId: string, requesterName: strin
   return safe("contestação aberta", async () => {
     const managers = await runWithTenant(organizationId, async () => {
       const marked = await prisma.organizationUser.findMany({
-        where: { organizationId, active: true, canManageCommissions: true },
+        where: { organizationId, active: true, OR: [{ canManageCommissions: true }, { area: "FINANCEIRO" }] },
         select: { userId: true },
       });
       if (marked.length > 0) return marked;

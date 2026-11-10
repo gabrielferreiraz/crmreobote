@@ -5,11 +5,13 @@ import { Loader2, Sparkles } from "lucide-react";
 import { CurrencyInput } from "@/components/currency-input";
 import { ContactConflictNotice, type ContactConflict } from "@/components/contact-conflict-notice";
 import { LoadingDots } from "@/components/loading-dots";
+import { PhoneInput } from "@/components/phone-input";
 import { Select } from "@/components/select";
 import { VoiceInputButton } from "@/components/voice-input-button";
 import { ESTADOS_BR } from "@/lib/contacts/constants";
 import { parseLeadText, normalizeLabel, type ParsedLeadFields } from "@/lib/quick-register/parse-lead-text";
 import { appendDictatedLeadText } from "@/lib/quick-register/format-dictated-lead-text";
+import { validatePhoneField } from "@/lib/phone-normalize";
 import { useVoiceTranscription } from "@/lib/use-voice-transcription";
 import { useCepAutofill } from "@/lib/use-cep-autofill";
 import type { Deal } from "./kanban-board";
@@ -73,6 +75,8 @@ export function QuickRegisterDealForm({
   const [jobTitles, setJobTitles] = useState<JobTitleOption[]>(initialJobTitles ?? []);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [phoneError, setPhoneError] = useState<string | null>(null);
+  const [whatsappError, setWhatsappError] = useState<string | null>(null);
   const [conflict, setConflict] = useState<ContactConflict | null>(null);
   const [claiming, setClaiming] = useState(false);
 
@@ -347,6 +351,11 @@ export function QuickRegisterDealForm({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!firstStageId || !name.trim() || !jobTitle) return;
+    const phoneErr = validatePhoneField(phone, "phone");
+    const whatsappErr = validatePhoneField(whatsapp, "whatsapp");
+    setPhoneError(phoneErr);
+    setWhatsappError(whatsappErr);
+    if (phoneErr || whatsappErr) return;
     setLoading(true);
     setError(null);
     setConflict(null);
@@ -364,6 +373,11 @@ export function QuickRegisterDealForm({
 
   async function handleClaim() {
     if (!conflict) return;
+    const phoneErr = validatePhoneField(phone, "phone");
+    const whatsappErr = validatePhoneField(whatsapp, "whatsapp");
+    setPhoneError(phoneErr);
+    setWhatsappError(whatsappErr);
+    if (phoneErr || whatsappErr) return;
     setClaiming(true);
     setError(null);
     try {
@@ -440,29 +454,29 @@ export function QuickRegisterDealForm({
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <label className="field-label">WhatsApp</label>
-              <input
-                value={whatsapp}
-                onChange={(e) => {
-                  setWhatsapp(e.target.value);
-                  reviewed("whatsapp");
-                }}
-                className={`field-input ${fieldHighlight("whatsapp")}`}
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="field-label">Celular (nº 2)</label>
-              <input
-                value={phone}
-                onChange={(e) => {
-                  setPhone(e.target.value);
-                  reviewed("phone");
-                }}
-                className={`field-input ${fieldHighlight("phone")}`}
-              />
-            </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <PhoneInput
+              label="WhatsApp"
+              value={whatsapp}
+              onChange={(next) => {
+                setWhatsapp(next);
+                setWhatsappError(null);
+                reviewed("whatsapp");
+              }}
+              error={whatsappError}
+              inputClassName={fieldHighlight("whatsapp")}
+            />
+            <PhoneInput
+              label="Celular (nº 2)"
+              value={phone}
+              onChange={(next) => {
+                setPhone(next);
+                setPhoneError(null);
+                reviewed("phone");
+              }}
+              error={phoneError}
+              inputClassName={fieldHighlight("phone")}
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-3">

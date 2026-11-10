@@ -1,5 +1,5 @@
 export type AcademyOnboardingRole = "OWNER" | "MANAGER" | "SUPERVISOR" | "MEMBER";
-export type AcademyOnboardingArea = "VENDAS" | "ADMINISTRATIVO";
+export type AcademyOnboardingArea = "VENDAS" | "ADMINISTRATIVO" | "FINANCEIRO" | "POS_CONTEMPLACAO";
 export type AcademyOnboardingState = "NOT_REQUIRED" | "REQUIRED" | "STARTED" | "CRM_UNLOCKED";
 export type ManualAcademyOnboardingAction = "REQUIRE" | "EXEMPT";
 

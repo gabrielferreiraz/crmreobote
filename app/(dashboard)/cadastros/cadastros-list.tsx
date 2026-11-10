@@ -37,7 +37,7 @@ function daysLeft(iso: string): number {
   return Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000);
 }
 
-export function CadastrosList({ rows }: { rows: CadastroRow[] }) {
+export function CadastrosList({ rows, doneTotal }: { rows: CadastroRow[]; doneTotal: number }) {
   const [tab, setTab] = useState<Tab>("ready");
   const [q, setQ] = useState("");
 
@@ -45,10 +45,10 @@ export function CadastrosList({ rows }: { rows: CadastroRow[] }) {
     () => ({
       ready: rows.filter((r) => r.state === "ready").length,
       waiting: rows.filter((r) => r.state === "waiting").length,
-      done: rows.filter((r) => r.state === "done").length,
-      all: rows.length,
+      done: doneTotal,
+      all: rows.filter((r) => r.state !== "done").length + doneTotal,
     }),
-    [rows],
+    [rows, doneTotal],
   );
 
   const visible = useMemo(() => {
@@ -158,6 +158,9 @@ export function CadastrosList({ rows }: { rows: CadastroRow[] }) {
             );
           })}
         </ul>
+      )}
+      {(tab === "done" || tab === "all") && doneTotal > rows.filter((r) => r.state === "done").length && (
+        <p className="text-center text-xs text-neutral-500 dark:text-neutral-400">Mostrando as 150 cadastradas mais recentes.</p>
       )}
     </div>
   );

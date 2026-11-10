@@ -10,17 +10,18 @@ import { Lista50Button } from "./lista-50-button";
 // Configurações saiu daqui — mora no menu do usuário agora (ver
 // components/user-menu.tsx), pra deixar essa fileira só com o que é
 // trabalho do dia a dia (menos itens grudados aqui em cima).
-const NAV_ITEMS = [
+// notFor: áreas que não veem o item (Financeiro tem um menu enxuto: só o que usa).
+const NAV_ITEMS: { href: string; label: string; icon: typeof Home; alsoActiveOn?: string[]; salesOnly?: boolean; commissionsOnly?: boolean; sheetsOnly?: boolean; registrationsOnly?: boolean; notFor?: string[] }[] = [
   { href: "/", label: "Início", icon: Home },
   { href: "/clientes", label: "Clientes", icon: Users },
   { href: "/pipeline", label: "Pipeline", icon: Kanban, alsoActiveOn: ["/negocios"], salesOnly: true },
-  { href: "/whatsapp", label: "WhatsApp", icon: MessageCircle },
+  { href: "/whatsapp", label: "WhatsApp", icon: MessageCircle, notFor: ["FINANCEIRO"] },
   { href: "/agenda", label: "Agenda", icon: CalendarDays },
-  { href: "/processos", label: "Processos", icon: ClipboardList },
-  { href: "/relatorios", label: "Relatórios", icon: BarChart3 },
+  { href: "/processos", label: "Processos", icon: ClipboardList, notFor: ["FINANCEIRO"] },
+  { href: "/relatorios", label: "Relatórios", icon: BarChart3, notFor: ["FINANCEIRO"] },
   // Fila de cadastro de cotas: só Administrativo e Dono.
   { href: "/cadastros", label: "Cadastros", icon: ClipboardCheck, registrationsOnly: true },
-  { href: "/tabelas", label: "Tabelas", icon: Table2 },
+  { href: "/tabelas", label: "Tabelas", icon: Table2, notFor: ["FINANCEIRO", "POS_CONTEMPLACAO"] },
   // Planilhas do Administrativo: só área Administrativo e Dono (ver lib/sheets/access.ts).
   { href: "/planilhas", label: "Planilhas", icon: FileSpreadsheet, sheetsOnly: true },
   // Só aparece pra quem tem o que ver (ver showCommissions em layout.tsx).
@@ -55,11 +56,13 @@ const DRAG_THRESHOLD_PX = 4;
 
 /** Administrativo (pós-venda) não vê Pipeline/Negócios — não é o CRM de vendas que ele opera. */
 export function TopNavLinks({
+  area = "VENDAS",
   isAdministrativo,
   showCommissions = false,
   showSheets = false,
   showRegistrations = false,
 }: {
+  area?: string;
   isAdministrativo: boolean;
   showCommissions?: boolean;
   showSheets?: boolean;
@@ -67,7 +70,7 @@ export function TopNavLinks({
 }) {
   const pathname = usePathname();
   const items = NAV_ITEMS.filter(
-    (item) => !(isAdministrativo && item.salesOnly) && !(item.commissionsOnly && !showCommissions) && !(item.sheetsOnly && !showSheets) && !(item.registrationsOnly && !showRegistrations),
+    (item) => !item.notFor?.includes(area) && !(isAdministrativo && item.salesOnly) && !(item.commissionsOnly && !showCommissions) && !(item.sheetsOnly && !showSheets) && !(item.registrationsOnly && !showRegistrations),
   );
 
   const scrollRef = useRef<HTMLElement>(null);
@@ -135,7 +138,8 @@ export function TopNavLinks({
           pra equipe em 2026-10-31, depois da revisão completa do módulo.
           Fora do NAV_ITEMS porque tem visual próprio (fita de alerta), não
           o estilo dos links normais da fileira. */}
-      <Lista50Button />
+      {/* Lista dos 50 é ferramenta de quem vende; o Administrativo não entrega lista. */}
+      {!isAdministrativo && <Lista50Button />}
       {items.map((item) => {
         const isActive =
           item.href === "/"

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@/app/generated/prisma/client";
 import { getCurrentMembership } from "@/lib/current-membership";
 import { runWithTenant } from "@/lib/tenant-context";
 import { canBypassRegistration, DOCUMENT_RETENTION_DAYS } from "@/lib/deal-registration/rules";
@@ -10,44 +11,54 @@ import { CadastrosList, type CadastroRow } from "./cadastros-list";
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Cadastros" };
 
+const DONE_LIMIT = 150;
+
 /** Fila do administrativo: vendas ganhas para cadastrar a cota, o que está esperando o consultor e o que já foi feito. */
 export default async function CadastrosPage() {
   const m = await getCurrentMembership();
   if (!m?.active || !canBypassRegistration(m)) redirect("/");
 
-  const rows = await runWithTenant(m.organizationId, async () => {
-    const deals = await prisma.deal.findMany({
-      where: { organizationId: m.organizationId, status: "WON", registration: { isNot: null } },
-      orderBy: { closedAt: "desc" },
-      take: 400,
-      select: {
-        id: true,
-        value: true,
-        grossValue: true,
-        closedAt: true,
-        contact: { select: { name: true } },
-        owner: { select: { name: true } },
-        administrator: { select: { name: true } },
-        registration: {
-          select: {
-            completedAt: true,
-            waivedReason: true,
-            quotaRegisteredAt: true,
-            documentsPurgedAt: true,
-            documents: { select: { createdAt: true } },
-          },
+  const data = await runWithTenant(m.organizationId, async () => {
+    const select = {
+      id: true,
+      value: true,
+      grossValue: true,
+      closedAt: true,
+      contact: { select: { name: true } },
+      owner: { select: { name: true } },
+      administrator: { select: { name: true } },
+      registration: {
+        select: {
+          completedAt: true,
+          waivedReason: true,
+          quotaRegisteredAt: true,
+          documentsPurgedAt: true,
+          documents: { select: { createdAt: true } },
         },
-        documentRequests: { orderBy: { createdAt: "desc" }, take: 5, select: { status: true, items: true } },
       },
-    });
+      documentRequests: { orderBy: { createdAt: "desc" }, take: 5, select: { status: true, items: true } },
+    } satisfies Prisma.DealSelect;
+    const base = { organizationId: m.organizationId, status: "WON" as const };
+    // Pendentes: todas (a fila nunca pode esconder uma venda antiga). Cadastradas: só as mais recentes.
+    const [pending, done, doneTotal] = await Promise.all([
+      prisma.deal.findMany({ where: { ...base, registration: { is: { quotaRegisteredAt: null } } }, orderBy: { closedAt: "desc" }, take: 1500, select }),
+      prisma.deal.findMany({
+        where: { ...base, registration: { is: { quotaRegisteredAt: { not: null } } } },
+        orderBy: { registration: { quotaRegisteredAt: "desc" } },
+        take: DONE_LIMIT,
+        select,
+      }),
+      prisma.deal.count({ where: { ...base, registration: { is: { quotaRegisteredAt: { not: null } } } } }),
+    ]);
+    const deals = [...pending, ...done];
 
-    return deals.map((d): CadastroRow => {
+    const mapped = deals.map((d): CadastroRow => {
       const reg = d.registration!;
       const credit = d.grossValue ?? d.value;
       const open = d.documentRequests.find((r) => r.status === "OPEN");
       const last = d.documentRequests[0];
-      const base = reg.completedAt ?? d.closedAt;
-      const expiries = reg.documents.map((doc) => Math.max(doc.createdAt.getTime(), base ? base.getTime() : 0) + DOCUMENT_RETENTION_DAYS * 86_400_000);
+      const since = reg.completedAt ?? d.closedAt;
+      const expiries = reg.documents.map((doc) => Math.max(doc.createdAt.getTime(), since ? since.getTime() : 0) + DOCUMENT_RETENTION_DAYS * 86_400_000);
       return {
         id: d.id,
         client: d.contact.name,
@@ -65,7 +76,8 @@ export default async function CadastrosPage() {
         quotaAt: reg.quotaRegisteredAt ? reg.quotaRegisteredAt.toISOString() : null,
       };
     });
+    return { rows: mapped, doneTotal };
   });
 
-  return <CadastrosList rows={rows} />;
+  return <CadastrosList rows={data.rows} doneTotal={data.doneTotal} />;
 }

@@ -89,7 +89,8 @@ export const getCurrentMembership = cache(async (): Promise<CurrentMembership | 
     role: membership.role,
     area: membership.area,
     canManageProcesses: membership.canManageProcesses,
-    canManageCommissions: membership.canManageCommissions,
+    // Área Financeiro cuida das comissões sem precisar da marca à parte.
+    canManageCommissions: membership.canManageCommissions || membership.area === "FINANCEIRO",
     commissionsActive: membership.organization.commissionStartDate != null,
     academyOnboardingStatus: membership.academyOnboardingStatus,
     academyShortcutHintSeenAt: membership.academyShortcutHintSeenAt,

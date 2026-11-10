@@ -95,6 +95,7 @@ export function CadastroWorkspace(props: WorkspaceProps) {
   const [composerKey, setComposerKey] = useState(0);
   const [presetKeys, setPresetKeys] = useState<string[]>([]);
   const [copiedAll, setCopiedAll] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const docSrc = (id: string) => `/api/deals/${dealId}/registration/documents/${id}`;
   const openRequest = requests.find((x) => x.status === "OPEN");
@@ -108,14 +109,23 @@ export function CadastroWorkspace(props: WorkspaceProps) {
     document.getElementById("pedir-ao-consultor")?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
-  async function patch(body: unknown) {
+  /** Chama o PATCH do cadastro; devolve true se deu certo e mostra o motivo se não deu. */
+  async function patch(body: unknown): Promise<boolean> {
     setBusy(true);
+    setActionError(null);
     try {
-      return await fetch(`/api/deals/${dealId}/registration`, {
+      const res = await fetch(`/api/deals/${dealId}/registration`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
+      if (res.ok) return true;
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      setActionError(data.error ?? "Não foi possível salvar. Tente de novo.");
+      return false;
+    } catch {
+      setActionError("Sem conexão. Tente de novo.");
+      return false;
     } finally {
       setBusy(false);
     }
@@ -123,20 +133,20 @@ export function CadastroWorkspace(props: WorkspaceProps) {
 
   async function saveQuota() {
     setQuotaSaved(false);
-    const res = await patch({
+    const ok = await patch({
       quota: {
         groupNumber: quota.groupNumber.trim() || null,
         termMonths: quota.termMonths ? Number(quota.termMonths) : null,
         paymentMethod: quota.paymentMethod || null,
       },
     });
-    if (res.ok) setQuotaSaved(true);
+    if (ok) setQuotaSaved(true);
   }
 
   async function toggleQuota() {
     const done = !quotaAt;
-    const res = await patch({ quotaRegistered: done });
-    if (res.ok) setQuotaAt(done ? new Date().toISOString() : null);
+    const ok = await patch({ quotaRegistered: done });
+    if (ok) setQuotaAt(done ? new Date().toISOString() : null);
   }
 
   async function downloadAll() {
@@ -217,6 +227,12 @@ export function CadastroWorkspace(props: WorkspaceProps) {
           </div>
         </div>
       </div>
+
+      {actionError && (
+        <p role="alert" className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-300">
+          {actionError}
+        </p>
+      )}
 
       {props.waivedReason && (
         <p className="flex items-center gap-2 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">

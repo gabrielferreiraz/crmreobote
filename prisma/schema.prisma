@@ -1174,6 +1174,8 @@ enum OrgRole {
 enum UserArea {
   VENDAS
   ADMINISTRATIVO
+  FINANCEIRO
+  POS_CONTEMPLACAO
 }
 
 enum AcademyOnboardingStatus {

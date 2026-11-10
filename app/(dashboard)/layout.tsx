@@ -45,14 +45,15 @@ export default async function DashboardLayout({ children }: { children: React.Re
   if (!membership?.active) redirect("/api/auth/deactivated");
 
   const photoUrlPromise = resolveAvatarUrl(membership.photoKey);
-  const isAdministrativo = membership.area === "ADMINISTRATIVO";
+  // "isAdministrativo" aqui = retaguarda (qualquer área que não vende); cada área tem o menu próprio (ver top-nav-links.tsx).
+  const isAdministrativo = membership.area !== "VENDAS";
   // Painel de Nichos: só pra quem lidera gente (Supervisor/Gerente) ou Dono
   // — consultor comum (MEMBER) não usa esta ferramenta. Checado de novo no
   // servidor (GET /api/painel-nichos-sso) — este só decide se o BOTÃO aparece.
   const canUsePainelNichos = membership.role !== "MEMBER";
   // Mesma regra de lib/sheets/access.ts (a página e as rotas conferem de novo).
   const showSheets = canUseSheets(membership);
-  const showRegistrations = membership.role === "OWNER" || isAdministrativo;
+  const showRegistrations = membership.role === "OWNER" || membership.area === "ADMINISTRATIVO";
   // Comissões: quem cuida delas sempre vê (pra montar o módulo antes de
   // ligar); quem vende, só depois de ligado (Organization.commissionStartDate).
   // Administrativo comum não recebe comissão de venda — não vê.
@@ -162,7 +163,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         </Link>
 
         <AdaptiveHeaderRow
-          nav={<TopNavLinks isAdministrativo={isAdministrativo} showCommissions={commissionsInTopNav} showSheets={showSheets} showRegistrations={showRegistrations} />}
+          nav={<TopNavLinks area={membership.area} isAdministrativo={isAdministrativo} showCommissions={commissionsInTopNav} showSheets={showSheets} showRegistrations={showRegistrations} />}
           fullActions={
             <>
               <CommandPalette />
@@ -226,13 +227,14 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
       <AppMain>{children}</AppMain>
 
-      <MobileNav signOutAction={handleSignOut} isAdministrativo={isAdministrativo} academyHref={academyHref} showCommissions={showCommissions} showSheets={showSheets} showRegistrations={showRegistrations} />
+      <MobileNav signOutAction={handleSignOut} area={membership.area} isAdministrativo={isAdministrativo} academyHref={academyHref} showCommissions={showCommissions} showSheets={showSheets} showRegistrations={showRegistrations} />
       <InstallPwaPrompt />
       <PresenceHeartbeat />
       <PushNotificationsPrompt />
       {/* Aviso de cadastro de CNPJ (nome da empresa no Ranking da TV): só pros
-          consultores — o Dono não precisa ser cobrado por ele. */}
-      {membership.role !== "OWNER" && <CnpjPrompt />}
+          quem vende (área Vendas). Dono e a retaguarda (Administrativo,
+          Financeiro, Pós-contemplação) não aparecem no ranking. */}
+      {membership.role !== "OWNER" && membership.area === "VENDAS" && <CnpjPrompt />}
       <ProductivityTipsHost />
       {membership.academyOnboardingStatus === "CRM_UNLOCKED" && !membership.academyShortcutHintSeenAt && (
         <AcademyShortcutHint />

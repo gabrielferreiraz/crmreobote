@@ -102,6 +102,30 @@ export function formatPhoneMask(raw: string): string {
 }
 
 /**
+ * Limita o texto digitado/colado ao tamanho aceito pelo campo sem remover a
+ * formatacao que ainda sera usada para calcular o cursor. Brasil usa no
+ * maximo 13 digitos com DDI (55 + DDD + celular); outros paises seguem o
+ * limite E.164 de 15 digitos.
+ */
+export function limitPhoneInput(raw: string): string {
+  const trimmed = raw.trimStart();
+  const digits = raw.replace(/\D/g, "");
+  const hasPlus = trimmed.startsWith("+");
+  const isBrazilianWithDdi =
+    (hasPlus && digits.startsWith("55")) || (!hasPlus && digits.length > 11 && digits.startsWith("55"));
+  const maxDigits = isBrazilianWithDdi ? 13 : 15;
+
+  let seen = 0;
+  for (let index = 0; index < raw.length; index++) {
+    const char = raw[index];
+    if (char < "0" || char > "9") continue;
+    seen++;
+    if (seen > maxDigits) return raw.slice(0, index);
+  }
+  return raw;
+}
+
+/**
  * Aplica formatPhoneMask e devolve também onde o cursor deve ficar. Conta os
  * dígitos DEPOIS do cursor (não antes): a máscara acrescenta o "+55 " na
  * frente quando a pessoa digita só o número nacional, então contar dígitos
