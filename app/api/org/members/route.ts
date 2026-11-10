@@ -136,7 +136,8 @@ export async function POST(req: Request) {
       action: "MEMBER_INVITED",
       targetType: "User",
       targetId: user.id,
-      detail: `${membership.user.name} (${membership.user.email}) · papel ${role}`,
+      targetLabel: membership.user.name,
+      detail: `${membership.user.name} (${membership.user.email}) · papel ${role} · área ${membershipArea}`,
       ip: getClientIp(req),
     });
 

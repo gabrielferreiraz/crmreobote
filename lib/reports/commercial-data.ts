@@ -64,6 +64,8 @@ export async function getCommercialReportData(params: {
   /** "YYYY-MM-DD" — só usado (e só precisa vir preenchido) quando compareParam === "custom". */
   compareFromParam?: string;
   compareToParam?: string;
+  /** Leitura da organização inteira (área Administrativo, ver lib/reports/scope.ts); sem isto vale o escopo do papel. */
+  orgWide?: boolean;
 }) {
   const {
     organizationId,
@@ -78,6 +80,7 @@ export async function getCommercialReportData(params: {
     compareParam,
     compareFromParam,
     compareToParam,
+    orgWide = false,
   } = params;
 
   return runWithTenant(organizationId, async () => {
@@ -86,7 +89,7 @@ export async function getCommercialReportData(params: {
   // terminar à toa (getDealScope faz sua própria consulta pra Gerente/
   // Supervisor, ver lib/team-scope.ts).
   const [scope, pipelines] = await Promise.all([
-    getDealScope(organizationId, userId, session!.user.role),
+    orgWide ? Promise.resolve<DealScope>({ type: "all" }) : getDealScope(organizationId, userId, session!.user.role),
     prisma.pipeline.findMany({
       where: { organizationId },
       orderBy: { order: "asc" },
@@ -171,7 +174,7 @@ export async function getCommercialReportData(params: {
   // Tempo no CRM e contagem de alterações são dados sensíveis de desempenho —
   // só Dono/Gerente vê (reaproveita os papéis existentes, sem tela de
   // permissão nova por pessoa).
-  const showTeamActivity = session!.user.role === "OWNER" || session!.user.role === "MANAGER";
+  const showTeamActivity = orgWide || session!.user.role === "OWNER" || session!.user.role === "MANAGER";
 
   // Período do relatório — só afeta negócios DECIDIDOS (ganhos/perdidos),
   // videochamadas e WhatsApp. O pipeline em aberto continua sempre "agora": não

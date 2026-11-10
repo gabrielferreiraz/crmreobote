@@ -28,6 +28,7 @@ import { resolveAvatarUrl } from "@/lib/r2";
 import { AdminReportsView } from "./admin-reports-view";
 import { MetaAdsReportView } from "./meta-ads-view";
 import { ReportTabs } from "./report-tabs";
+import { seesOrganizationWideCommercialReport } from "@/lib/reports/scope";
 import { getCommercialReportData } from "@/lib/reports/commercial-data";
 import { getExecutiveReportData } from "@/lib/reports/executive-data";
 import { AutoInsights, DeltaBadge } from "./auto-insights";
@@ -98,8 +99,20 @@ export default async function RelatoriosPage({
   // admin-reports-view.tsx) — não tem relação com o filtro do comercial,
   // só reaproveita os mesmos nomes de parâmetro de URL.
   const area = await getCurrentUserArea();
-  if (area && area !== "VENDAS")
-    return <AdminReportsView from={fromParam} to={toParam} who={whoParam} pipelineId={processPipelineIdParam} />;
+  // Administrativo tem DUAS abas: o relatório dele (padrão) e o Comercial completo (?view=comercial),
+  // este último lendo a organização inteira, só para leitura (ver lib/reports/scope.ts).
+  const orgWideAdmin = seesOrganizationWideCommercialReport(area);
+  if (area && area !== "VENDAS" && !(orgWideAdmin && viewParam === "comercial")) {
+    const adminView = <AdminReportsView from={fromParam} to={toParam} who={whoParam} pipelineId={processPipelineIdParam} />;
+    return orgWideAdmin ? (
+      <div className="space-y-6">
+        <ReportTabs variant="administrativo" active="administrativo" />
+        {adminView}
+      </div>
+    ) : (
+      adminView
+    );
+  }
 
   const session = await auth();
   const organizationId = session!.user.organizationId!;
@@ -115,9 +128,9 @@ export default async function RelatoriosPage({
   // "Processos" ficaria esperando o relatório de vendas inteiro carregar à
   // toa antes de mostrar algo completamente diferente.
   const isOwner = session!.user.role === "OWNER";
-  const isManager = ["OWNER", "MANAGER"].includes(session!.user.role ?? "");
-  const isSupervisor = session!.user.role === "SUPERVISOR";
-  const isMember = session!.user.role === "MEMBER";
+  const isManager = ["OWNER", "MANAGER"].includes(session!.user.role ?? "") || orgWideAdmin;
+  const isSupervisor = session!.user.role === "SUPERVISOR" && !orgWideAdmin;
+  const isMember = session!.user.role === "MEMBER" && !orgWideAdmin;
   // Consultor e supervisor têm uma visão pessoal (hero de "Meu desempenho")
   // em vez do "Panorama comercial" genérico — isPersonalView é o flag central.
   const isPersonalView = isMember || isSupervisor;
@@ -189,6 +202,7 @@ export default async function RelatoriosPage({
     compareParam,
     compareFromParam,
     compareToParam,
+    orgWide: orgWideAdmin,
   });
   const [currentUserPhotoUrl, commercialData] = await Promise.all([
     currentUserPhotoUrlPromise,
@@ -471,6 +485,7 @@ export default async function RelatoriosPage({
     <div className="space-y-10 pb-8 sm:space-y-16">
       <div className="space-y-4">
         {isOwner && <ReportTabs active="comercial" />}
+        {orgWideAdmin && <ReportTabs variant="administrativo" active="comercial" />}
         {/* Título em cima e a barra de filtros embaixo, em largura inteira: com
             funil + equipe + tags + período + comparação, os filtros não cabem
             mais ao lado do título (era o que fazia a fileira pular de lado

@@ -5,7 +5,7 @@
  * pedem documento com foto (CNH ou RG), CPF, endereço completo com CEP,
  * e-mail, celular, renda, profissão, estado civil e — para o cadastro da
  * cota — valor do crédito. Grupo, prazo e forma de pagamento são do
- * administrativo. Pessoa jurídica soma o CNPJ (sem contrato social). A Pontual pede, além disso, dados bancários
+ * consultor; cota e dígito, do administrativo. Pessoa jurídica soma o CNPJ (sem contrato social). A Pontual pede, além disso, dados bancários
  * (ConsortiumAdministrator.requiresBankData).
  *
  * Módulo PURO (sem banco): a API valida com ele de verdade e a tela mostra a
@@ -50,6 +50,9 @@ export type RegistrationSnapshot = {
     maritalStatus: string | null;
     monthlyIncome: number | null;
     groupNumber: string | null;
+    /** Cota e dígito: opcionais no tipo para não quebrar quem monta o snapshot só com o cadastro do consultor. */
+    quotaNumber?: string | null;
+    quotaDigit?: string | null;
     termMonths: number | null;
     paymentMethod: string | null;
     bankName: string | null;
@@ -103,7 +106,11 @@ export function findMissingRegistrationItems(snapshot: RegistrationSnapshot, opt
   if (r.monthlyIncome == null || !(r.monthlyIncome > 0)) add("monthlyIncome", "Renda mensal", "registration");
   if (blank(r.profession)) add("profession", "Profissão", "registration");
   if (blank(r.maritalStatus)) add("maritalStatus", "Estado civil", "registration");
-  // Grupo, prazo e forma de pagamento NÃO são do consultor: o administrativo escolhe a cota e preenche depois do Ganho.
+  // Grupo, prazo e forma de pagamento são do CONSULTOR (ele vendeu aquela cota). Cota e dígito são do administrativo,
+  // que os recebe da administradora ao cadastrar — por isso não entram aqui (decisão do administrativo, 10/11).
+  if (blank(r.groupNumber)) add("groupNumber", "Grupo", "registration");
+  if (r.termMonths == null || !(r.termMonths > 0)) add("termMonths", "Prazo", "registration");
+  if (blank(r.paymentMethod)) add("paymentMethod", "Forma de pagamento", "registration");
 
   if (options.requiresBankData) {
     if (blank(r.bankName)) add("bankName", "Banco", "bank");
@@ -172,3 +179,45 @@ export const REGISTRATION_DOC_TYPES: Record<string, string> = {
   "image/webp": "webp",
   "application/pdf": "pdf",
 };
+
+/** Cota: só números, até 6 dígitos. Dígito: só números, até 2. */
+export const QUOTA_NUMBER_RE = /^\d{1,6}$/;
+export const QUOTA_DIGIT_RE = /^\d{1,2}$/;
+
+/** "Grupo 1568 · Cota 0123-00" — vazio se nada foi preenchido. */
+export function formatQuotaLabel(q: { groupNumber?: string | null; quotaNumber?: string | null; quotaDigit?: string | null }): string {
+  const parts: string[] = [];
+  if (q.groupNumber?.trim()) parts.push(`Grupo ${q.groupNumber.trim()}`);
+  if (q.quotaNumber?.trim()) parts.push(`Cota ${q.quotaNumber.trim()}${q.quotaDigit?.trim() ? `-${q.quotaDigit.trim()}` : ""}`);
+  return parts.join(" · ");
+}
+
+/** Cota como o Processo a guarda: "0123-00" (ou só "0123" sem dígito). */
+export function quotaWithDigit(quotaNumber: string | null | undefined, quotaDigit: string | null | undefined): string | null {
+  const n = quotaNumber?.trim();
+  if (!n) return null;
+  const d = quotaDigit?.trim();
+  return d ? `${n}-${d}` : n;
+}
+
+type QuotaFields = { groupNumber: string | null; quotaNumber: string | null; quotaDigit: string | null };
+
+/**
+ * Que campos do Processo recebem o grupo/cota que o administrativo salvou. Só
+ * escreve onde o Processo está vazio ou ainda guarda o valor anterior do
+ * cadastro: o que a pós-contemplação ajustou à mão nunca é sobrescrito.
+ */
+export function decideProcessQuotaUpdate(
+  process: { groupNumber: string | null; quotaNumber: string | null },
+  prev: QuotaFields,
+  next: QuotaFields,
+): { groupNumber?: string | null; quotaNumber?: string | null } {
+  const data: { groupNumber?: string | null; quotaNumber?: string | null } = {};
+  const nextGroup = next.groupNumber?.trim() || null;
+  const prevGroup = prev.groupNumber?.trim() || null;
+  if (nextGroup !== prevGroup && (!process.groupNumber || process.groupNumber === prevGroup)) data.groupNumber = nextGroup;
+  const nextQuota = quotaWithDigit(next.quotaNumber, next.quotaDigit);
+  const prevQuota = quotaWithDigit(prev.quotaNumber, prev.quotaDigit);
+  if (nextQuota !== prevQuota && (!process.quotaNumber || process.quotaNumber === prevQuota)) data.quotaNumber = nextQuota;
+  return data;
+}

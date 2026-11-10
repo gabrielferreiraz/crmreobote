@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/app/generated/prisma/client";
 import { getCurrentMembership } from "@/lib/current-membership";
 import { runWithTenant } from "@/lib/tenant-context";
-import { canBypassRegistration, DOCUMENT_RETENTION_DAYS } from "@/lib/deal-registration/rules";
+import { canBypassRegistration, DOCUMENT_RETENTION_DAYS, formatQuotaLabel } from "@/lib/deal-registration/rules";
 import { parseRequestItems, summarizeRequestItems } from "@/lib/deal-registration/request-rules";
 import { CadastrosList, type CadastroRow } from "./cadastros-list";
 
@@ -32,6 +32,9 @@ export default async function CadastrosPage() {
           completedAt: true,
           waivedReason: true,
           quotaRegisteredAt: true,
+          groupNumber: true,
+          quotaNumber: true,
+          quotaDigit: true,
           documentsPurgedAt: true,
           documents: { select: { createdAt: true } },
         },
@@ -62,6 +65,7 @@ export default async function CadastrosPage() {
       return {
         id: d.id,
         client: d.contact.name,
+        quotaLabel: formatQuotaLabel(reg),
         consultant: d.owner.name,
         administrator: d.administrator?.name ?? null,
         credit: credit != null ? Number(credit) : null,

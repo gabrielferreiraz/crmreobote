@@ -10,7 +10,14 @@ import {
   summarizeRequestItems,
 } from "@/lib/deal-registration/request-rules";
 import { AREA_LABELS, AREA_OPTIONS, isBackOfficeArea, isValidArea } from "@/lib/areas";
-import { canBypassRegistration } from "@/lib/deal-registration/rules";
+import {
+  QUOTA_DIGIT_RE,
+  QUOTA_NUMBER_RE,
+  canBypassRegistration,
+  decideProcessQuotaUpdate,
+  formatQuotaLabel,
+  quotaWithDigit,
+} from "@/lib/deal-registration/rules";
 
 test("item do catálogo usa o rótulo e o tipo do catálogo, ignorando o texto enviado", () => {
   const item = buildRequestItem({ key: "photo_id", label: "qualquer coisa" });
@@ -110,4 +117,59 @@ test("só Administrativo e Dono mexem no cadastro de cota (Financeiro e Pós-con
   assert.equal(canBypassRegistration({ role: "MEMBER", area: "FINANCEIRO" }), false);
   assert.equal(canBypassRegistration({ role: "MEMBER", area: "POS_CONTEMPLACAO" }), false);
   assert.equal(canBypassRegistration({ role: "MANAGER", area: "VENDAS" }), false);
+});
+
+test("grupo, cota e dígito aparecem juntos: Grupo 1568 · Cota 0123-00", () => {
+  assert.equal(formatQuotaLabel({ groupNumber: "1568", quotaNumber: "0123", quotaDigit: "00" }), "Grupo 1568 · Cota 0123-00");
+  assert.equal(formatQuotaLabel({ groupNumber: "1568", quotaNumber: "0123" }), "Grupo 1568 · Cota 0123");
+  assert.equal(formatQuotaLabel({ groupNumber: " 1568 " }), "Grupo 1568");
+  assert.equal(formatQuotaLabel({}), "");
+  assert.equal(quotaWithDigit("0123", "00"), "0123-00");
+  assert.equal(quotaWithDigit("0123", ""), "0123");
+  assert.equal(quotaWithDigit("", "00"), null);
+});
+
+test("cota aceita até 6 dígitos e o dígito até 2, só números", () => {
+  assert.equal(QUOTA_NUMBER_RE.test("0123"), true);
+  assert.equal(QUOTA_NUMBER_RE.test("1234567"), false);
+  assert.equal(QUOTA_NUMBER_RE.test("12a"), false);
+  assert.equal(QUOTA_DIGIT_RE.test("00"), true);
+  assert.equal(QUOTA_DIGIT_RE.test("001"), false);
+  assert.equal(QUOTA_DIGIT_RE.test("x"), false);
+});
+
+test("a cota do administrativo chega ao Processo vazio", () => {
+  const prev = { groupNumber: null, quotaNumber: null, quotaDigit: null };
+  const next = { groupNumber: "1568", quotaNumber: "0123", quotaDigit: "00" };
+  assert.deepEqual(decideProcessQuotaUpdate({ groupNumber: null, quotaNumber: null }, prev, next), { groupNumber: "1568", quotaNumber: "0123-00" });
+});
+
+test("o que a pós-contemplação digitou à mão no Processo não é sobrescrito", () => {
+  const prev = { groupNumber: null, quotaNumber: null, quotaDigit: null };
+  const next = { groupNumber: "1568", quotaNumber: "0123", quotaDigit: "00" };
+  assert.deepEqual(decideProcessQuotaUpdate({ groupNumber: "9999", quotaNumber: "7777-01" }, prev, next), {});
+  // Só um dos campos preenchido à mão: o outro ainda recebe.
+  assert.deepEqual(decideProcessQuotaUpdate({ groupNumber: "9999", quotaNumber: null }, prev, next), { quotaNumber: "0123-00" });
+});
+
+test("corrigir um erro de digitação no cadastro atualiza o Processo que ainda tem o valor antigo", () => {
+  const prev = { groupNumber: "1568", quotaNumber: "0123", quotaDigit: "00" };
+  const next = { groupNumber: "1568", quotaNumber: "0124", quotaDigit: "00" };
+  assert.deepEqual(decideProcessQuotaUpdate({ groupNumber: "1568", quotaNumber: "0123-00" }, prev, next), { quotaNumber: "0124-00" });
+  // Se a pós já mudou, mantém.
+  assert.deepEqual(decideProcessQuotaUpdate({ groupNumber: "1568", quotaNumber: "0150-00" }, prev, next), {});
+});
+
+test("nada muda quando o cadastro não mudou", () => {
+  const same = { groupNumber: "1568", quotaNumber: "0123", quotaDigit: "00" };
+  assert.deepEqual(decideProcessQuotaUpdate({ groupNumber: null, quotaNumber: null }, same, same), {});
+});
+
+test("só a área Administrativo lê o comercial da organização inteira (sem virar Dono)", async () => {
+  const { seesOrganizationWideCommercialReport } = await import("@/lib/reports/scope");
+  assert.equal(seesOrganizationWideCommercialReport("ADMINISTRATIVO"), true);
+  assert.equal(seesOrganizationWideCommercialReport("VENDAS"), false);
+  assert.equal(seesOrganizationWideCommercialReport("FINANCEIRO"), false);
+  assert.equal(seesOrganizationWideCommercialReport("POS_CONTEMPLACAO"), false);
+  assert.equal(seesOrganizationWideCommercialReport(null), false);
 });

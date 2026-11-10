@@ -14,7 +14,8 @@ import { syncCommissionSalesInBackground } from "@/lib/commissions/sync";
 import { getCurrentMembership } from "@/lib/current-membership";
 import { canWaiveRegistration } from "@/lib/deal-registration/rules";
 import { evaluateWonGate, markRegistrationWon, notifyAdministrativeQuotaRegistration } from "@/lib/deal-registration/service";
-import { logAudit } from "@/lib/audit-log";
+import { logAudit, logAuditMany, type AuditAction } from "@/lib/audit-log";
+import type { AuditChange } from "@/lib/audit-diff";
 
 export const dynamic = "force-dynamic";
 
@@ -111,6 +112,37 @@ function groupByPreviousValues(
     else byKey.set(key, { model, previousValues: row.previousValues, entityIds: [row.id] });
   }
   return Array.from(byKey.values());
+}
+
+/** Um evento de auditoria por negócio da ação em massa (o histórico de cada venda precisa ficar completo). */
+async function auditBulkDealEvents(
+  organizationId: string,
+  userId: string,
+  events: { dealId: string; action: AuditAction; detail: string; changes: AuditChange[] }[],
+) {
+  if (events.length === 0) return;
+  try {
+    const [actor, deals] = await Promise.all([
+      prisma.user.findUnique({ where: { id: userId }, select: { name: true } }),
+      prisma.deal.findMany({ where: { id: { in: events.map((e) => e.dealId) } }, select: { id: true, contact: { select: { name: true } } } }),
+    ]);
+    const labels = new Map(deals.map((d) => [d.id, d.contact.name]));
+    await logAuditMany({
+      organizationId,
+      actorUserId: userId,
+      actorName: actor?.name ?? "Usuário",
+      entries: events.map((e) => ({
+        action: e.action,
+        targetType: "Deal",
+        targetId: e.dealId,
+        targetLabel: labels.get(e.dealId) ?? null,
+        detail: `${e.detail} (ação em massa)`,
+        changes: e.changes,
+      })),
+    });
+  } catch (err) {
+    console.error("[audit] falha ao registrar a ação em massa", err);
+  }
 }
 
 function plural(count: number, singular: string, pluralWord: string) {
@@ -447,6 +479,18 @@ async function bulkStatus({ body, scopedWhere, organizationId, userId }: Ctx) {
     data: changedIds.map((dealId) => ({ organizationId, dealId, userId, type: "SYSTEM" as const, body: label })),
   });
 
+  const situation = { OPEN: "Em andamento", WON: "Ganho", LOST: "Perdido" } as const;
+  await auditBulkDealEvents(
+    organizationId,
+    userId,
+    changed.map((d) => ({
+      dealId: d.id,
+      action: status === "WON" ? "DEAL_WON" : status === "LOST" ? "DEAL_LOST" : "DEAL_REOPENED",
+      detail: `Situação: ${situation[d.status]} → ${situation[status]}${status === "LOST" && lossReasonLabel ? ` · ${lossReasonLabel}` : ""}`,
+      changes: [{ field: "status", label: "Situação", from: situation[d.status], to: situation[status] }],
+    })),
+  );
+
   const statusWord = status === "WON" ? "ganho" : status === "LOST" ? "perdido" : "reaberto";
   const undo = await recordBulkUndo({
     organizationId,
@@ -552,6 +596,19 @@ async function bulkOwner({ body, scopedWhere, organizationId, userId }: Ctx) {
   if (contactIds.length > 0) {
     await prisma.contact.updateMany({ where: { id: { in: contactIds } }, data: { responsavelId: ownerId } });
   }
+
+  const people = await prisma.user.findMany({ where: { id: { in: Array.from(new Set([ownerId, ...changed.map((d) => d.ownerId)])) } }, select: { id: true, name: true } });
+  const personName = new Map(people.map((p) => [p.id, p.name]));
+  await auditBulkDealEvents(
+    organizationId,
+    userId,
+    changed.map((d) => ({
+      dealId: d.id,
+      action: "DEAL_OWNER_CHANGED",
+      detail: `Responsável: ${personName.get(d.ownerId) ?? "—"} → ${personName.get(ownerId) ?? "—"}`,
+      changes: [{ field: "ownerId", label: "Responsável", from: personName.get(d.ownerId) ?? null, to: personName.get(ownerId) ?? null }],
+    })),
+  );
 
   // Desfazer cobre os dois lados juntos (negócio + contato) — reverter só o
   // negócio reintroduziria a inconsistência que a sincronização evita.

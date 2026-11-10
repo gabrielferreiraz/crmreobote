@@ -34,6 +34,21 @@ const PRIMARY_ITEMS_ADMINISTRATIVO: NavItem[] = [
   { href: "/agenda", label: "Agenda", icon: CalendarDays },
 ];
 
+// Administrativo que cadastra a cota: "Cadastros" é a tela principal do dia, ao lado do Início.
+const PRIMARY_ITEMS_ADMINISTRATIVO_CADASTROS: NavItem[] = [
+  { href: "/", label: "Início", icon: Home, exact: true },
+  { href: "/cadastros", label: "Cadastros", icon: ClipboardCheck },
+  { href: "/processos", label: "Processos", icon: ClipboardList },
+  { href: "/whatsapp", label: "WhatsApp", icon: MessageCircle },
+];
+const OVERFLOW_ITEMS_ADMINISTRATIVO_CADASTROS: NavItem[] = [
+  { href: "/agenda", label: "Agenda", icon: CalendarDays },
+  { href: "/clientes", label: "Clientes", icon: Users },
+  { href: "/relatorios", label: "Relatórios", icon: BarChart3 },
+  { href: "/tabelas", label: "Tabelas", icon: Table2 },
+  { href: "/configuracoes", label: "Configurações", icon: Settings },
+];
+
 // Financeiro: só o que usa — parcelas/comissões, clientes e agenda.
 const PRIMARY_ITEMS_FINANCEIRO: NavItem[] = [
   { href: "/", label: "Início", icon: Home, exact: true },
@@ -118,10 +133,23 @@ export function MobileNav({
   const pathname = usePathname();
   const [sheetOpen, setSheetOpen] = useState(false);
   const financeiro = area === "FINANCEIRO";
-  const primaryItems = financeiro ? PRIMARY_ITEMS_FINANCEIRO : isAdministrativo ? PRIMARY_ITEMS_ADMINISTRATIVO : PRIMARY_ITEMS_VENDAS;
-  const baseOverflowItems = financeiro ? OVERFLOW_ITEMS_FINANCEIRO : isAdministrativo ? OVERFLOW_ITEMS_ADMINISTRATIVO : OVERFLOW_ITEMS_VENDAS;
+  const cadastrador = area === "ADMINISTRATIVO";
+  const primaryItems = financeiro
+    ? PRIMARY_ITEMS_FINANCEIRO
+    : cadastrador
+      ? PRIMARY_ITEMS_ADMINISTRATIVO_CADASTROS
+      : isAdministrativo
+        ? PRIMARY_ITEMS_ADMINISTRATIVO
+        : PRIMARY_ITEMS_VENDAS;
+  const baseOverflowItems = financeiro
+    ? OVERFLOW_ITEMS_FINANCEIRO
+    : cadastrador
+      ? OVERFLOW_ITEMS_ADMINISTRATIVO_CADASTROS
+      : isAdministrativo
+        ? OVERFLOW_ITEMS_ADMINISTRATIVO
+        : OVERFLOW_ITEMS_VENDAS;
   const extraItems: NavItem[] = [
-    ...(showRegistrations ? [{ href: "/cadastros", label: "Cadastros", icon: ClipboardCheck }] : []),
+    ...(showRegistrations && !cadastrador ? [{ href: "/cadastros", label: "Cadastros", icon: ClipboardCheck }] : []),
     ...(showSheets ? [{ href: "/planilhas", label: "Planilhas", icon: FileSpreadsheet }] : []),
     ...(showCommissions && !financeiro ? [{ href: "/comissoes", label: "Comissões", icon: Wallet }] : []),
   ];

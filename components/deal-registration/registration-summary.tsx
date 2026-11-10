@@ -7,7 +7,7 @@ import { DocumentThumb, DocumentViewer } from "@/components/deal-registration/do
 import { formatCurrency } from "@/lib/format";
 import { maskCpf } from "@/lib/cpf";
 import { formatCnpj } from "@/lib/cnpj";
-import { DOCUMENT_KIND_LABELS, PAYMENT_METHOD_OPTIONS } from "@/lib/deal-registration/rules";
+import { DOCUMENT_KIND_LABELS, PAYMENT_METHOD_OPTIONS, formatQuotaLabel } from "@/lib/deal-registration/rules";
 
 type Summary = {
   contact: Record<string, string | null>;
@@ -31,7 +31,8 @@ export function RegistrationSummary({ dealId }: { dealId: string }) {
   const [data, setData] = useState<Summary | null>(null);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [quota, setQuota] = useState({ groupNumber: "", termMonths: "", paymentMethod: "" });
+  const [quota, setQuota] = useState({ groupNumber: "", quotaNumber: "", quotaDigit: "", termMonths: "", paymentMethod: "" });
+  const [quotaError, setQuotaError] = useState<string | null>(null);
   const [quotaSaved, setQuotaSaved] = useState(false);
   const [viewing, setViewing] = useState<Summary["documents"][number] | null>(null);
 
@@ -47,6 +48,8 @@ export function RegistrationSummary({ dealId }: { dealId: string }) {
           setOpen(json.canBypass && !json.quotaRegisteredAt);
           setQuota({
             groupNumber: String(json.registration.groupNumber ?? ""),
+            quotaNumber: String(json.registration.quotaNumber ?? ""),
+            quotaDigit: String(json.registration.quotaDigit ?? ""),
             termMonths: json.registration.termMonths != null ? String(json.registration.termMonths) : "",
             paymentMethod: String(json.registration.paymentMethod ?? ""),
           });
@@ -63,32 +66,46 @@ export function RegistrationSummary({ dealId }: { dealId: string }) {
   async function toggleQuota() {
     if (!data) return;
     setBusy(true);
+    setQuotaError(null);
     const done = !data.quotaRegisteredAt;
     const res = await fetch(`/api/deals/${dealId}/registration`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ quotaRegistered: done }),
-    });
+    }).catch(() => null);
     setBusy(false);
-    if (res.ok) setData({ ...data, quotaRegisteredAt: done ? new Date().toISOString() : null });
+    if (res?.ok) {
+      setData({ ...data, quotaRegisteredAt: done ? new Date().toISOString() : null });
+      return;
+    }
+    const body = res ? ((await res.json().catch(() => ({}))) as { error?: string }) : {};
+    setQuotaError(body.error ?? "Não foi possível salvar. Tente de novo.");
   }
 
   async function saveQuota() {
     setBusy(true);
     setQuotaSaved(false);
+    setQuotaError(null);
     const res = await fetch(`/api/deals/${dealId}/registration`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         quota: {
           groupNumber: quota.groupNumber.trim() || null,
+          quotaNumber: quota.quotaNumber.trim() || null,
+          quotaDigit: quota.quotaDigit.trim() || null,
           termMonths: quota.termMonths ? Number(quota.termMonths) : null,
           paymentMethod: quota.paymentMethod || null,
         },
       }),
     });
     setBusy(false);
-    if (res.ok) setQuotaSaved(true);
+    if (res.ok) {
+      setQuotaSaved(true);
+      return;
+    }
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    setQuotaError(body.error ?? "Não foi possível salvar. Tente de novo.");
   }
 
   // Baixa um arquivo por vez (o navegador pode pedir para permitir vários downloads).
@@ -165,57 +182,100 @@ export function RegistrationSummary({ dealId }: { dealId: string }) {
           </dl>
           {data.canBypass ? (
             <div className="space-y-2 rounded-lg bg-neutral-50 p-3 dark:bg-neutral-800/50">
-              <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">Cota (preenchida pelo administrativo)</p>
-              <div className="grid gap-3 sm:grid-cols-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">Cota e dígito (preenchidos pelo administrativo)</p>
+              {(data.registration.groupNumber || data.registration.termMonths || data.registration.paymentMethod) && (
+                <p className="text-sm text-neutral-700 dark:text-neutral-200">
+                  <span className="text-neutral-500 dark:text-neutral-400">Informado pelo consultor: </span>
+                  {[
+                    data.registration.groupNumber && `grupo ${data.registration.groupNumber}`,
+                    data.registration.termMonths && `${data.registration.termMonths} meses`,
+                    data.registration.paymentMethod,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </p>
+              )}
+              <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+                {!data.registration.groupNumber && (
+                  <div className="space-y-1">
+                    <label className="field-label">Grupo</label>
+                    <input
+                      className="field-input"
+                      inputMode="numeric"
+                      value={quota.groupNumber}
+                      onChange={(e) => {
+                        setQuotaSaved(false);
+                        setQuota((q) => ({ ...q, groupNumber: e.target.value }));
+                      }}
+                    />
+                  </div>
+                )}
                 <div className="space-y-1">
-                  <label className="field-label">Grupo</label>
+                  <label className="field-label">Cota</label>
                   <input
                     className="field-input"
                     inputMode="numeric"
-                    value={quota.groupNumber}
+                    value={quota.quotaNumber}
                     onChange={(e) => {
                       setQuotaSaved(false);
-                      setQuota((q) => ({ ...q, groupNumber: e.target.value }));
+                      setQuota((q) => ({ ...q, quotaNumber: e.target.value.replace(/\D/g, "").slice(0, 6) }));
                     }}
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="field-label">Prazo (meses)</label>
+                  <label className="field-label">Dígito</label>
                   <input
                     className="field-input"
                     inputMode="numeric"
-                    value={quota.termMonths}
+                    value={quota.quotaDigit}
                     onChange={(e) => {
                       setQuotaSaved(false);
-                      setQuota((q) => ({ ...q, termMonths: e.target.value.replace(/\D/g, "").slice(0, 3) }));
+                      setQuota((q) => ({ ...q, quotaDigit: e.target.value.replace(/\D/g, "").slice(0, 2) }));
                     }}
                   />
                 </div>
-                <div className="space-y-1">
-                  <label className="field-label">Forma de pagamento</label>
-                  <Select
-                    value={quota.paymentMethod}
-                    onChange={(v) => {
-                      setQuotaSaved(false);
-                      setQuota((q) => ({ ...q, paymentMethod: v }));
-                    }}
-                    options={PAYMENT_METHOD_OPTIONS.map((o) => ({ value: o, label: o }))}
-                    placeholder="Escolha"
-                    ariaLabel="Forma de pagamento"
-                  />
-                </div>
+                {!data.registration.termMonths && (
+                  <div className="space-y-1">
+                    <label className="field-label">Prazo (meses)</label>
+                    <input
+                      className="field-input"
+                      inputMode="numeric"
+                      value={quota.termMonths}
+                      onChange={(e) => {
+                        setQuotaSaved(false);
+                        setQuota((q) => ({ ...q, termMonths: e.target.value.replace(/\D/g, "").slice(0, 3) }));
+                      }}
+                    />
+                  </div>
+                )}
+                {!data.registration.paymentMethod && (
+                  <div className="space-y-1">
+                    <label className="field-label">Forma de pagamento</label>
+                    <Select
+                      value={quota.paymentMethod}
+                      onChange={(v) => {
+                        setQuotaSaved(false);
+                        setQuota((q) => ({ ...q, paymentMethod: v }));
+                      }}
+                      options={PAYMENT_METHOD_OPTIONS.map((o) => ({ value: o, label: o }))}
+                      placeholder="Escolha"
+                      ariaLabel="Forma de pagamento"
+                    />
+                  </div>
+                )}
                 <div className="flex items-end gap-2">
                   <button type="button" onClick={() => void saveQuota()} disabled={busy} className="btn-primary">
                     Salvar
                   </button>
                   {quotaSaved && <span className="pb-2 text-xs text-emerald-600">Salvo</span>}
+                  {quotaError && <span className="pb-2 text-xs text-red-600">{quotaError}</span>}
                 </div>
               </div>
             </div>
           ) : (
-            (r.groupNumber || r.termMonths || r.paymentMethod) && (
+            (r.groupNumber || r.quotaNumber || r.termMonths || r.paymentMethod) && (
               <p className="text-sm text-neutral-700 dark:text-neutral-200">
-                Cota: {[r.groupNumber && `grupo ${r.groupNumber}`, r.termMonths && `${r.termMonths} meses`, r.paymentMethod].filter(Boolean).join(" · ")}
+                Cota: {[formatQuotaLabel({ groupNumber: r.groupNumber as string | null, quotaNumber: r.quotaNumber as string | null, quotaDigit: r.quotaDigit as string | null }) || null, r.termMonths && `${r.termMonths} meses`, r.paymentMethod].filter(Boolean).join(" · ")}
               </p>
             )
           )}

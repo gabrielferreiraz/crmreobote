@@ -3642,6 +3642,10 @@ model AuditLog {
   targetType     String?
   targetId       String?
   detail         String?
+  // Nome do item de que se trata (ex.: o cliente), para a tela mostrar gente e não código.
+  targetLabel    String?
+  // O que mudou: [{ field, label, from, to }] com valores já prontos para exibir (dados sensíveis vêm mascarados).
+  changes        Json?
   ip             String?
   createdAt      DateTime @default(now())
 
@@ -3649,6 +3653,9 @@ model AuditLog {
   actorUser    User?        @relation("AuditLogActor", fields: [actorUserId], references: [id], onDelete: SetNull)
 
   @@index([organizationId, createdAt])
+  @@index([organizationId, targetType, targetId, createdAt])
+  @@index([organizationId, actorUserId, createdAt])
+  @@index([organizationId, action, createdAt])
 }
 
 // Ctrl+Z do sistema (ver lib/undo/) — cada linha é UMA ação que pode ser
@@ -4409,6 +4416,9 @@ model DealRegistration {
   maritalStatus  String?
   monthlyIncome  Decimal? @db.Decimal(12, 2)
   groupNumber    String?
+  // Cota e dígito (ex.: cota 0123, dígito 00) — preenchidos pelo administrativo junto com o grupo.
+  quotaNumber    String?
+  quotaDigit     String?
   termMonths     Int?
   paymentMethod  String?
 

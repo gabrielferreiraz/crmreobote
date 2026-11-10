@@ -7,6 +7,7 @@
 import { prisma } from "@/lib/prisma";
 import { sendPushToUser } from "@/lib/push";
 import { logAudit } from "@/lib/audit-log";
+import { getDealAuditLabel } from "@/lib/deal-registration/audit";
 import {
   REQUEST_MAX_ITEMS,
   REQUEST_MESSAGE_MAX,
@@ -170,7 +171,8 @@ export async function createDocumentRequest(params: {
     action: "DEAL_DOCUMENT_REQUESTED",
     targetType: "Deal",
     targetId: dealId,
-    detail: summary,
+    targetLabel: deal.contact.name,
+    detail: `Pediu: ${summary}${message ? ` — “${message}”` : ""}`,
   });
   return toDTO(created);
 }
@@ -220,6 +222,30 @@ async function completeRequestItemOnce(params: {
   });
   if (result.count === 0) throw new DocumentRequestError("O pedido mudou agora há pouco. Atualize a página e tente de novo.", 409, true);
 
+  const auditLabel = await getDealAuditLabel(organizationId, dealId).catch(() => null);
+  await logAudit({
+    organizationId,
+    actorUserId: actor.userId,
+    actorName: actor.name,
+    action: "DEAL_DOCUMENT_REQUEST_ANSWERED",
+    targetType: "Deal",
+    targetId: dealId,
+    targetLabel: auditLabel,
+    detail: `${item.label}${item.needsFile ? ` — ${item.documentIds.length} arquivo(s) enviado(s)` : ""}${note ? `: “${note}”` : ""}`,
+  });
+  if (fulfilled) {
+    await logAudit({
+      organizationId,
+      actorUserId: actor.userId,
+      actorName: actor.name,
+      action: "DEAL_DOCUMENT_REQUEST_FULFILLED",
+      targetType: "Deal",
+      targetId: dealId,
+      targetLabel: auditLabel,
+      detail: `Pedido de ${row.requestedByName} atendido por completo (${items.length} ${items.length === 1 ? "item" : "itens"}).`,
+    });
+  }
+
   if (fulfilled) {
     // Já está salvo: tarefa e aviso são acessórios e não derrubam a resposta.
     try {
@@ -265,7 +291,8 @@ export async function cancelDocumentRequest(params: {
     action: "DEAL_DOCUMENT_REQUEST_CANCELLED",
     targetType: "Deal",
     targetId: dealId,
-    detail: summarizeRequestItems(parseRequestItems(row.items), 3),
+    targetLabel: await getDealAuditLabel(organizationId, dealId).catch(() => null),
+    detail: `Cancelou o pedido de: ${summarizeRequestItems(parseRequestItems(row.items), 3) || "todos os itens já atendidos"}`,
   });
   const updated = await prisma.dealDocumentRequest.findFirst({ where: { id: requestId, organizationId }, select: SELECT });
   return toDTO(updated ?? row);

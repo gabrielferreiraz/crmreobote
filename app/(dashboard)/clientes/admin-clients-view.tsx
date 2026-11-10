@@ -1,59 +1,123 @@
 import { prisma } from "@/lib/prisma";
-import { requireProcessAccess, processScopeWhere } from "@/lib/processes/access";
+import { requireProcessAccess } from "@/lib/processes/access";
+import { getCurrentMembership } from "@/lib/current-membership";
 import { runWithTenant } from "@/lib/tenant-context";
-import { AdminClientsTable } from "./admin-clients-table";
+import { AdminClientsTable, type ClientRow } from "./admin-clients-table";
+
+const CONTACT_SELECT = { id: true, name: true, email: true, phone: true, whatsapp: true, jobTitle: true, source: true } as const;
 
 /**
- * "Clientes" pro Administrativo — bem diferente da lista de Vendas (que
- * mostra todo lead/contato, ganho ou não): aqui só entra quem já deu ganho
- * (tem Process, que só é criado quando o negócio vira WON — ver
- * lib/processes/create.ts), e o Responsável mostrado é sempre o consultor
- * dono do negócio, não o `Contact.responsavelId` (esse é um campo livre de
- * atribuição de conta que pode nem bater com quem vendeu).
+ * "Clientes" para quem não vende — bem diferente da lista de Vendas (que mostra
+ * todo lead/contato): aqui entra TODO cliente que já teve um negócio ganho (venda
+ * fechada), tenha ou não Processo, mais quem foi cadastrado direto num Processo
+ * (cliente já contemplado cuja venda nunca foi registrada aqui). Uma linha por
+ * cliente, mesmo com várias vendas. O Responsável é sempre o consultor que
+ * vendeu, não o `Contact.responsavelId`.
+ *
+ * Antes só aparecia quem tinha Processo, e o Processo passou a ser criado à mão
+ * ("Adicionar ao processo"): quase todos os clientes ganhos ficavam de fora.
  */
 export async function AdminClientsView() {
   const access = await requireProcessAccess();
   if (!access.ok) return null;
+  const membership = await getCurrentMembership();
+  // Quem cadastra a cota abre a venda direto na tela de Cadastros; o Financeiro e a pós-contemplação, na ficha do cliente.
+  const opensRegistration = membership?.area === "ADMINISTRATIVO";
+  // Administrativo, Pós-contemplação e Financeiro enxergam todos os clientes ganhos; qualquer outro vê só os próprios.
+  const seesAll = access.isAdmin || membership?.area === "FINANCEIRO";
+  const ownDealsOnly = seesAll ? {} : { ownerId: access.userId };
 
   return runWithTenant(access.organizationId, async () => {
-    const processes = await prisma.process.findMany({
-      where: { organizationId: access.organizationId, ...processScopeWhere(access) },
-      orderBy: { createdAt: "desc" },
-      include: {
-        contact: { select: { id: true, name: true, email: true, phone: true, whatsapp: true, jobTitle: true, source: true } },
-        owner: { select: { id: true, name: true } },
-        stage: { select: { id: true, name: true, color: true } },
-        deal: { select: { id: true, name: true } },
-      },
-    });
+    const [wonDeals, processes] = await Promise.all([
+      prisma.deal.findMany({
+        where: { organizationId: access.organizationId, status: "WON", ...ownDealsOnly },
+        orderBy: [{ closedAt: "desc" }, { createdAt: "desc" }],
+        select: {
+          id: true,
+          name: true,
+          closedAt: true,
+          contact: { select: CONTACT_SELECT },
+          owner: { select: { id: true, name: true } },
+          process: { select: { id: true, stage: { select: { id: true, name: true, color: true } } } },
+          registration: { select: { quotaRegisteredAt: true } },
+        },
+      }),
+      // Processos de cliente (com ou sem negócio ganho): cada contato com processo aparece mesmo sem venda registrada.
+      prisma.process.findMany({
+        where: { organizationId: access.organizationId, contactId: { not: null }, ...(seesAll ? {} : { ownerId: access.userId }) },
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          createdAt: true,
+          contact: { select: CONTACT_SELECT },
+          owner: { select: { id: true, name: true } },
+          stage: { select: { id: true, name: true, color: true } },
+          deal: { select: { id: true, name: true } },
+        },
+      }),
+    ]);
 
-    // Processo avulso (sem contato, ver contactId/clientName no model Process)
-    // fica fora desta tela de propósito: ela lista CLIENTES do CRM, e esse tipo
-    // de processo existe justamente para acompanhar quem não é cliente aqui.
-    // Ele continua aparecendo normalmente no Kanban e na Lista de Processos.
-    const clients = processes
-      .filter((p): p is typeof p & { contact: NonNullable<typeof p.contact> } => p.contact !== null)
-      .map((p) => ({
-        processId: p.id,
+    // Um processo por cliente (o mais recente) para mostrar a etapa mesmo quando a venda não está ligada a ele.
+    const processByContact = new Map<string, (typeof processes)[number]>();
+    for (const p of processes) {
+      if (p.contact && !processByContact.has(p.contact.id)) processByContact.set(p.contact.id, p);
+    }
+
+    const rows = new Map<string, ClientRow>();
+    for (const d of wonDeals) {
+      const existing = rows.get(d.contact.id);
+      if (existing) {
+        existing.dealsCount += 1;
+        continue;
+      }
+      const process = d.process ? { id: d.process.id, stage: d.process.stage } : (() => {
+        const p = processByContact.get(d.contact.id);
+        return p ? { id: p.id, stage: p.stage } : null;
+      })();
+      const registered = d.registration?.quotaRegisteredAt != null;
+      rows.set(d.contact.id, {
+        key: d.contact.id,
+        contact: d.contact,
+        owner: d.owner,
+        deal: { id: d.id, name: d.name },
+        dealsCount: 1,
+        wonAt: d.closedAt ? d.closedAt.toISOString() : null,
+        badge: process
+          ? { label: process.stage.name, color: process.stage.color }
+          : d.registration
+            ? { label: registered ? "Cota cadastrada" : "Cota a cadastrar", color: registered ? "#16a34a" : "#d97706" }
+            : { label: "Venda ganha", color: null },
+        href: process
+          ? `/processos/${process.id}`
+          : opensRegistration && d.registration
+            ? `/cadastros/${d.id}`
+            : `/clientes/${d.contact.id}`,
+      });
+    }
+    // Clientes cadastrados direto num Processo, sem negócio ganho neste CRM.
+    for (const p of processes) {
+      if (!p.contact || rows.has(p.contact.id)) continue;
+      rows.set(p.contact.id, {
+        key: p.contact.id,
         contact: p.contact,
         owner: p.owner,
-        stage: p.stage,
         deal: p.deal,
-      }));
+        dealsCount: p.deal ? 1 : 0,
+        wonAt: null,
+        badge: { label: p.stage.name, color: p.stage.color },
+        href: `/processos/${p.id}`,
+      });
+    }
+    const clients = Array.from(rows.values());
 
     return (
-      // /clientes virou rota "app shell" em app-main.tsx (o <main> não rola
-      // mais sozinho, ver comentário lá) — precisa da mesma casca de scroll
-      // que ContactsTable (a outra tela que esta MESMA rota pode renderizar,
-      // conforme o papel de quem está logado), senão uma lista comprida de
-      // clientes ganhos ficava cortada, sem nenhuma barra pra rolar até o
-      // fim. Sem paginação/rodapé fixo aqui (esta tela não tem — é lista
-      // única, filtrada só em memória), só o scroll interno mesmo.
+      // /clientes é rota "app shell" (ver app-main.tsx): o <main> não rola sozinho, então a lista
+      // precisa da própria casca de rolagem — sem paginação de servidor, só filtro em memória.
       <div className="flex h-full min-h-0 flex-col gap-4">
         <div className="shrink-0">
           <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Clientes</h1>
           <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-            {clients.length} cliente{clients.length === 1 ? "" : "s"} com negócio ganho
+            {clients.length} cliente{clients.length === 1 ? "" : "s"} com venda ganha
           </p>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto pb-4 lg:pb-3">

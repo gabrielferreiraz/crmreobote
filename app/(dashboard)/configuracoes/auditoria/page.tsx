@@ -1,47 +1,37 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
-import { runWithTenant } from "@/lib/tenant-context";
+import { filtersFromParams, listAuditActors, queryAudit } from "@/lib/audit-query";
 import { AuditLogView } from "./audit-log-view";
 
-const MAX_LOGS = 500;
+export const dynamic = "force-dynamic";
 
-export default async function AuditoriaPage() {
+export default async function AuditoriaPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const session = await auth();
   if (session?.user.role !== "OWNER") redirect("/configuracoes");
 
   const organizationId = session.user.organizationId!;
+  // Links como "ver tudo deste item" chegam aqui com os filtros na URL.
+  const raw = await searchParams;
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(raw)) {
+    const value = Array.isArray(v) ? v[0] : v;
+    if (value) params.set(k, value);
+  }
+  const filters = filtersFromParams(params);
 
-  const logs = await runWithTenant(organizationId, () =>
-    prisma.auditLog.findMany({
-      where: { organizationId },
-      orderBy: { createdAt: "desc" },
-      take: MAX_LOGS,
-    }),
-  );
+  const [initial, actors] = await Promise.all([queryAudit(organizationId, filters), listAuditActors(organizationId)]);
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6">
+    <div className="mx-auto max-w-5xl space-y-6">
       <div>
         <h1 className="text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Auditoria</h1>
         <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-          Login, chaves de API, gestão de membros e conexões (WhatsApp/Meta/Google) — últimos {MAX_LOGS} eventos.
-          Visível só pra donos, pra investigar o que aconteceu se uma conta for comprometida.
+          Quem fez, quando e o que mudou: acessos, equipe e permissões, negócios, cadastro e cota, comissões, integrações e exportações.
+          O registro é somente de inclusão: nenhum evento pode ser alterado nem apagado. Visível só para donos.
         </p>
       </div>
 
-      <AuditLogView
-        initialLogs={logs.map((l) => ({
-          id: l.id,
-          actorName: l.actorName,
-          action: l.action,
-          targetType: l.targetType,
-          targetId: l.targetId,
-          detail: l.detail,
-          ip: l.ip,
-          createdAt: l.createdAt.toISOString(),
-        }))}
-      />
+      <AuditLogView initial={initial} actors={actors} initialFilters={filters} />
     </div>
   );
 }

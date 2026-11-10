@@ -2,8 +2,9 @@
 
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Bell, BellOff, Loader2, UserPlus, Check, X as XIcon, Eye } from "lucide-react";
+import { Bell, BellOff, Loader2, UserPlus, Check, X as XIcon, Eye, ClipboardCheck } from "lucide-react";
 import { TASK_TYPE_LABELS, TASK_TYPE_ICON } from "@/lib/task-icons";
+import { formatCurrency } from "@/lib/format";
 import { usePushSubscription } from "@/lib/use-push-subscription";
 import { useVisiblePoll } from "@/lib/use-visible-poll";
 import { LeadRequestContactModal } from "@/components/lead-request-contact-modal";
@@ -15,6 +16,11 @@ type NotificationTask = {
   dueAt: string | null;
   deal: { id: string; name: string } | null;
   contact: { id: string; name: string } | null;
+  quotaRegistration: {
+    consultant: string;
+    value: number | null;
+    requestedAt: string;
+  } | null;
   /** true = dueAt já passou de verdade; false = ainda dentro de hoje (ver app/api/tasks/notifications/route.ts). */
   overdue: boolean;
 };
@@ -115,11 +121,15 @@ export function NotificationBell() {
 
   const showPushToggle = pushStatus !== "unsupported";
   const isSubscribed = pushStatus === "subscribed";
+  // Cadastro de cota e uma fila administrativa, nao uma tarefa atrasada.
+  // As tarefas de agenda continuam divididas pela urgencia real.
+  const quotaRegistrationTasks = tasks.filter((task) => task.quotaRegistration !== null);
+  const scheduleTasks = tasks.filter((task) => task.quotaRegistration === null);
   // Atrasadas primeiro (mais urgente), depois as de hoje ainda não vencidas
   // — os dois grupos já vêm ordenados por dueAt crescente (ver a query),
   // então só filtrar preserva a ordem cronológica dentro de cada um.
-  const overdueTasks = tasks.filter((t) => t.overdue);
-  const todayTasks = tasks.filter((t) => !t.overdue);
+  const overdueTasks = scheduleTasks.filter((task) => task.overdue);
+  const todayTasks = scheduleTasks.filter((task) => !task.overdue);
   const totalCount = tasks.length + leadRequests.length;
 
   return (
@@ -143,7 +153,7 @@ export function NotificationBell() {
         <div className="surface-glass-panel animate-pop-in absolute right-0 z-40 mt-2 w-80 rounded-lg">
           <div className="border-b border-neutral-100 dark:border-neutral-800 px-4 py-2.5">
             <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">
-              Tarefas atrasadas/hoje
+              Pendências
             </p>
           </div>
           {leadRequests.length > 0 && (
@@ -167,6 +177,9 @@ export function NotificationBell() {
               )
             ) : (
               <>
+                {quotaRegistrationTasks.length > 0 && (
+                  <QuotaRegistrationGroup tasks={quotaRegistrationTasks} onNavigate={() => setOpen(false)} />
+                )}
                 {overdueTasks.length > 0 && (
                   <NotificationGroup label="Atrasadas" tasks={overdueTasks} tone="red" onNavigate={() => setOpen(false)} />
                 )}
@@ -180,11 +193,11 @@ export function NotificationBell() {
           {/* Footer: link agenda + botão silenciar/ativar push */}
           <div className="flex items-center justify-between border-t border-neutral-100 dark:border-neutral-800 px-4 py-2 gap-3">
             <Link
-              href="/agenda"
+              href={quotaRegistrationTasks.length > 0 && scheduleTasks.length === 0 ? "/cadastros" : "/agenda"}
               onClick={() => setOpen(false)}
               className="text-xs font-medium text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 hover:underline"
             >
-              Ver agenda completa
+              {quotaRegistrationTasks.length > 0 && scheduleTasks.length === 0 ? "Abrir cadastros" : "Ver agenda completa"}
             </Link>
 
             {showPushToggle && (
@@ -298,6 +311,62 @@ function LeadRequestsGroup({
               </div>
             </div>
           </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Fila operacional do Administrativo: informa o que entrou, sem tratar a solicitacao como tarefa vencida. */
+function QuotaRegistrationGroup({
+  tasks,
+  onNavigate,
+}: {
+  tasks: NotificationTask[];
+  onNavigate: () => void;
+}) {
+  return (
+    <div>
+      <p className="px-4 pt-2.5 pb-1 text-[11px] font-semibold tracking-wide text-brand uppercase">
+        Cotas para cadastrar
+      </p>
+      {tasks.map((task) => {
+        const registration = task.quotaRegistration!;
+        const contactName = task.title.replace(/^Cadastrar cota:\s*/i, "");
+
+        return (
+          <Link
+            key={task.id}
+            href={task.deal ? `/cadastros/${task.deal.id}` : "/cadastros"}
+            onClick={onNavigate}
+            className="flex items-start gap-2.5 border-b border-neutral-50 px-4 py-2.5 text-sm last:border-0 hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-800"
+          >
+            <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-light dark:bg-[var(--brand-subtle)]">
+              <ClipboardCheck className="h-3 w-3 text-brand" strokeWidth={2} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-medium text-neutral-900 dark:text-neutral-100">{contactName}</p>
+              <p className="mt-0.5 truncate text-xs text-neutral-600 dark:text-neutral-300">
+                Consultor: <span className="font-medium">{registration.consultant}</span>
+              </p>
+              <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-neutral-500 dark:text-neutral-400">
+                <span className="font-medium tabular-nums text-neutral-700 dark:text-neutral-300">
+                  {registration.value === null ? "Valor não informado" : formatCurrency(registration.value)}
+                </span>
+                <span>
+                  Solicitada em{" "}
+                  {new Date(registration.requestedAt).toLocaleString("pt-BR", {
+                    day: "2-digit",
+                    month: "2-digit",
+                    year: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    timeZone: "America/Campo_Grande",
+                  })}
+                </span>
+              </div>
+            </div>
+          </Link>
         );
       })}
     </div>

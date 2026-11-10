@@ -41,9 +41,10 @@ export async function HomeAdministrativo() {
         id: true,
         title: true,
         dueAt: true,
+        createdAt: true,
         dealId: true,
         contact: { select: { id: true, name: true } },
-        deal: { select: { name: true } },
+        deal: { select: { name: true, owner: { select: { name: true } } } },
       },
     }),
     prisma.activity.findMany({
@@ -120,35 +121,45 @@ export async function HomeAdministrativo() {
             <p className="py-8 text-center text-sm text-neutral-400 dark:text-neutral-500">Nenhuma tarefa pendente.</p>
           ) : (
             <div className="space-y-4">
-              {pendingTasks.map((task) => (
-                <Link
-                  key={task.id}
-                  href={
-                    showRegistrations && task.dealId && task.title.startsWith("Cadastrar cota:")
-                      ? `/cadastros/${task.dealId}`
-                      : task.contact
-                        ? `/clientes/${task.contact.id}`
-                        : "/agenda"
-                  }
-                  className="-mx-2 flex gap-3 rounded-md p-2 text-sm transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
-                >
-                  <div className="w-11 shrink-0 text-xs text-neutral-400 dark:text-neutral-500">
-                    {task.dueAt && (
-                      <>
-                        <div>{new Date(task.dueAt).toLocaleDateString("pt-BR", { day: "2-digit", timeZone: "America/Campo_Grande" })}</div>
-                        <div className="uppercase">{new Date(task.dueAt).toLocaleDateString("pt-BR", { month: "short", timeZone: "America/Campo_Grande" })}</div>
-                      </>
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-medium text-neutral-900 dark:text-neutral-100">{task.title}</p>
-                    <p className="truncate text-neutral-500 dark:text-neutral-400">
-                      {task.deal?.name ?? task.contact?.name ?? ""}
-                      {task.dueAt && ` · ${new Date(task.dueAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Campo_Grande" })}`}
-                    </p>
-                  </div>
-                </Link>
-              ))}
+              {pendingTasks.map((task) => {
+                const isQuotaRegistration = Boolean(
+                  showRegistrations && task.dealId && task.title.startsWith("Cadastrar cota:"),
+                );
+                const displayDate = isQuotaRegistration ? task.createdAt : task.dueAt;
+
+                return (
+                  <Link
+                    key={task.id}
+                    href={
+                      isQuotaRegistration
+                        ? `/cadastros/${task.dealId}`
+                        : task.contact
+                          ? `/clientes/${task.contact.id}`
+                          : "/agenda"
+                    }
+                    className="-mx-2 flex gap-3 rounded-md p-2 text-sm transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
+                  >
+                    <div className="w-11 shrink-0 text-xs text-neutral-400 dark:text-neutral-500">
+                      {displayDate && (
+                        <>
+                          <div>{new Date(displayDate).toLocaleDateString("pt-BR", { day: "2-digit", timeZone: "America/Campo_Grande" })}</div>
+                          <div className="uppercase">{new Date(displayDate).toLocaleDateString("pt-BR", { month: "short", timeZone: "America/Campo_Grande" })}</div>
+                        </>
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-medium text-neutral-900 dark:text-neutral-100">{task.title}</p>
+                      <p className="truncate text-neutral-500 dark:text-neutral-400">
+                        {isQuotaRegistration && task.deal?.owner.name
+                          ? `Consultor: ${task.deal.owner.name} · `
+                          : ""}
+                        {task.deal?.name ?? task.contact?.name ?? ""}
+                        {displayDate && ` · ${new Date(displayDate).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Campo_Grande" })}`}
+                      </p>
+                    </div>
+                  </Link>
+                );
+              })}
             </div>
           )}
         </div>

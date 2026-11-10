@@ -2,12 +2,20 @@
 
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 
-const TABS = [
+const OWNER_TABS = [
   { key: "comercial", label: "Comercial" },
   { key: "executivo", label: "Executivo" },
   { key: "facebook", label: "Facebook" },
   { key: "processos", label: "Processos" },
 ] as const;
+
+// Administrativo: o relatório dele (processos e pós-venda) abre primeiro; o Comercial é a segunda aba.
+const ADMINISTRATIVO_TABS = [
+  { key: "administrativo", label: "Administrativo" },
+  { key: "comercial", label: "Comercial" },
+] as const;
+
+type TabKey = "comercial" | "executivo" | "facebook" | "processos" | "administrativo";
 
 /**
  * Alternância entre as visões de relatório — só aparece pro Dono (ver
@@ -16,14 +24,18 @@ const TABS = [
  * cai direto no relatório de processos, sem aba). Muda a URL (?view=), a
  * página (Server Component) decide o que renderizar.
  */
-export function ReportTabs({ active }: { active: "comercial" | "executivo" | "facebook" | "processos" }) {
+export function ReportTabs({ active, variant = "owner" }: { active: TabKey; variant?: "owner" | "administrativo" }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
+  const tabs = variant === "administrativo" ? ADMINISTRATIVO_TABS : OWNER_TABS;
+  // A aba que abre sozinha não precisa de ?view= na URL.
+  const defaultKey = variant === "administrativo" ? "administrativo" : "comercial";
+
   function go(view: string) {
     const params = new URLSearchParams(searchParams.toString());
-    if (view === "comercial") params.delete("view");
+    if (view === defaultKey) params.delete("view");
     else params.set("view", view);
     const qs = params.toString();
     router.push(qs ? `${pathname}?${qs}` : pathname);
@@ -38,7 +50,7 @@ export function ReportTabs({ active }: { active: "comercial" | "executivo" | "fa
     // sólido + blur porque, sendo sticky, conteúdo rola por baixo dela.
     <div className="mb-2 overflow-x-auto pt-1 pb-2">
       <div className="inline-flex rounded-md border border-neutral-200 bg-neutral-100 p-0.5 dark:border-neutral-800 dark:bg-neutral-800">
-        {TABS.map((tab) => (
+        {tabs.map((tab) => (
           <button
             key={tab.key}
             type="button"

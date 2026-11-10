@@ -1,250 +1,231 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Search, X } from "lucide-react";
-import { Badge } from "@/components/badge";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Download, Loader2, Search, ShieldAlert, X } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
-import { ShieldAlert } from "lucide-react";
-import type { AuditAction } from "@/lib/audit-log";
+import { AuditEntryCard } from "@/components/audit/audit-entry";
+import { ACTION_LABELS, AUDIT_CATEGORIES, categoryOf } from "@/lib/audit-meta";
+import type { AuditEntry, AuditFilters } from "@/lib/audit-query";
 
-type LogEntry = {
-  id: string;
-  actorName: string;
-  action: string;
-  targetType: string | null;
-  targetId: string | null;
-  detail: string | null;
-  ip: string | null;
-  createdAt: string;
-};
+type Page = { entries: AuditEntry[]; nextCursor: string | null };
 
-const ACTION_LABELS: Record<AuditAction, string> = {
-  LOGIN_SUCCESS: "Login",
-  LOGIN_FAILED: "Login falhou",
-  API_KEY_CREATED: "Chave de API criada",
-  API_KEY_REVOKED: "Chave de API revogada",
-  TV_DISPLAY_LINK_CREATED: "Link público da TV gerado",
-  TV_DISPLAY_LINK_REVOKED: "Link público da TV revogado",
-  MEMBER_INVITED: "Membro convidado",
-  MEMBER_ROLE_CHANGED: "Papel de membro alterado",
-  MEMBER_DEACTIVATED: "Membro desativado",
-  MEMBER_REACTIVATED: "Membro reativado",
-  MEMBER_REMOVED: "Membro removido",
-  ACADEMY_CRM_UNLOCKED: "CRM liberado pela Academy",
-  ACADEMY_CRM_MANUALLY_UNLOCKED: "CRM liberado manualmente",
-  ACADEMY_ONBOARDING_REQUIRED: "Treinamento da Academy exigido",
-  ACADEMY_ONBOARDING_EXEMPTED: "Exigência da Academy removida",
-  WHATSAPP_CONNECTED: "WhatsApp conectado",
-  WHATSAPP_DISCONNECTED: "WhatsApp desconectado",
-  META_ADS_CONNECTED: "Meta Ads conectado",
-  META_ADS_DISCONNECTED: "Meta Ads desconectado",
-  GOOGLE_CALENDAR_CONNECTED: "Google Agenda conectado",
-  GOOGLE_CALENDAR_DISCONNECTED: "Google Agenda desconectado",
-  DEALS_IMPORTED: "Negócios importados",
-  CONTACTS_IMPORTED: "Contatos importados",
-  SERVOPA_TABLE_ADJUSTMENT: "Taxa de tabela Servopa ajustada",
-  SERVOPA_SYNC_REQUESTED: "Atualização Servopa solicitada",
-  SERVOPA_SYNC_CANCELLED: "Atualização Servopa cancelada",
-  SERVOPA_WORKER_CREDENTIAL_CREATED: "Computador conectado ao robô Servopa",
-  SERVOPA_WORKER_CREDENTIAL_REVOKED: "Computador removido do robô Servopa",
-  SERVOPA_WORKER_INSTALLER_DOWNLOADED: "Instalador do robô Servopa baixado",
-  SERVOPA_CAMPAIGN_CREATED: "Campanha do PDF das tabelas criada",
-  SERVOPA_CAMPAIGN_UPDATED: "Campanha do PDF das tabelas alterada",
-  SERVOPA_CAMPAIGN_DELETED: "Campanha do PDF das tabelas apagada",
-  SHEET_CREATED: "Planilha criada",
-  SHEET_ARCHIVED: "Planilha arquivada",
-  SHEET_RESTORED: "Planilha restaurada",
-  SHEET_DELETED: "Planilha apagada permanentemente",
-  SHEET_IMPORTED: "Dados importados para planilha",
-  SHEET_EXPORTED: "Planilha exportada",
-  DEAL_REGISTRATION_WAIVED: "Ganho sem o cadastro do cliente",
-  DEAL_REGISTRATION_DOC_DOWNLOADED: "Documento do cliente baixado",
-  DEAL_REGISTRATION_DOC_DELETED: "Documento do cliente apagado",
-  DEAL_REGISTRATION_DOCS_PURGED: "Documentos do cliente apagados (prazo de 7 dias)",
-  DEAL_DOCUMENT_REQUESTED: "Documento pedido ao consultor",
-  DEAL_DOCUMENT_REQUEST_CANCELLED: "Pedido de documento cancelado",
-  WHATSAPP_BACKUP_EXPORTED: "Backup de mensagens exportado",
-  CAMPAIGN_QUEUE_REORDERED: "Fila de disparo reordenada",
-  CAMPAIGN_RECIPIENT_REMOVED: "Contato removido da fila",
-  CAMPAIGN_AUTO_PAUSED: "Campanha pausada automaticamente",
-  CAMPAIGN_AUTO_RESUMED: "Campanha retomada automaticamente",
-  COMMISSION_SETTINGS_CHANGED: "Configuração de comissões alterada",
-  COMMISSION_MANAGER_CHANGED: "Responsável por comissões alterado",
-  COMMISSION_ADMINISTRATOR_CHANGED: "Administradora alterada",
-  COMMISSION_RULE_CHANGED: "Regra de comissão alterada",
-  COMMISSION_SALE_CHANGED: "Venda de comissão alterada",
-  COMMISSION_PAID: "Comissão paga",
-  COMMISSION_UNPAID: "Pagamento de comissão desfeito",
-  COMMISSION_HELD: "Comissão travada",
-  COMMISSION_RELEASED: "Comissão destravada",
-  COMMISSION_ADJUSTMENT: "Ajuste de comissão",
-  COMMISSION_DISPUTE_RESOLVED: "Contestação de comissão respondida",
-  COMMISSION_INDIVIDUAL_GOAL_CHANGED: "Meta individual de comissão alterada",
-  COMMISSION_BONUS_RULE_CHANGED: "Regra de bônus por meta alterada",
-  COMMISSION_BONUS_CALCULATED: "Bônus por meta calculado",
-  CENTRAL_CONTACT_CREATED: "Contato criado pela Central",
-  CENTRAL_SETTINGS_CHANGED: "Central de Leads alterada",
-  LISTA_50_CAMPAIGN_CHANGED: "Campanha Lista dos 50 alterada",
-  CONTACT_OWNER_TRANSFERRED: "Responsável do contato transferido via API",
-};
+const EMPTY: AuditFilters = {};
 
-const ACTION_TONE: Record<AuditAction, "neutral" | "success" | "danger" | "warning"> = {
-  LOGIN_SUCCESS: "neutral",
-  LOGIN_FAILED: "danger",
-  API_KEY_CREATED: "success",
-  API_KEY_REVOKED: "warning",
-  TV_DISPLAY_LINK_CREATED: "success",
-  TV_DISPLAY_LINK_REVOKED: "warning",
-  MEMBER_INVITED: "success",
-  MEMBER_ROLE_CHANGED: "warning",
-  MEMBER_DEACTIVATED: "danger",
-  MEMBER_REACTIVATED: "success",
-  MEMBER_REMOVED: "danger",
-  ACADEMY_CRM_UNLOCKED: "success",
-  ACADEMY_CRM_MANUALLY_UNLOCKED: "warning",
-  ACADEMY_ONBOARDING_REQUIRED: "warning",
-  ACADEMY_ONBOARDING_EXEMPTED: "neutral",
-  WHATSAPP_CONNECTED: "success",
-  WHATSAPP_DISCONNECTED: "warning",
-  META_ADS_CONNECTED: "success",
-  META_ADS_DISCONNECTED: "warning",
-  GOOGLE_CALENDAR_CONNECTED: "success",
-  GOOGLE_CALENDAR_DISCONNECTED: "warning",
-  DEALS_IMPORTED: "neutral",
-  CONTACTS_IMPORTED: "neutral",
-  SERVOPA_TABLE_ADJUSTMENT: "warning",
-  SERVOPA_SYNC_REQUESTED: "neutral",
-  SERVOPA_SYNC_CANCELLED: "warning",
-  SERVOPA_WORKER_CREDENTIAL_CREATED: "success",
-  SERVOPA_WORKER_CREDENTIAL_REVOKED: "warning",
-  SERVOPA_WORKER_INSTALLER_DOWNLOADED: "neutral",
-  SERVOPA_CAMPAIGN_CREATED: "success",
-  SERVOPA_CAMPAIGN_UPDATED: "neutral",
-  SERVOPA_CAMPAIGN_DELETED: "warning",
-  SHEET_CREATED: "success",
-  SHEET_ARCHIVED: "warning",
-  SHEET_RESTORED: "neutral",
-  SHEET_DELETED: "danger",
-  SHEET_IMPORTED: "neutral",
-  SHEET_EXPORTED: "warning", // dados saindo do CRM em massa
-  DEAL_REGISTRATION_WAIVED: "warning",
-  DEAL_REGISTRATION_DOC_DOWNLOADED: "neutral",
-  DEAL_REGISTRATION_DOC_DELETED: "warning",
-  DEAL_REGISTRATION_DOCS_PURGED: "neutral",
-  DEAL_DOCUMENT_REQUESTED: "neutral",
-  DEAL_DOCUMENT_REQUEST_CANCELLED: "neutral",
-  WHATSAPP_BACKUP_EXPORTED: "warning", // conversa privada saindo do CRM
-  CAMPAIGN_QUEUE_REORDERED: "warning", // muda QUEM é contatado primeiro — vale destacar
-  CAMPAIGN_RECIPIENT_REMOVED: "warning",
-  CAMPAIGN_AUTO_PAUSED: "warning", // a campanha parou sem ninguém mandar — é o que se procura quando "parou sozinha"
-  CAMPAIGN_AUTO_RESUMED: "success",
-  COMMISSION_SETTINGS_CHANGED: "warning",
-  COMMISSION_MANAGER_CHANGED: "warning", // muda quem enxerga a comissão de todo mundo
-  COMMISSION_ADMINISTRATOR_CHANGED: "neutral",
-  COMMISSION_RULE_CHANGED: "warning",
-  COMMISSION_SALE_CHANGED: "neutral",
-  COMMISSION_PAID: "success",
-  COMMISSION_UNPAID: "danger",
-  COMMISSION_HELD: "warning",
-  COMMISSION_RELEASED: "neutral",
-  COMMISSION_ADJUSTMENT: "warning",
-  COMMISSION_DISPUTE_RESOLVED: "neutral",
-  COMMISSION_INDIVIDUAL_GOAL_CHANGED: "neutral",
-  COMMISSION_BONUS_RULE_CHANGED: "warning",
-  COMMISSION_BONUS_CALCULATED: "warning",
-  CENTRAL_CONTACT_CREATED: "neutral",
-  CENTRAL_SETTINGS_CHANGED: "warning",
-  LISTA_50_CAMPAIGN_CHANGED: "warning",
-  CONTACT_OWNER_TRANSFERRED: "warning",
-};
-
-function actionLabel(action: string): string {
-  return ACTION_LABELS[action as AuditAction] ?? action;
+function toQuery(filters: AuditFilters, extra: Record<string, string | undefined> = {}): string {
+  const p = new URLSearchParams();
+  for (const [k, v] of Object.entries({ ...filters, ...extra })) if (v) p.set(k, v);
+  return p.toString();
 }
 
-function actionTone(action: string): "neutral" | "success" | "danger" | "warning" {
-  return ACTION_TONE[action as AuditAction] ?? "neutral";
-}
+export function AuditLogView({
+  initial,
+  actors,
+  initialFilters = EMPTY,
+}: {
+  initial: Page;
+  actors: { id: string | null; name: string }[];
+  initialFilters?: AuditFilters;
+}) {
+  const [filters, setFilters] = useState<AuditFilters>(initialFilters);
+  const [text, setText] = useState(initialFilters.q ?? "");
+  const [entries, setEntries] = useState(initial.entries);
+  const [cursor, setCursor] = useState(initial.nextCursor);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [targetName, setTargetName] = useState<string | null>(null);
+  const requestId = useRef(0);
+  const firstRun = useRef(true);
 
-function formatDateTime(iso: string): string {
-  return new Date(iso).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "medium" });
-}
+  const set = useCallback(<K extends keyof AuditFilters>(key: K, value: AuditFilters[K]) => {
+    setFilters((f) => ({ ...f, [key]: value || undefined }));
+  }, []);
 
-export function AuditLogView({ initialLogs }: { initialLogs: LogEntry[] }) {
-  const [search, setSearch] = useState("");
-  const [actionFilter, setActionFilter] = useState("ALL");
+  // Busca por texto com um respiro: não consulta a cada tecla.
+  useEffect(() => {
+    const t = setTimeout(() => setFilters((f) => (f.q === (text.trim() || undefined) ? f : { ...f, q: text.trim() || undefined })), 350);
+    return () => clearTimeout(t);
+  }, [text]);
 
-  const actions = useMemo(() => Array.from(new Set(initialLogs.map((l) => l.action))), [initialLogs]);
+  // Qualquer filtro novo refaz a lista do começo (a primeira carga já veio do servidor).
+  useEffect(() => {
+    if (firstRun.current) {
+      firstRun.current = false;
+      return;
+    }
+    const id = ++requestId.current;
+    setLoading(true);
+    setError(null);
+    fetch(`/api/audit?${toQuery(filters)}`, { cache: "no-store" })
+      .then(async (res) => {
+        if (!res.ok) throw new Error("Não foi possível carregar a auditoria.");
+        return (await res.json()) as Page;
+      })
+      .then((page) => {
+        if (id !== requestId.current) return;
+        setEntries(page.entries);
+        setCursor(page.nextCursor);
+      })
+      .catch((e: Error) => id === requestId.current && setError(e.message))
+      .finally(() => id === requestId.current && setLoading(false));
+  }, [filters]);
 
-  // Busca inteiramente client-side sobre os últimos 500 eventos já
-  // carregados (mesmo padrão do backup de WhatsApp) — instantânea, sem
-  // round-trip pro servidor a cada tecla.
-  const filtered = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    return initialLogs.filter((l) => {
-      if (actionFilter !== "ALL" && l.action !== actionFilter) return false;
-      if (!term) return true;
-      return (
-        l.actorName.toLowerCase().includes(term) ||
-        (l.detail ?? "").toLowerCase().includes(term) ||
-        (l.ip ?? "").includes(term) ||
-        actionLabel(l.action).toLowerCase().includes(term)
-      );
-    });
-  }, [initialLogs, search, actionFilter]);
+  async function loadMore() {
+    if (!cursor) return;
+    const id = requestId.current;
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/audit?${toQuery(filters, { cursor })}`, { cache: "no-store" });
+      if (!res.ok) throw new Error("Não foi possível carregar mais eventos.");
+      const page = (await res.json()) as Page;
+      if (id !== requestId.current) return;
+      setEntries((prev) => [...prev, ...page.entries]);
+      setCursor(page.nextCursor);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const actionOptions = useMemo(
+    () =>
+      Object.entries(ACTION_LABELS)
+        .filter(([action]) => !filters.category || filters.category === categoryOf(action))
+        .sort((a, b) => a[1].localeCompare(b[1], "pt-BR")),
+    [filters.category],
+  );
+
+  const active = Object.entries(filters).filter(([k, v]) => v && k !== "q").length + (filters.q ? 1 : 0);
+  const exportHref = `/api/audit/export?${toQuery(filters)}`;
+
+  function clearAll() {
+    setFilters({});
+    setText("");
+    setTargetName(null);
+  }
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-0 flex-1">
+      <div className="card space-y-3 p-3">
+        <div className="relative">
           <Search className="pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-neutral-400" strokeWidth={2} />
           <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar por pessoa, detalhe ou IP"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="Buscar por pessoa, cliente, detalhe, IP ou tipo de ação"
             className="field-input w-full py-1.5 pr-8 pl-8 text-sm"
+            aria-label="Buscar na auditoria"
           />
-          {search && (
-            <button
-              type="button"
-              onClick={() => setSearch("")}
-              className="absolute top-1/2 right-2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
-            >
+          {text && (
+            <button type="button" onClick={() => setText("")} className="absolute top-1/2 right-2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600" aria-label="Limpar busca">
               <X className="h-3.5 w-3.5" strokeWidth={2} />
             </button>
           )}
         </div>
-        <select value={actionFilter} onChange={(e) => setActionFilter(e.target.value)} className="field-input w-auto">
-          <option value="ALL">Todas as ações</option>
-          {actions.map((a) => (
-            <option key={a} value={a}>
-              {actionLabel(a)}
-            </option>
-          ))}
-        </select>
+
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+          <label className="space-y-1 text-xs text-neutral-500">
+            De
+            <input type="date" className="field-input w-full py-1.5 text-sm" value={filters.from ?? ""} max={filters.to || undefined} onChange={(e) => set("from", e.target.value)} />
+          </label>
+          <label className="space-y-1 text-xs text-neutral-500">
+            Até
+            <input type="date" className="field-input w-full py-1.5 text-sm" value={filters.to ?? ""} min={filters.from || undefined} onChange={(e) => set("to", e.target.value)} />
+          </label>
+          <label className="space-y-1 text-xs text-neutral-500">
+            Pessoa
+            <select className="field-input w-full py-1.5 text-sm" value={filters.actorId ?? ""} onChange={(e) => set("actorId", e.target.value)}>
+              <option value="">Todas</option>
+              {actors
+                .filter((a) => a.id)
+                .map((a) => (
+                  <option key={a.id} value={a.id!}>
+                    {a.name}
+                  </option>
+                ))}
+            </select>
+          </label>
+          <label className="space-y-1 text-xs text-neutral-500">
+            Área do sistema
+            <select
+              className="field-input w-full py-1.5 text-sm"
+              value={filters.category ?? ""}
+              onChange={(e) => setFilters((f) => ({ ...f, category: e.target.value || undefined, action: undefined }))}
+            >
+              <option value="">Todas</option>
+              {AUDIT_CATEGORIES.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label}
+                </option>
+              ))}
+              <option value="outros">Outros</option>
+            </select>
+          </label>
+          <label className="space-y-1 text-xs text-neutral-500">
+            Ação
+            <select className="field-input w-full py-1.5 text-sm" value={filters.action ?? ""} onChange={(e) => set("action", e.target.value)}>
+              <option value="">Todas</option>
+              {actionOptions.map(([action, label]) => (
+                <option key={action} value={action}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          {filters.targetId && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-brand-light px-2.5 py-1 font-medium text-brand">
+              Só este item{targetName ? `: ${targetName}` : ""}
+              <button type="button" onClick={() => { set("targetId", ""); set("targetType", ""); setTargetName(null); }} aria-label="Tirar o filtro de item">
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          )}
+          {active > 0 && (
+            <button type="button" onClick={clearAll} className="text-neutral-500 underline-offset-2 hover:underline">
+              Limpar filtros ({active})
+            </button>
+          )}
+          <span className="ml-auto flex items-center gap-3 text-neutral-500 dark:text-neutral-400">
+            <span>
+              {entries.length}
+              {cursor ? "+" : ""} {entries.length === 1 ? "evento" : "eventos"}
+            </span>
+            <a href={exportHref} className="inline-flex items-center gap-1 font-medium text-brand hover:underline" title="Baixa em CSV tudo o que bate com os filtros (a exportação também fica registrada)">
+              <Download className="h-3.5 w-3.5" /> Exportar CSV
+            </a>
+          </span>
+        </div>
       </div>
 
-      {filtered.length === 0 ? (
+      {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-300">{error}</p>}
+
+      {entries.length === 0 && !loading ? (
         <div className="card">
-          <EmptyState icon={ShieldAlert} title="Nenhum evento encontrado" />
+          <EmptyState icon={ShieldAlert} title="Nenhum evento encontrado" description={active > 0 ? "Tente tirar algum filtro." : undefined} />
         </div>
       ) : (
-        <div className="card divide-y divide-neutral-100 dark:divide-neutral-800">
-          {filtered.map((l) => (
-            <div key={l.id} className="flex flex-wrap items-start justify-between gap-2 p-3 text-sm">
-              <div className="min-w-0 flex-1 space-y-0.5">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge tone={actionTone(l.action)}>{actionLabel(l.action)}</Badge>
-                  <span className="font-medium text-neutral-900 dark:text-neutral-100">{l.actorName}</span>
-                </div>
-                {l.detail && <p className="text-neutral-500 dark:text-neutral-400">{l.detail}</p>}
-              </div>
-              <div className="shrink-0 text-right text-xs text-neutral-400 dark:text-neutral-500">
-                <p>{formatDateTime(l.createdAt)}</p>
-                {l.ip && <p className="font-mono">{l.ip}</p>}
-              </div>
-            </div>
+        <div className={`card divide-y divide-neutral-100 dark:divide-neutral-800 ${loading ? "opacity-60" : ""}`}>
+          {entries.map((e) => (
+            <AuditEntryCard
+              key={e.id}
+              entry={e}
+              onFilterTarget={(x) => {
+                setFilters((f) => ({ ...f, targetType: x.targetType ?? undefined, targetId: x.targetId ?? undefined }));
+                setTargetName(x.targetLabel);
+              }}
+            />
           ))}
+        </div>
+      )}
+
+      {cursor && (
+        <div className="flex justify-center">
+          <button type="button" onClick={() => void loadMore()} disabled={loading} className="btn-secondary">
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Mostrar mais antigos
+          </button>
         </div>
       )}
     </div>

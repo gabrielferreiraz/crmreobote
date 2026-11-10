@@ -31,6 +31,12 @@ export const REQUEST_CATALOG: CatalogItem[] = [
   { key: "marriage", label: "Certidão de casamento", hint: "Quando o cliente é casado(a)", kind: "OTHER" },
   { key: "social_contract", label: "Contrato social", hint: "Pessoa jurídica", kind: "SOCIAL_CONTRACT" },
   { key: "other_file", label: "Outro documento", hint: "Descreva qual na mensagem", kind: "OTHER" },
+  {
+    key: "quota_info",
+    label: "Informar grupo, prazo e forma de pagamento",
+    hint: "O consultor preenche e o cadastro já é atualizado",
+    kind: null,
+  },
   { key: "fix_data", label: "Corrigir uma informação", hint: "O consultor responde por escrito", kind: null },
 ];
 

@@ -24,7 +24,12 @@ export async function GET() {
         organizationId,
         ownerId: userId,
         completedAt: null,
-        dueAt: { lte: endOfToday },
+        OR: [
+          { dueAt: { lte: endOfToday } },
+          // Cadastro de cota e uma fila sem prazo de agenda. Continua no
+          // sino ate ser concluido pela area administrativa.
+          { dealId: { not: null }, title: { startsWith: "Cadastrar cota:" } },
+        ],
       },
       orderBy: { dueAt: "asc" },
       // O sino e um resumo rapido; a Agenda mantem a lista completa.
@@ -34,12 +39,43 @@ export async function GET() {
         type: true,
         title: true,
         dueAt: true,
-        deal: { select: { id: true, name: true } },
+        createdAt: true,
+        deal: {
+          select: {
+            id: true,
+            name: true,
+            value: true,
+            grossValue: true,
+            owner: { select: { name: true } },
+          },
+        },
         contact: { select: { id: true, name: true } },
       },
     });
 
-    const result = tasks.map((t) => ({ ...t, overdue: !!t.dueAt && t.dueAt < now }));
+    const result = tasks.map((task) => {
+      const isQuotaRegistration = task.title.startsWith("Cadastrar cota:") && task.deal !== null;
+      const credit = task.deal?.grossValue ?? task.deal?.value ?? null;
+
+      return {
+        id: task.id,
+        type: task.type,
+        title: task.title,
+        dueAt: task.dueAt,
+        deal: task.deal ? { id: task.deal.id, name: task.deal.name } : null,
+        contact: task.contact,
+        quotaRegistration: isQuotaRegistration
+          ? {
+              consultant: task.deal!.owner.name,
+              value: credit === null ? null : Number(credit),
+              requestedAt: task.createdAt,
+            }
+          : null,
+        // Cadastro de cota e uma fila administrativa, nao um compromisso
+        // com horario vencido. A data relevante e quando foi solicitado.
+        overdue: !isQuotaRegistration && !!task.dueAt && task.dueAt < now,
+      };
+    });
     return NextResponse.json(result);
   });
 }

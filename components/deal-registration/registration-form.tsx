@@ -14,6 +14,7 @@ import {
   BANK_ACCOUNT_TYPE_OPTIONS,
   DOCUMENT_KIND_LABELS,
   MARITAL_STATUS_OPTIONS,
+  PAYMENT_METHOD_OPTIONS,
   DOCUMENT_RETENTION_DAYS,
   findMissingRegistrationItems,
   summarizeMissing,
@@ -147,6 +148,9 @@ function toPayload(f: Form) {
       profession: t(f.profession),
       maritalStatus: t(f.maritalStatus),
       monthlyIncome: f.monthlyIncome ? Number(f.monthlyIncome) : null,
+      groupNumber: t(f.groupNumber),
+      termMonths: Number(f.termMonths) > 0 ? Number(f.termMonths) : null,
+      paymentMethod: t(f.paymentMethod),
       bankName: t(f.bankName),
       bankAgency: t(f.bankAgency),
       bankAccount: t(f.bankAccount),
@@ -502,6 +506,7 @@ export function RegistrationForm({
   const personKeys = ["cnpj", "cpf", "email", "whatsapp", "profession", "maritalStatus", "monthlyIncome"];
   const addressKeys = ["zipCode", "address", "addressNumber", "neighborhood", "city", "state"];
   const bankKeys = ["bankName", "bankAgency", "bankAccount", "bankAccountType"];
+  const quotaKeys = ["groupNumber", "termMonths", "paymentMethod"];
   const docKeys = ["doc:PHOTO_ID"];
   const percent = total > 0 ? Math.round((done / total) * 100) : 100;
 
@@ -637,8 +642,43 @@ export function RegistrationForm({
         </div>
       </Section>
 
+      <Section n={4} title="Cota vendida" keys={quotaKeys} missingKeys={missingKeys}>
+        <div className="grid gap-3 sm:grid-cols-3">
+          {field(
+            "groupNumber",
+            "Grupo",
+            <input
+              className="field-input"
+              inputMode="numeric"
+              autoComplete="off"
+              value={form.groupNumber}
+              onChange={(e) => set("groupNumber", e.target.value.replace(/\D/g, "").slice(0, 8))}
+              placeholder="Ex.: 1568"
+            />,
+          )}
+          {field(
+            "termMonths",
+            "Prazo (meses)",
+            <input
+              className="field-input"
+              inputMode="numeric"
+              autoComplete="off"
+              value={form.termMonths}
+              onChange={(e) => set("termMonths", e.target.value.replace(/\D/g, "").slice(0, 3))}
+              placeholder="Ex.: 180"
+            />,
+          )}
+          {field(
+            "paymentMethod",
+            "Forma de pagamento",
+            <Select value={form.paymentMethod} onChange={(v) => set("paymentMethod", v)} options={PAYMENT_METHOD_OPTIONS.map((o) => ({ value: o, label: o }))} placeholder="Escolha" ariaLabel="Forma de pagamento" />,
+          )}
+        </div>
+        <p className="text-xs text-neutral-500 dark:text-neutral-400">A cota e o dígito quem preenche é o administrativo, quando cadastrar na administradora.</p>
+      </Section>
+
       {meta.requiresBankData && (
-        <Section n={4} title="Dados bancários" keys={bankKeys} missingKeys={missingKeys}>
+        <Section n={5} title="Dados bancários" keys={bankKeys} missingKeys={missingKeys}>
           <div className="grid gap-3 sm:grid-cols-4">
             {field("bankName", "Banco", <input className="field-input" value={form.bankName} onChange={(e) => set("bankName", e.target.value)} />, "sm:col-span-2")}
             {field("bankAgency", "Agência", <input className="field-input" inputMode="numeric" value={form.bankAgency} onChange={(e) => set("bankAgency", e.target.value)} />)}

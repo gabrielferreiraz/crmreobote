@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant-context";
+import { summarizeChanges, type AuditChange } from "@/lib/audit-diff";
 
 /**
  * Ações administrativas cobertas hoje (ver comentário do model AuditLog em
@@ -87,6 +88,29 @@ export type AuditAction =
   | "DEAL_REGISTRATION_DOCS_PURGED"
   | "DEAL_DOCUMENT_REQUESTED"
   | "DEAL_DOCUMENT_REQUEST_CANCELLED"
+  | "DEAL_DOCUMENT_REQUEST_ANSWERED"
+  | "DEAL_DOCUMENT_REQUEST_FULFILLED"
+  // Cadastro do cliente e da cota: cada dado editado (antes -> depois), quem enviou documento e quem marcou a cota.
+  | "DEAL_REGISTRATION_EDITED"
+  | "DEAL_REGISTRATION_COMPLETED"
+  | "DEAL_REGISTRATION_DOC_UPLOADED"
+  | "DEAL_QUOTA_UPDATED"
+  | "DEAL_QUOTA_REGISTERED"
+  | "DEAL_QUOTA_REGISTRATION_UNDONE"
+  // Negócios: o que muda dinheiro, dono ou situação da venda.
+  | "DEAL_WON"
+  | "DEAL_LOST"
+  | "DEAL_REOPENED"
+  | "DEAL_OWNER_CHANGED"
+  | "DEAL_VALUE_CHANGED"
+  | "DEAL_DELETED"
+  // Pessoas: área, permissões, equipe e dados do perfil (o papel e a ativação já tinham evento próprio).
+  | "MEMBER_AREA_CHANGED"
+  | "MEMBER_PERMISSIONS_CHANGED"
+  | "MEMBER_TEAM_CHANGED"
+  | "MEMBER_PROFILE_CHANGED"
+  // A própria trilha de auditoria saindo do CRM.
+  | "AUDIT_EXPORTED"
   // Histórico de WhatsApp de um consultor baixado pelo Dono (conversa privada de outra pessoa saindo do CRM).
   | "WHATSAPP_BACKUP_EXPORTED"
   // Campanha sazonal "Lista dos 50" (Novembro Black) ligada/desligada pelo Dono.
@@ -112,9 +136,15 @@ export async function logAudit(params: {
   targetType?: string;
   targetId?: string;
   detail?: string | null;
+  /** Nome do item (ex.: o cliente), para a tela mostrar gente e não código. */
+  targetLabel?: string | null;
+  /** O que mudou, antes -> depois (ver lib/audit-diff.ts). Se não houver detalhe, ele é gerado a partir daqui. */
+  changes?: AuditChange[];
   ip?: string | null;
 }): Promise<void> {
-  const { organizationId, actorUserId, actorName, action, targetType, targetId, detail, ip } = params;
+  const { organizationId, actorUserId, actorName, action, targetType, targetId, ip } = params;
+  const changes = params.changes && params.changes.length > 0 ? params.changes : undefined;
+  const detail = params.detail ?? (changes ? summarizeChanges(changes) : null);
   try {
     await runWithTenant(organizationId, () =>
       prisma.auditLog.create({
@@ -126,11 +156,58 @@ export async function logAudit(params: {
           targetType,
           targetId,
           detail: detail ?? undefined,
+          targetLabel: params.targetLabel ?? undefined,
+          changes: changes as unknown as object | undefined,
           ip,
         },
       }),
     );
   } catch (err) {
     console.error(`[audit-log] falha ao registrar ${action}`, err);
+  }
+}
+
+/**
+ * Vários eventos de uma vez (ação em massa: um evento POR item, para o histórico
+ * de cada venda/cliente continuar completo). Mesma regra do logAudit: nunca propaga erro.
+ */
+export async function logAuditMany(params: {
+  organizationId: string;
+  actorUserId?: string | null;
+  actorName: string;
+  ip?: string | null;
+  entries: {
+    action: AuditAction;
+    targetType?: string;
+    targetId?: string;
+    targetLabel?: string | null;
+    detail?: string | null;
+    changes?: AuditChange[];
+  }[];
+}): Promise<void> {
+  const { organizationId, actorUserId, actorName, ip, entries } = params;
+  if (entries.length === 0) return;
+  try {
+    for (let i = 0; i < entries.length; i += 1000) {
+      const chunk = entries.slice(i, i + 1000);
+      await runWithTenant(organizationId, () =>
+        prisma.auditLog.createMany({
+          data: chunk.map((e) => ({
+            organizationId,
+            actorUserId: actorUserId ?? null,
+            actorName,
+            action: e.action,
+            targetType: e.targetType,
+            targetId: e.targetId,
+            targetLabel: e.targetLabel ?? undefined,
+            detail: e.detail ?? (e.changes && e.changes.length > 0 ? summarizeChanges(e.changes) : undefined),
+            changes: e.changes && e.changes.length > 0 ? (e.changes as unknown as object) : undefined,
+            ip,
+          })),
+        }),
+      );
+    }
+  } catch (err) {
+    console.error(`[audit-log] falha ao registrar ${entries.length} evento(s) em massa`, err);
   }
 }
