@@ -71,9 +71,12 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       if (status === "RUNNING") {
         const target = await prisma.campaign.findFirst({
           where: { id, organizationId: access.organizationId, ...campaignScopeWhere(scope) },
-          select: { source: true, pausedReason: true, instance: { select: { status: true, personalOwner: { select: { name: true } } } } },
+          select: { source: true, scheduledAt: true, pausedReason: true, instance: { select: { status: true, personalOwner: { select: { name: true } } } } },
         });
         if (!target) return NextResponse.json({ error: "Não encontrada" }, { status: 404 });
+        if (target.scheduledAt && target.scheduledAt > new Date()) {
+          return NextResponse.json({ error: "Esta campanha está programada para começar mais tarde." }, { status: 409 });
+        }
         if (target.source !== "PIPELINE_BULK" && target.instance.status !== "CONNECTED") {
           const comesBackAlone = parsePauseReason(target.pausedReason) === PAUSE_REASON.WHATSAPP_DISCONNECTED;
           return NextResponse.json(

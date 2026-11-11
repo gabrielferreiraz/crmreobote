@@ -440,3 +440,76 @@ export async function closeConsultantQuotaRegisteredTasks(organizationId: string
     })
     .catch((err) => console.error("[deal-registration] falha ao fechar o aviso da cota cadastrada", err));
 }
+
+/** Prefixo do título da tarefa-aviso do administrativo quando o consultor manda documentos extras. */
+export const EXTRA_DOCS_TASK_PREFIX = "Documentos novos:";
+
+/**
+ * Avisa o administrativo que o consultor anexou documentos a mais numa venda já
+ * ganha: tarefa no sino/Agenda + push persistente (como o aviso da cota).
+ * Quem enviou nunca recebe o próprio aviso. Nunca derruba o envio — falhas só vão para o log.
+ */
+export async function notifyAdministrativeExtraDocuments(params: {
+  organizationId: string;
+  dealId: string;
+  actor: { userId: string; name: string };
+  fileNames: string[];
+}): Promise<{ notified: number }> {
+  const { organizationId, dealId, actor, fileNames } = params;
+  try {
+    const deal = await prisma.deal.findFirst({
+      where: { id: dealId, organizationId },
+      select: { contactId: true, contact: { select: { name: true } }, owner: { select: { name: true } } },
+    });
+    if (!deal) return { notified: 0 };
+
+    let recipients = await prisma.organizationUser.findMany({
+      where: { organizationId, active: true, area: "ADMINISTRATIVO" },
+      select: { userId: true },
+    });
+    if (recipients.length === 0) {
+      recipients = await prisma.organizationUser.findMany({ where: { organizationId, active: true, role: "OWNER" }, select: { userId: true } });
+    }
+    recipients = recipients.filter((r) => r.userId !== actor.userId);
+    if (recipients.length === 0) return { notified: 0 };
+
+    const count = fileNames.length;
+    const what = count === 1 ? "1 documento" : `${count} documentos`;
+    const shown = fileNames.slice(0, 3).join(", ") + (count > 3 ? ` e mais ${count - 3}` : "");
+    const title = `${EXTRA_DOCS_TASK_PREFIX} ${deal.contact.name}`;
+    const description = `${actor.name} enviou ${what} a mais: ${shown}. Abra o cadastro para conferir e baixar.`;
+    const batch = Date.now().toString(36);
+
+    let notified = 0;
+    for (const { userId } of recipients) {
+      try {
+        // Uma tarefa aberta por pessoa e venda: novos envios atualizam o texto em vez de duplicar.
+        const open = await prisma.task.findFirst({ where: { organizationId, dealId, ownerId: userId, title, completedAt: null }, select: { id: true } });
+        if (open) {
+          await prisma.task.update({ where: { id: open.id }, data: { description } });
+        } else {
+          await prisma.task.create({
+            data: { organizationId, dealId, contactId: deal.contactId, ownerId: userId, type: "OTHER", title, description, dueAt: null },
+          });
+        }
+        notified += 1;
+      } catch (err) {
+        console.error("[deal-registration] falha ao criar a tarefa dos documentos extras", err);
+      }
+      await createAdministrativePushReminder({
+        organizationId,
+        userId,
+        kind: "ADMIN_DOCUMENT_RESPONSE",
+        eventKey: pushReminderEventKey.extraDocuments(dealId, batch),
+        scopeKey: pushReminderScopeKey.deal(dealId),
+        title: "Documentos novos do consultor",
+        body: `${deal.contact.name} · ${what} · ${deal.owner.name}`,
+        url: `/cadastros/${dealId}`,
+      }).catch((err) => console.error("[deal-registration] falha no push dos documentos extras", err));
+    }
+    return { notified };
+  } catch (err) {
+    console.error("[deal-registration] falha ao avisar o administrativo dos documentos extras", err);
+    return { notified: 0 };
+  }
+}

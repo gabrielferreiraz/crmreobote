@@ -30,10 +30,11 @@ function formatDelay(seconds: number): string {
   return `${minutes}min`;
 }
 
-function campaignStatusMeta(status: string) {
+function campaignStatusMeta(status: string, scheduledAt: Date | null) {
   if (status === "RUNNING") return { label: "Em andamento", dot: "bg-emerald-500", text: "text-emerald-700 dark:text-emerald-400" };
   if (status === "PAUSED") return { label: "Pausada", dot: "bg-amber-500", text: "text-amber-700 dark:text-amber-400" };
   if (status === "DONE") return { label: "Concluída", dot: "bg-neutral-400", text: "text-neutral-600 dark:text-neutral-300" };
+  if (scheduledAt) return { label: "Programada", dot: "bg-blue-500", text: "text-blue-700 dark:text-blue-300" };
   return { label: "Rascunho", dot: "bg-neutral-400", text: "text-neutral-600 dark:text-neutral-300" };
 }
 
@@ -87,7 +88,7 @@ export default async function CampaignDetailPage({
       campaign.audienceFilter.tags.length > 0 ||
       campaign.audienceFilter.cities.length > 0;
     const audienceLabel = hasAudienceFilter ? campaign.audienceLabel : "Lista definida para esta campanha";
-    const statusMeta = campaignStatusMeta(campaign.status);
+    const statusMeta = campaignStatusMeta(campaign.status, campaign.scheduledAt);
     const { completionEstimate } = campaign;
 
     // Só checa quando faz diferença de verdade: campanha rodando com gente
@@ -152,6 +153,7 @@ export default async function CampaignDetailPage({
               <CampaignActions
                 id={campaign.id}
                 status={campaign.status}
+                scheduledAt={campaign.scheduledAt?.toISOString() ?? null}
                 hasAudienceFilter={hasAudienceFilter}
                 hasRmktWaves={campaign.hasRmktWaves}
                 autoPausedByDisconnect={campaign.status === "PAUSED" && campaign.pausedReason === PAUSE_REASON.WHATSAPP_DISCONNECTED}
@@ -184,6 +186,14 @@ export default async function CampaignDetailPage({
         )}
         {campaign.whatsappOffline && (
           <OfflineNotice ownerName={campaign.whatsappOffline.ownerName} disconnectedAt={campaign.whatsappOffline.disconnectedAt} />
+        )}
+        {campaign.status === "DRAFT" && campaign.scheduledAt && (
+          <div className="flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2.5 text-sm text-blue-800 dark:border-blue-900/60 dark:bg-blue-500/10 dark:text-blue-300">
+            <Clock3 className="h-4 w-4 shrink-0" />
+            <span>
+              Início programado para <strong>{new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Cuiaba" }).format(campaign.scheduledAt)}</strong>. Os envios começam gradualmente, dentro dos horários permitidos.
+            </span>
+          </div>
         )}
 
         <section id="visao-geral" className="scroll-mt-16 overflow-hidden rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950" aria-label="Progresso da campanha">

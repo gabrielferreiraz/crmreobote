@@ -6,6 +6,7 @@ import { getCurrentMembership } from "@/lib/current-membership";
 import { runWithTenant } from "@/lib/tenant-context";
 import { canBypassRegistration, DOCUMENT_RETENTION_DAYS, formatQuotaLabel } from "@/lib/deal-registration/rules";
 import { parseRequestItems, summarizeRequestItems } from "@/lib/deal-registration/request-rules";
+import { getCadastrosSignature } from "@/lib/deal-registration/live";
 import { CadastrosList, type CadastroRow } from "./cadastros-list";
 
 export const dynamic = "force-dynamic";
@@ -19,8 +20,12 @@ export default async function CadastrosPage() {
   if (!m?.active || !canBypassRegistration(m)) redirect("/");
 
   const data = await runWithTenant(m.organizationId, async () => {
+    // Antes dos dados: se algo mudar durante a leitura, a próxima consulta da tela percebe a diferença e recarrega.
+    const signature = await getCadastrosSignature(m.organizationId);
     const select = {
       id: true,
+      ownerId: true,
+      administratorId: true,
       value: true,
       grossValue: true,
       closedAt: true,
@@ -44,7 +49,7 @@ export default async function CadastrosPage() {
     } satisfies Prisma.DealSelect;
     const base = { organizationId: m.organizationId, status: "WON" as const };
     // Pendentes: todas (a fila nunca pode esconder uma venda antiga). Cadastradas: só as mais recentes.
-    const [pending, done, doneTotal] = await Promise.all([
+    const [pending, done, doneTotal, consultantRecords, administratorRecords] = await Promise.all([
       prisma.deal.findMany({ where: { ...base, registration: { is: { quotaRegisteredAt: null } } }, orderBy: { closedAt: "desc" }, take: 1500, select }),
       prisma.deal.findMany({
         where: { ...base, registration: { is: { quotaRegisteredAt: { not: null } } } },
@@ -53,6 +58,16 @@ export default async function CadastrosPage() {
         select,
       }),
       prisma.deal.count({ where: { ...base, registration: { is: { quotaRegisteredAt: { not: null } } } } }),
+      prisma.deal.findMany({
+        where: base,
+        distinct: ["ownerId"],
+        select: { ownerId: true, owner: { select: { name: true } } },
+      }),
+      prisma.deal.findMany({
+        where: { ...base, administratorId: { not: null } },
+        distinct: ["administratorId"],
+        select: { administratorId: true, administrator: { select: { name: true } } },
+      }),
     ]);
     const deals = [...pending, ...done];
 
@@ -69,7 +84,9 @@ export default async function CadastrosPage() {
         holderName: reg.holderName?.trim() || d.contact.name,
         quotaLabel: formatQuotaLabel(reg),
         consultant: d.owner.name,
+        consultantId: d.ownerId,
         administrator: d.administrator?.name ?? null,
+        administratorId: d.administratorId,
         credit: credit != null ? Number(credit) : null,
         closedAt: d.closedAt ? d.closedAt.toISOString() : null,
         state: reg.quotaRegisteredAt ? "done" : open ? "waiting" : "ready",
@@ -82,8 +99,16 @@ export default async function CadastrosPage() {
         quotaAt: reg.quotaRegisteredAt ? reg.quotaRegisteredAt.toISOString() : null,
       };
     });
-    return { rows: mapped, doneTotal };
+    return {
+      rows: mapped,
+      doneTotal,
+      signature,
+      consultants: consultantRecords.map((item) => ({ id: item.ownerId, name: item.owner.name })),
+      administrators: administratorRecords.flatMap((item) => item.administratorId && item.administrator
+        ? [{ id: item.administratorId, name: item.administrator.name }]
+        : []),
+    };
   });
 
-  return <CadastrosList rows={data.rows} doneTotal={data.doneTotal} />;
+  return <CadastrosList rows={data.rows} doneTotal={data.doneTotal} signature={data.signature} consultants={data.consultants} administrators={data.administrators} />;
 }

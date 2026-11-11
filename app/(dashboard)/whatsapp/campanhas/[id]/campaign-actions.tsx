@@ -11,12 +11,14 @@ type CampaignStatus = "DRAFT" | "RUNNING" | "PAUSED" | "DONE";
 export function CampaignActions({
   id,
   status,
+  scheduledAt,
   hasAudienceFilter,
   hasRmktWaves,
   autoPausedByDisconnect,
 }: {
   id: string;
   status: CampaignStatus;
+  scheduledAt: string | null;
   hasAudienceFilter: boolean;
   /** Só campanha com ondas de RMKT configuradas (Campaign.rmktWaves) ganha o botão dedicado "Enviar onda de RMKT agora" — ver getCampaignDetail em lib/campaigns/list.ts. */
   hasRmktWaves: boolean;
@@ -86,7 +88,7 @@ export function CampaignActions({
 
   return (
     <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto lg:justify-end">
-      {(status === "DRAFT" || status === "PAUSED") && (
+      {(status === "PAUSED" || (status === "DRAFT" && !scheduledAt)) && (
         <button type="button" disabled={togglingStatus} onClick={() => setStatus("RUNNING")} className="btn-primary">
           {togglingStatus ? <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <Play className="h-4 w-4" strokeWidth={2} />}
           {status === "DRAFT" ? "Iniciar" : "Retomar"}

@@ -16,6 +16,7 @@ import { Modal } from "@/components/modal";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { ErrorDialog, type ErrorType } from "@/components/error-dialog";
 import { ContactConflictNotice, type ContactConflict } from "@/components/contact-conflict-notice";
+import { PhoneInput } from "@/components/phone-input";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
 import { CurrencyInput } from "@/components/currency-input";
@@ -2098,8 +2099,8 @@ export function DealDetail({
                   </div>
                   <EditableRow label="Nome" value={deal.contact.name} editable={canEditDetails} onSave={(v) => saveContactField("name", v)} onShowFix={showResponsavelFix} />
                   <EditableRow label="E-mail" value={deal.contact.email ?? ""} type="email" editable={canEditDetails} onSave={(v) => saveContactField("email", v)} onShowFix={showResponsavelFix} />
-                  <EditableRow label="Celular" value={deal.contact.phone ?? ""} editable={canEditDetails} onSave={(v) => saveContactField("phone", v)} onUpdateExisting={(v, id) => updateExistingContactField("phone", v, id)} onShowFix={showResponsavelFix} />
-                  <EditableRow label="WhatsApp" value={deal.contact.whatsapp ?? ""} editable={canEditDetails} onSave={(v) => saveContactField("whatsapp", v)} onUpdateExisting={(v, id) => updateExistingContactField("whatsapp", v, id)} onShowFix={showResponsavelFix} />
+                  <EditableRow label="Celular" value={deal.contact.phone ?? ""} type="phone" editable={canEditDetails} onSave={(v) => saveContactField("phone", v)} onUpdateExisting={(v, id) => updateExistingContactField("phone", v, id)} onShowFix={showResponsavelFix} />
+                  <EditableRow label="WhatsApp" value={deal.contact.whatsapp ?? ""} type="phone" editable={canEditDetails} onSave={(v) => saveContactField("whatsapp", v)} onUpdateExisting={(v, id) => updateExistingContactField("whatsapp", v, id)} onShowFix={showResponsavelFix} />
                   <EditableRow label="Cargo" value={deal.contact.jobTitle ?? ""} type="select" options={jobTitleOptions} editable={canEditDetails} onSave={(v) => saveContactField("jobTitle", v)} onShowFix={showResponsavelFix} />
                   <EditableRow label="Origem" value={deal.contact.source ?? ""} type="select" options={sourceOptions} editable={canEditDetails} onSave={(v) => saveContactField("source", v)} onShowFix={showResponsavelFix} />
                   <EditableRow label="Responsável" value={deal.contact.responsavelId ?? ""} displayValue={deal.contact.responsavel?.name ?? "Ninguém"} type="select" options={[{ value: "", label: "Ninguém" }, ...members.map((m) => ({ value: m.id, label: m.name }))]} editable={canEditDetails} onSave={(v) => saveContactField("responsavelId", v)} autoEditSignal={responsavelFocusTrigger} />
@@ -2642,6 +2643,7 @@ export function DealDetail({
                 label="Celular"
                 value={deal.contact.phone ?? ""}
                 editable={canEditDetails}
+                type="phone"
                 onSave={(v) => saveContactField("phone", v)}
                 onUpdateExisting={(v, id) => updateExistingContactField("phone", v, id)}
                 onShowFix={showResponsavelFix}
@@ -2650,6 +2652,7 @@ export function DealDetail({
                 label="WhatsApp"
                 value={deal.contact.whatsapp ?? ""}
                 editable={canEditDetails}
+                type="phone"
                 onSave={(v) => saveContactField("whatsapp", v)}
                 onUpdateExisting={(v, id) => updateExistingContactField("whatsapp", v, id)}
                 onShowFix={showResponsavelFix}
@@ -3268,7 +3271,7 @@ function EditableRow({
    * o de `onSave` (que sempre mira o contato deste negócio). Ausente nos
    * outros campos (Nome/Cargo/Origem/Responsável nunca geram esse conflito). */
   onUpdateExisting?: (value: string, existingContactId: string) => Promise<{ ok: boolean; error?: string }>;
-  type?: "text" | "email" | "textarea" | "date" | "select";
+  type?: "text" | "email" | "phone" | "textarea" | "date" | "select";
   /** Só usado quando type="select" — lista de opções fixas (ex.: cargo). */
   options?: { value: string; label: string }[];
   editable: boolean;
@@ -3399,6 +3402,8 @@ function EditableRow({
           />
         ) : type === "select" ? (
           <Select value={draft} onChange={setDraft} options={options ?? []} autoFocus className="text-xs" />
+        ) : type === "phone" ? (
+          <PhoneInput label={label} hideLabel value={draft} onChange={setDraft} autoFocus containerClassName="min-w-0 flex-1" inputClassName="text-xs" />
         ) : (
           <input
             autoFocus

@@ -65,6 +65,9 @@ export async function GET(req: Request) {
   const city = searchParams.get("city") ?? undefined;
   const tag = searchParams.get("tag") ?? undefined;
   const onlyWithDeals = searchParams.get("onlyWithDeals") === "1";
+  // "Só com negócios ganhos": o filtro de Clientes manda dealStatus=WON (mesma regra da visão administrativa).
+  const dealStatusParam = searchParams.get("dealStatus");
+  const dealStatus: "OPEN" | "WON" | "LOST" | undefined = dealStatusParam === "WON" ? "WON" : dealStatusParam === "OPEN" ? "OPEN" : dealStatusParam === "LOST" ? "LOST" : undefined;
   const dealValueMin = parseNonNegativeNumber(searchParams.get("dealValueMin"));
   const dealValueMax = parseNonNegativeNumber(searchParams.get("dealValueMax"));
   const groupNumber = searchParams.get("groupNumber")?.trim() || undefined;
@@ -102,6 +105,7 @@ export async function GET(req: Request) {
       city,
       tag,
       onlyWithDeals,
+      dealStatus,
       dealValueMin,
       dealValueMax,
       groupNumber,

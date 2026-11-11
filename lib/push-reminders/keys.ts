@@ -2,6 +2,8 @@ export const pushReminderEventKey = {
   quotaRegistration: (dealId: string) => `quota:${dealId}`,
   processRequest: (requestId: string) => `process-request:${requestId}`,
   documentResponse: (requestId: string) => `document-response:${requestId}`,
+  /** Documentos extras enviados pelo consultor depois do Ganho — um evento por envio (batch). */
+  extraDocuments: (dealId: string, batch: string) => `extra-docs:${dealId}:${batch}`,
 } as const;
 
 export const pushReminderScopeKey = {

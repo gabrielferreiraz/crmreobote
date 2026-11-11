@@ -28,6 +28,8 @@ export function PhoneInput({
   required,
   autoFocus,
   inputClassName,
+  hideLabel = false,
+  containerClassName,
 }: {
   label: string;
   value: string;
@@ -36,6 +38,8 @@ export function PhoneInput({
   required?: boolean;
   autoFocus?: boolean;
   inputClassName?: string;
+  hideLabel?: boolean;
+  containerClassName?: string;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const nextCaretRef = useRef<number | null>(null);
@@ -61,11 +65,11 @@ export function PhoneInput({
   }
 
   return (
-    <div className="space-y-1">
-      <label className="field-label">
+    <div className={`space-y-1 ${containerClassName ?? ""}`}>
+      {!hideLabel && <label className="field-label">
         {label}
         {required && " *"}
-      </label>
+      </label>}
       <input
         ref={inputRef}
         type="tel"

@@ -4,7 +4,7 @@
  * leitura mais inteligente: o que procurar, o que NÃO inventar (ex.: filiação num cartão do CPF).
  */
 
-export type DocumentTypeId = "cpf" | "cnh" | "rg" | "voter" | "work" | "professional" | "proof_address" | "birth_cert" | "marriage_cert" | "cnpj" | "passport" | "payment" | "payslip" | "boleto" | "consorcio";
+export type DocumentTypeId = "cpf" | "cnh" | "rg" | "voter" | "work" | "professional" | "proof_address" | "birth_cert" | "marriage_cert" | "cnpj" | "passport" | "payment" | "payslip" | "boleto" | "consorcio" | "vehicle";
 
 export type DocumentType = { id: DocumentTypeId; label: string };
 
@@ -43,6 +43,24 @@ const TYPES: { id: DocumentTypeId; label: string; min: number; phrases: Phrase[]
       { words: "PERMISSAO", weight: 1 },
       { words: "DENATRAN", weight: 1 },
       { words: "DETRAN", weight: 1 },
+      // CNH digital (PDF do app "Carteira Digital de Trânsito"): o cartão é uma IMAGEM e o texto do PDF traz só o cabeçalho e o rodapé de assinatura.
+      { words: "SENATRAN", weight: 2 },
+      { words: "MINISTERIO DOS TRANSPORTES", weight: 1 },
+      { words: "SECRETARIA NACIONAL DE TRANSITO", weight: 1 },
+      { words: "CNH DIGITAL", weight: 2 },
+    ],
+  },
+  {
+    // O CRLV-e também é emitido pela SENATRAN: sem este tipo ele seria confundido com a CNH digital.
+    id: "vehicle",
+    label: "Documento do veículo (CRLV)",
+    min: 3,
+    phrases: [
+      { words: "CERTIFICADO DE REGISTRO E LICENCIAMENTO DE VEICULO", weight: 4 },
+      { words: "LICENCIAMENTO DE VEICULO", weight: 3 },
+      { words: "CRLV", weight: 3 },
+      { words: "RENAVAM", weight: 2 },
+      { words: "PLACA", weight: 1 },
     ],
   },
   {

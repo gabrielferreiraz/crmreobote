@@ -24,7 +24,9 @@
 
 import { estimateSkewDetailed, isolateText } from "@/lib/ocr/binarize";
 import { canvasToGray, flatFieldGray, grayToCanvas, rotateCanvas, rotateCanvasBy } from "@/lib/ocr/enhance";
-import { findFields, isLikelyNoise, missingExpectedFields } from "@/lib/ocr/find-fields";
+import { detectDocumentType } from "@/lib/ocr/document-type";
+import { findFields, isLikelyNoise, missingExpectedFields, needsImageReading } from "@/lib/ocr/find-fields";
+import { imageRectsFromOps, largeImageRects, type ImageRect } from "@/lib/ocr/pdf-images";
 import { linesFromWords, mergePasses, pickBestWords, pickBestWordsGreedy } from "@/lib/ocr/merge";
 import { cleanReadLines, summarizePass, type PassSummary, type ReadLine, type WordBox } from "@/lib/ocr/quality";
 
@@ -35,6 +37,10 @@ const TARGET_LONG_SIDE = 2400; // px — fotos maiores são reduzidas, menores s
 const MAX_UPSCALE = 3;
 const MAX_PDF_PAGES = 4;
 const MIN_PDF_TEXT_CHARS = 25; // abaixo disso o PDF é tratado como escaneado.
+const MAX_REGIONS = 3; // figuras grandes lidas por PDF com texto (o cartão, às vezes frente e verso).
+const REGION_LONG_SIDE = 2400; // px — teto do lado maior da figura ampliada (e tamanho usado quando a página inteira é lida)...
+const REGION_MIN_SCALE = 2; // ...ampliada ao menos 2x (letra de documento é pequena)...
+const REGION_MAX_SCALE = 6; // ...e nunca mais de 6x.
 const ENGINE_IDLE_MS = 150_000; // sem uso por esse tempo, o motor é descarregado para liberar memória.
 const PAGE_Y_OFFSET = 100_000; // separa as páginas de um PDF escaneado para as posições não se misturarem.
 const TIME_BUDGET_MS = 60_000; // depois disso não começa uma nova tentativa (se já houver leitura).
@@ -359,6 +365,69 @@ export function groupPdfItems(items: PdfTextItem[]): string[] {
   );
 }
 
+type PdfPage = Awaited<ReturnType<Awaited<ReturnType<(typeof import("pdfjs-dist/legacy/build/pdf.mjs"))["getDocument"]>["promise"]>["getPage"]>>;
+type PdfjsModule = typeof import("pdfjs-dist/legacy/build/pdf.mjs");
+
+/** Retângulos (coordenadas do PDF) das imagens grandes da página — candidatas a ser o documento em si. */
+async function largeImagesOf(pdfjs: PdfjsModule, page: PdfPage): Promise<ImageRect[]> {
+  try {
+    const ops = await page.getOperatorList();
+    const OPS = pdfjs.OPS;
+    const [x0, y0, x1, y1] = page.view;
+    return largeImageRects(
+      imageRectsFromOps(ops, {
+        save: OPS.save,
+        restore: OPS.restore,
+        transform: OPS.transform,
+        paintFormXObjectBegin: OPS.paintFormXObjectBegin,
+        paintFormXObjectEnd: OPS.paintFormXObjectEnd,
+        paintImageXObject: OPS.paintImageXObject,
+        paintInlineImageXObject: OPS.paintInlineImageXObject,
+      }),
+      { x0: Math.min(x0, x1), y0: Math.min(y0, y1), x1: Math.max(x0, x1), y1: Math.max(y0, y1) },
+    );
+  } catch {
+    return [];
+  }
+}
+
+/** Desenha só um retângulo da página (a figura do documento), ampliado para o OCR enxergar as letras pequenas. */
+async function renderRegion(page: PdfPage, rect: ImageRect): Promise<HTMLCanvasElement> {
+  const base = page.getViewport({ scale: 1 });
+  // Coordenadas do PDF (y para cima) → pixels da página (y para baixo), pela matriz da própria página (já inclui a rotação).
+  const [a, b, c, d, e, f] = base.transform;
+  const corners = [
+    [rect.x0, rect.y0],
+    [rect.x1, rect.y0],
+    [rect.x0, rect.y1],
+    [rect.x1, rect.y1],
+  ].map(([x, y]) => [a * x + c * y + e, b * x + d * y + f]);
+  const xs = corners.map((p) => p[0]);
+  const ys = corners.map((p) => p[1]);
+  const left = Math.min(...xs);
+  const top = Math.min(...ys);
+  const width = Math.max(1, Math.max(...xs) - left);
+  const height = Math.max(1, Math.max(...ys) - top);
+  // Ampliação pela nitidez REAL da figura: ~2x os pixels que ela tem (o OCR gosta de letra grande, mas esticar uma
+  // figura pequena demais só a borra). Sem essa informação (página inteira), usa um tamanho fixo.
+  const nativeScale = rect.pixelWidth ? rect.pixelWidth / width : 0;
+  const wanted = nativeScale ? Math.max(REGION_MIN_SCALE, nativeScale * 2) : REGION_LONG_SIDE / Math.max(width, height);
+  const scale = Math.min(REGION_MAX_SCALE, wanted, REGION_LONG_SIDE / Math.max(width, height));
+  const viewport = page.getViewport({ scale });
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(width * scale));
+  canvas.height = Math.max(1, Math.round(height * scale));
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+  await page.render({ canvas, viewport, transform: [1, 0, 0, 1, -left * scale, -top * scale] }).promise;
+  return canvas;
+}
+
+const squash = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "");
+
 async function readPdf(blob: Blob, onProgress: ProgressFn): Promise<ReadLine[]> {
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   pdfjs.GlobalWorkerOptions.workerSrc = `${OCR_BASE}/pdf.worker.min.mjs`;
@@ -367,12 +436,43 @@ async function readPdf(blob: Blob, onProgress: ProgressFn): Promise<ReadLine[]> 
   try {
     const pages = Math.min(doc.numPages, MAX_PDF_PAGES);
     const textLines: string[] = [];
+    const regions: { page: PdfPage; rect: ImageRect }[] = [];
     for (let n = 1; n <= pages; n++) {
       const page = await doc.getPage(n);
       const content = await page.getTextContent();
       textLines.push(...groupPdfItems(content.items as PdfTextItem[]));
+      for (const rect of await largeImagesOf(pdfjs, page)) regions.push({ page, rect });
     }
-    if (textLines.join("").length >= MIN_PDF_TEXT_CHARS) return textLines.map((text) => ({ text, confidence: null }));
+    if (textLines.join("").length >= MIN_PDF_TEXT_CHARS) {
+      const asLines = (): ReadLine[] => textLines.map((text) => ({ text, confidence: null }));
+      // PDF com texto: a leitura exata do texto basta — EXCETO quando o texto é só cabeçalho/rodapé e o cartão
+      // (nome, CPF, datas) é uma figura, como na CNH digital. Aí lê também a figura, em alta resolução.
+      if (!needsImageReading(textLines)) return asLines();
+      const known = !!detectDocumentType(textLines);
+      // Sem imagem grande mas com tipo conhecido e dados faltando: o documento pode ser desenho vetorial — lê a página.
+      const targets = regions.slice(0, MAX_REGIONS);
+      if (targets.length === 0 && known) {
+        for (let n = 1; n <= pages; n++) {
+          const page = await doc.getPage(n);
+          targets.push({ page, rect: { x0: Math.min(page.view[0], page.view[2]), y0: Math.min(page.view[1], page.view[3]), x1: Math.max(page.view[0], page.view[2]), y1: Math.max(page.view[1], page.view[3]) } });
+        }
+      }
+      if (targets.length === 0) return asLines();
+      onProgress({ label: "O PDF traz o documento como imagem. Lendo a imagem…", fraction: null });
+      // Uma figura por vez, de cima para baixo, e PARA quando o que o documento deveria trazer já foi achado
+      // (a frente da CNH tem tudo; o verso e a faixa do MRZ nem precisam ser lidos).
+      const ocr: ReadLine[] = [];
+      for (let i = 0; i < targets.length; i++) {
+        const canvas = await renderRegion(targets[i].page, targets[i].rect);
+        const part = await readCanvases([canvas], (p) => onProgress({ label: targets.length > 1 ? `${p.label} (imagem ${i + 1} de ${targets.length})` : p.label, fraction: p.fraction })).catch(() => [] as ReadLine[]);
+        // Cada figura numa faixa própria, para as posições de uma não se misturarem com as da outra.
+        for (const line of part) ocr.push(line.box ? { ...line, box: { ...line.box, y0: line.box.y0 + i * PAGE_Y_OFFSET, y1: line.box.y1 + i * PAGE_Y_OFFSET } } : line);
+        if (!missingExpectedFields([...ocr, ...asLines()])) break;
+      }
+      const ocrText = squash(ocr.map((l) => l.text).join(" "));
+      // O que o OCR já leu não se repete; o texto exato do PDF (cabeçalho, rodapé) entra por último.
+      return [...ocr, ...asLines().filter((l) => squash(l.text).length < 4 || !ocrText.includes(squash(l.text)))];
+    }
 
     // PDF escaneado (só imagem): desenha cada página e lê com OCR.
     onProgress({ label: "Preparando o PDF…", fraction: null });

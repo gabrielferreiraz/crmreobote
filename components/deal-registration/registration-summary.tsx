@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { CheckCircle2, ChevronDown, ClipboardCheck, Download, ShieldAlert } from "lucide-react";
 import { Select } from "@/components/select";
 import { DocumentThumb, DocumentViewer } from "@/components/deal-registration/document-preview";
+import { SendExtraDocumentsPanel } from "@/components/deal-registration/send-extra-documents";
 import { formatCurrency } from "@/lib/format";
 import { maskCpf } from "@/lib/cpf";
 import { formatCnpj } from "@/lib/cnpj";
@@ -323,6 +324,14 @@ export function RegistrationSummary({ dealId }: { dealId: string }) {
                 </ul>
               </div>
             )
+          )}
+
+          {/* Quem vendeu (e não é o administrativo) pode mandar documentos a mais por vontade própria; o administrativo é avisado ao enviar. */}
+          {!data.canBypass && !data.documentsPurgedAt && (
+            <div className="space-y-2 border-t border-neutral-200/80 pt-3 dark:border-white/[0.08]">
+              <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">Enviar mais documentos ao administrativo</p>
+              <SendExtraDocumentsPanel dealId={dealId} />
+            </div>
           )}
         </div>
       )}

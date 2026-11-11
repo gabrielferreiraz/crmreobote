@@ -71,9 +71,9 @@ function matchLabel(text: string, labels: string[]): { rest: string } | null {
   });
   for (const label of labels) {
     const want = label.split(" ");
-    // tolera 1 sinal solto antes do rótulo ("| NOME", "O NOME")
-    for (const skip of [0, 1]) {
-      if (skip === 1 && !(flat[0] && flat[0].norm.length <= 2 && flat.length > want.length)) continue;
+    // Tolera até 3 sinais/números curtos antes do rótulo: "| NOME", "O NOME" e a numeração dos campos da CNH ("2 e 1 NOME E SOBRENOME", "4d CPF", "4a DATA EMISSÃO").
+    for (const skip of [0, 1, 2, 3]) {
+      if (skip > 0 && !flat.slice(0, skip).every((f) => f.norm.length <= 2)) continue;
       if (flat.length < want.length + skip) continue;
       if (want.every((w, i) => tokenEquals(flat[i + skip].norm, w))) {
         const last = flat[want.length + skip - 1];
@@ -95,7 +95,8 @@ const NOT_A_NAME = new Set(
     "MEDICINA MEDICO REGIONAL FEDERAL INSCRICAO TRANSITO DEPARTAMENTO DETRAN PREFEITURA GOVERNO SEGURANCA PUBLICA POLICIA CIVIL VALIDA TERRITORIO " +
     "BENEFICIARIO PAGADOR VENCIMENTO VALOR TOTAL SALARIO LIQUIDO CONTRACHEQUE HOLERITE BOLETO CONSORCIO GRUPO COTA ASSEMBLEIA ADMINISTRADORA CLIENTE TITULAR ENDERECO LOGRADOURO BAIRRO CIDADE MUNICIPIO COMPETENCIA EMPRESA EMPREGADOR CARGO FUNCAO ADMISSAO MATRICULA " +
     "CADASTRO PESSOAS FISICAS JURIDICA RECEITA FAZENDA NUMERO SITUACAO CERTIDAO PASSAPORTE LUZ ENERGIA FATURA CONSUMIDORA " +
-    "TITULO ELEITOR SECAO ZONA PROVA PRESIDENTE LEI EFEITO ACORDO QUALQUER GROSSO SUL NORTE LESTE OESTE MATO GOIAS PARANA MINAS GERAIS SESP SSP DETRAN CBM BOMBEIROS MILITAR EXERCITO MARINHA AERONAUTICA"
+    "TITULO ELEITOR SECAO ZONA PROVA PRESIDENTE LEI EFEITO ACORDO QUALQUER GROSSO SUL NORTE LESTE OESTE MATO GOIAS PARANA MINAS GERAIS SESP SSP DETRAN CBM BOMBEIROS MILITAR EXERCITO MARINHA AERONAUTICA " +
+    "SENATRAN TRANSPORTES SERPRO ASSINADOR PROGRAMA CERTIFICADO DIGITAL MEDIDA PROVISORIA CODE VEICULO LICENCIAMENTO PLACA RENAVAM"
   ).split(" "),
 );
 const NAME_PARTICLES = new Set(["DA", "DE", "DO", "DAS", "DOS", "E"]);
@@ -168,9 +169,14 @@ function parseCategory(text: string): string | null {
   return m ? m[1] : null;
 }
 
+const UF = "AC|AL|AP|AM|BA|CE|DF|ES|GO|MA|MT|MS|MG|PA|PB|PR|PE|PI|RJ|RN|RS|RO|RR|SC|SP|SE|TO";
+
 function parseIssuer(text: string): string | null {
   const m = text.match(/\b([A-Z]{2,6})\s*[/-]\s*([A-Z]{2})\b/);
-  return m ? `${m[1]}/${m[2]}` : null;
+  if (m) return `${m[1]}/${m[2]}`;
+  // CNH: "1912202 SEJUSP MS" — o órgão e o estado vêm separados por espaço.
+  const spaced = text.match(new RegExp(`\\b([A-Z]{3,7})\\s+(${UF})\\b`));
+  return spaced ? `${spaced[1]}/${spaced[2]}` : null;
 }
 
 /** Primeiro CPF válido do texto, formatado (corrige O/S/B/l trocados por número). */
@@ -254,8 +260,11 @@ const LABEL_SPECS: LabelSpec[] = [
   // ---- gerais ----
   { key: "mother", label: "Nome da mãe", labels: ["NOME DA MAE", "MAE"], kind: "name" },
   { key: "father", label: "Nome do pai", labels: ["NOME DO PAI", "PAI"], kind: "name" },
-  { key: "birth", label: "Data de nascimento", labels: ["DATA DE NASCIMENTO", "DATA NASCIMENTO", "DATA NASC", "NASCIMENTO", "NASC"], kind: "date" },
-  { key: "issue", label: "Data de emissão", labels: ["LOCAL E DATA DE EXPEDICAO", "LOCAL E DATA DE EMISSAO", "DATA DE EMISSAO", "DATA EMISSAO", "EMISSAO", "DATA DE EXPEDICAO", "EXPEDICAO", "DATA DE INSCRICAO", "INSCRICAO", "PRIMEIRA HABILITACAO", "1A HABILITACAO"], kind: "date" },
+  // CNH: o campo 3 é "DATA, LOCAL E UF DE NASCIMENTO" e traz a cidade na mesma linha ("21/07/1994, CAMPO GRANDE, MS").
+  { key: "birth", label: "Data de nascimento", labels: ["DATA LOCAL E UF DE NASCIMENTO", "DATA E LOCAL DE NASCIMENTO", "DATA DE NASCIMENTO", "DATA NASCIMENTO", "DATA NASC", "NASCIMENTO", "NASC"], kind: "date" },
+  // "1ª habilitação" é OUTRA data (a da primeira carteira) — nunca pode ocupar o lugar da emissão desta via.
+  { key: "first-license", label: "1ª habilitação", labels: ["PRIMEIRA HABILITACAO", "1A HABILITACAO", "1 HABILITACAO"], kind: "date", types: ["cnh"] },
+  { key: "issue", label: "Data de emissão", labels: ["LOCAL E DATA DE EXPEDICAO", "LOCAL E DATA DE EMISSAO", "DATA DE EMISSAO", "DATA EMISSAO", "EMISSAO", "DATA DE EXPEDICAO", "EXPEDICAO", "DATA DE INSCRICAO", "INSCRICAO"], kind: "date" },
   { key: "validity", label: "Validade", labels: ["DATA DE VALIDADE", "VALIDADE", "VALIDO ATE"], kind: "date" },
   { key: "rg", label: "RG", labels: ["REGISTRO GERAL", "DOC IDENTIDADE", "DOCUMENTO DE IDENTIDADE", "IDENTIDADE", "RG"], kind: "rg" },
   { key: "issuer", label: "Órgão emissor", labels: ["ORGAO EMISSOR", "ORG EMISSOR", "ORGAO EXPEDIDOR", "EMISSOR"], kind: "issuer" },
@@ -355,7 +364,15 @@ function findLabeled(lines: ReadLine[], typeId?: DocumentTypeId): FoundField[] {
       // Cada nome é procurado a partir da linha anterior (rótulo, depois o 1º nome), pois o 2º fica abaixo do 1º.
       let current = i;
       while (names.length < 2) {
-        const next = candidatesFor(lines, current).find((c) => !startsWithLabelWord(c.text) && cleanName(c.text) && !(c.box && lines[current].box && c.box.y0 < lines[current].box!.y0));
+        let next = candidatesFor(lines, current).find((c) => !startsWithLabelWord(c.text) && cleanName(c.text) && !(c.box && lines[current].box && c.box.y0 < lines[current].box!.y0));
+        // O 2º nome costuma ficar mais abaixo (o quadro da filiação tem linha em branco entre os dois, como na CNH): busca na mesma coluna até ~7 linhas.
+        if (!next && names.length === 1 && lines[current].box) {
+          const from = lines[current].box!;
+          const h = Math.max(from.y1 - from.y0, 10);
+          next = lines
+            .filter((c) => c.box && c.box.y0 >= from.y1 - h * 0.3 && c.box.y0 - from.y1 < h * 7 && Math.abs(c.box.x0 - from.x0) < h * 4.5 && !startsWithLabelWord(c.text) && cleanName(c.text))
+            .sort((a, b) => a.box!.y0 - b.box!.y0)[0];
+        }
         if (!next) break;
         names.push(cleanName(next.text)!);
         current = lines.indexOf(next);
@@ -489,7 +506,7 @@ function findEmail(texts: string[]): FoundField[] {
 // Entrada
 // ---------------------------------------------------------------------------
 
-const ORDER = ["type", "competence", "name", "company-name", "fantasy-name", "payer", "beneficiary", "group", "quota", "contract", "credit", "term", "administrator", "amount", "due", "boleto-line", "boleto-due", "boleto-amount", "our-number", "role", "admission", "employer", "registry-no", "base-salary", "gross", "deductions", "net", "consumer-unit", "address", "district", "city", "opening", "situation", "cnh-registry", "cert-registry", "marriage", "pay-value", "pay-datetime", "payer-name", "payer-doc", "payer-bank", "payee-name", "payee-doc", "payee-bank", "payee-key", "pay-auth", "pay-id", "name", "filiation-0", "filiation-1", "mother", "father", "birth", "cpf", "cnpj", "rg", "issuer", "voter", "zone", "section", "naturalness", "category", "crm", "issue", "validity", "date", "cep", "email"];
+const ORDER = ["type", "competence", "name", "company-name", "fantasy-name", "payer", "beneficiary", "group", "quota", "contract", "credit", "term", "administrator", "amount", "due", "boleto-line", "boleto-due", "boleto-amount", "our-number", "role", "admission", "employer", "registry-no", "base-salary", "gross", "deductions", "net", "consumer-unit", "address", "district", "city", "opening", "situation", "cnh-registry", "cert-registry", "marriage", "pay-value", "pay-datetime", "payer-name", "payer-doc", "payer-bank", "payee-name", "payee-doc", "payee-bank", "payee-key", "pay-auth", "pay-id", "name", "filiation-0", "filiation-1", "mother", "father", "birth", "cpf", "cnpj", "rg", "issuer", "voter", "zone", "section", "naturalness", "category", "crm", "issue", "first-license", "validity", "date", "cep", "email"];
 const orderOf = (key: string) => {
   const i = ORDER.findIndex((o) => key === o || key.startsWith(`${o}-`));
   return i === -1 ? ORDER.length : i;
@@ -507,9 +524,20 @@ function looksLikeFullName(name: string): boolean {
  * pessoa, na ordem em que aparece, é o titular; os nomes logo abaixo, na mesma coluna, são a filiação.
  * Vêm marcados como "provável" — quem confere é a pessoa.
  */
-const NO_FILIATION: DocumentTypeId[] = ["cpf", "cnpj", "voter", "proof_address", "work", "passport", "payslip", "boleto", "consorcio"];
+const NO_FILIATION: DocumentTypeId[] = ["cpf", "cnpj", "voter", "proof_address", "work", "passport", "payslip", "boleto", "consorcio", "vehicle"];
 /** Nesses tipos o texto com cara de nome costuma ser empresa, banco ou título — não se adivinha o titular. */
-const NO_NAME_GUESS: DocumentTypeId[] = ["cnpj", "proof_address", "payslip", "boleto", "consorcio", "payment"];
+const NO_NAME_GUESS: DocumentTypeId[] = ["cnpj", "proof_address", "payslip", "boleto", "consorcio", "payment", "vehicle"];
+
+/** Nome de pessoa começa cada palavra com maiúscula (exceto "da/de/dos…"). Frase de rodapé ("ser confirmada por meio do programa…") não. */
+function isProperCase(name: string): boolean {
+  return name
+    .split(/\s+/)
+    .filter((w) => !NAME_PARTICLES.has(norm(w)))
+    .every((w) => /^[\p{Lu}]/u.test(w));
+}
+
+/** "CAMPO GRANDE, MS": cidade e estado, não uma pessoa. */
+const looksLikeCityUf = (raw: string) => new RegExp(`,\\s*(${UF})\\s*$`).test(raw.trim());
 
 function guessNames(lines: ReadLine[], found: FoundField[], typeId?: DocumentTypeId): FoundField[] {
   const labeledName = found.find((f) => f.key === "name")?.value;
@@ -521,7 +549,7 @@ function guessNames(lines: ReadLine[], found: FoundField[], typeId?: DocumentTyp
   for (const line of lines) {
     if (startsWithLabelWord(line.text)) continue;
     const name = cleanName(line.text);
-    if (name && !taken.has(name) && looksLikeFullName(name) && (line.confidence === null || line.confidence >= 65)) people.push({ name, line });
+    if (name && !taken.has(name) && isProperCase(name) && !looksLikeCityUf(line.text) && looksLikeFullName(name) && (line.confidence === null || line.confidence >= 65)) people.push({ name, line });
   }
   const guesses: FoundField[] = [];
   let rest = people;
@@ -537,13 +565,20 @@ function guessNames(lines: ReadLine[], found: FoundField[], typeId?: DocumentTyp
   if (!hasFiliation && holderLine?.box && !(typeId && NO_FILIATION.includes(typeId))) {
     let anchor: ReadLine = holderLine;
     let count = 0;
+    // Na CNH a filiação fica num quadro mais abaixo e à direita da foto, bem longe do nome: a busca é mais larga.
+    const wide = typeId === "cnh";
     for (const p of rest) {
       if (count >= 2) break;
       const box = p.line.box;
       if (!box || !anchor.box) continue;
       const h = Math.max(anchor.box.y1 - anchor.box.y0, 10);
       const below = box.y0 - anchor.box.y1;
-      if (below < 0 || below > h * (count === 0 ? 9 : 4) || Math.abs(box.x0 - anchor.box.x0) > h * 6) continue;
+      // Medido em CNH digital real: o 1º nome fica ~28 linhas abaixo do titular e na coluna da direita; o 2º, 2 linhas abaixo do 1º.
+      const maxBelow = count === 0 ? (wide ? 60 : 9) : wide ? 9 : 4;
+      const maxSide = wide && count === 0 ? 40 : 6;
+      if (below < 0 || below > h * maxBelow || Math.abs(box.x0 - anchor.box.x0) > h * maxSide) continue;
+      // Na busca larga qualquer texto do cartão está "perto": só vale leitura confiável (rótulo mal lido não vira filiação).
+      if (wide && p.line.confidence !== null && p.line.confidence < 85) continue;
       guesses.push({ key: `filiation-${count}`, label: "Filiação (provável)", value: p.name });
       anchor = p.line;
       count++;
@@ -552,14 +587,42 @@ function guessNames(lines: ReadLine[], found: FoundField[], typeId?: DocumentTyp
   return guesses;
 }
 
-/** Dados que se espera achar em cada tipo de documento: enquanto faltarem, vale a pena tentar mais uma leitura. */
-const EXPECTED: Partial<Record<DocumentTypeId, string[]>> = {
-  cpf: ["cpf-"],
-  cnh: ["cpf-", "birth"],
-  rg: ["birth"],
-  voter: ["voter"],
-  proof_address: ["cep"],
+/**
+ * Dados que cada tipo de documento SEMPRE traz. Serve a três coisas: (1) enquanto faltarem, vale a pena
+ * tentar mais uma leitura; (2) num PDF com texto mas sem esses dados, o cartão é uma imagem e precisa de OCR;
+ * (3) o que continuar faltando é avisado a quem confere, em vez de ficar calado (ou, pior, inventado).
+ * `key`: prefixo da chave do campo achado.
+ */
+type Expected = { key: string; label: string };
+const EXPECTED: Partial<Record<DocumentTypeId, Expected[]>> = {
+  cpf: [
+    { key: "name", label: "Nome" },
+    { key: "cpf-", label: "CPF" },
+  ],
+  cnh: [
+    { key: "name", label: "Nome" },
+    { key: "cpf-", label: "CPF" },
+    { key: "birth", label: "Data de nascimento" },
+  ],
+  rg: [
+    { key: "name", label: "Nome" },
+    { key: "birth", label: "Data de nascimento" },
+  ],
+  voter: [
+    { key: "name", label: "Nome" },
+    { key: "voter", label: "Título de eleitor" },
+  ],
+  birth_cert: [{ key: "name", label: "Nome" }],
+  marriage_cert: [{ key: "name", label: "Nome" }],
+  proof_address: [{ key: "cep", label: "CEP" }],
 };
+
+/** `strictName`: só vale o nome lido do rótulo "NOME" — o palpite ("Nome (provável)") não conta. */
+function expectedMissing(fields: FoundField[], typeId: DocumentTypeId | undefined, strictName: boolean): Expected[] {
+  const expected = typeId ? EXPECTED[typeId] : undefined;
+  if (!expected) return [];
+  return expected.filter((e) => !fields.some((f) => (f.key === e.key || f.key.startsWith(e.key)) && !(strictName && e.key === "name" && f.label !== "Nome")));
+}
 
 /** Reconheceu o tipo do documento, mas ainda não achou algo que ele sempre traz (ex.: o número do CPF no cartão do CPF). */
 export function missingExpectedFields(input: (string | ReadLine)[]): boolean {
@@ -569,8 +632,27 @@ export function missingExpectedFields(input: (string | ReadLine)[]): boolean {
   // O rótulo "CPF" / "Número de inscrição" apareceu, mas nenhum número que feche a conta: falta ler o número.
   if (texts.some((t) => matchLabel(t, ["CPF", "NUMERO DE INSCRICAO"])) && !has("cpf-")) return true;
   const type = detectDocumentType(texts);
-  const expected = type ? EXPECTED[type.id] : undefined;
-  return !!expected && expected.some((key) => !has(key));
+  return expectedMissing(fields, type?.id, false).length > 0;
+}
+
+/** Nomes legíveis do que o documento deveria trazer e a leitura não achou — para avisar quem confere. */
+export function missingFieldLabels(input: (string | ReadLine)[]): string[] {
+  const texts = input.map((l) => (typeof l === "string" ? l : l.text));
+  const type = detectDocumentType(texts);
+  return expectedMissing(findFields(input), type?.id, false).map((e) => e.label);
+}
+
+/**
+ * PDF que TEM texto, mas o texto é só cabeçalho/rodapé: o cartão em si (nome, CPF, datas) está numa imagem.
+ * Acontece com a CNH digital (cartão como figura + rodapé de assinatura do Serpro). Recebe só o texto do PDF e
+ * diz se vale ler as imagens da página com OCR. Documento sem imagem grande nem chega a perguntar.
+ */
+export function needsImageReading(textLines: string[]): boolean {
+  const fields = findFields(textLines);
+  const type = detectDocumentType(textLines);
+  if (type) return expectedMissing(fields, type.id, true).length > 0;
+  // Não sabe que documento é: se o texto não traz nenhum dado de pessoa (nome pelo rótulo, CPF), a figura provavelmente traz.
+  return !fields.some((f) => (f.key === "name" && f.label === "Nome") || f.key.startsWith("cpf-") || f.key.startsWith("cnpj-"));
 }
 
 const STREET_RE = /^(?:RUA|R\.|AV\.?|AVENIDA|TRAVESSA|TV\.|ALAMEDA|AL\.|RODOVIA|ROD\.|ESTRADA|ESTR\.|PRA[CÇ]A|PC\.|QUADRA|QD\.?|VIA|LOTEAMENTO)\s+\S.{3,}/i;
@@ -603,7 +685,7 @@ export function findFields(input: (string | ReadLine)[]): FoundField[] {
 
   const labeledOnly = findLabeled(lines, type?.id);
   const labeled = [...labeledOnly, ...guessNames(lines, labeledOnly, type?.id)];
-  const dateValues = new Set(labeled.filter((f) => /^(birth|issue|validity)$/.test(f.key)).map((f) => f.value));
+  const dateValues = new Set(labeled.filter((f) => /^(birth|issue|first-license|validity)$/.test(f.key)).map((f) => f.value));
   const boleto = findBoleto(texts);
   const boletoFields: FoundField[] = boleto
     ? [

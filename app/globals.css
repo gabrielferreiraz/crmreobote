@@ -2484,3 +2484,40 @@ input[type="radio"] {
 .proof-pop {
   animation: proof-pop 260ms var(--ease-smooth) both;
 }
+
+/* Cadastros ao vivo: linha que acabou de chegar (entra deslizando) ou de mudar (brilho que apaga) e o aviso de novidades. */
+@keyframes cadastro-flash {
+  0% {
+    background-color: color-mix(in srgb, var(--color-brand, #4f46e5) 16%, transparent);
+  }
+
+  100% {
+    background-color: transparent;
+  }
+}
+
+@keyframes cadastro-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.cadastro-fresh {
+  animation: cadastro-flash 4s var(--ease-smooth) both;
+}
+
+.cadastro-new {
+  animation:
+    cadastro-slide-in 420ms var(--ease-smooth) both,
+    cadastro-flash 5s var(--ease-smooth) 200ms both;
+}
+
+.cadastro-notice {
+  animation: cadastro-slide-in 320ms var(--ease-smooth) both;
+}

@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, Copy, Loader2, ScanText, Sparkles } from "lucide-react";
+import { AlertTriangle, Check, Copy, Loader2, ScanText, Sparkles } from "lucide-react";
 import { extractDocumentLines, type ReadLine, type ReadProgress } from "@/lib/ocr/extract-document-text";
-import { findFields } from "@/lib/ocr/find-fields";
+import { findFields, missingFieldLabels } from "@/lib/ocr/find-fields";
 import { LOW_CONFIDENCE } from "@/lib/ocr/quality";
 
 async function copyText(text: string): Promise<boolean> {
@@ -62,6 +62,8 @@ export function DocumentTextPanel({ src, fileName, onCopied }: { src: string; fi
   }, [src, fileName, attempt]);
 
   const fields = useMemo(() => (lines ? findFields(lines) : []), [lines]);
+  // Dados que esse tipo de documento sempre traz e a leitura não achou: avisa em vez de deixar passar calado.
+  const missing = useMemo(() => (lines ? missingFieldLabels(lines) : []), [lines]);
   const hasUncertain = !!lines?.some((l) => l.confidence !== null && l.confidence < LOW_CONFIDENCE);
 
   return (
@@ -104,7 +106,7 @@ export function DocumentTextPanel({ src, fileName, onCopied }: { src: string; fi
           <p className="p-4 text-sm text-neutral-500 dark:text-neutral-400">Nenhum texto encontrado neste documento.</p>
         ) : (
           <>
-            {fields.length > 0 && (
+            {(fields.length > 0 || missing.length > 0) && (
               <section className="border-b border-neutral-100 bg-neutral-50/70 px-3 py-2 dark:border-neutral-800 dark:bg-neutral-800/30">
                 <h4 className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold tracking-wide text-neutral-400 uppercase dark:text-neutral-500">
                   <Sparkles className="h-3 w-3" strokeWidth={2} /> Dados encontrados
@@ -118,6 +120,14 @@ export function DocumentTextPanel({ src, fileName, onCopied }: { src: string; fi
                     </li>
                   ))}
                 </ul>
+                {missing.length > 0 && (
+                  <p className="mt-1.5 flex items-start gap-1.5 rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">
+                    <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+                    <span>
+                      Não consegui ler: <strong className="font-semibold">{missing.join(", ")}</strong>. Confira no documento.
+                    </span>
+                  </p>
+                )}
               </section>
             )}
             <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">

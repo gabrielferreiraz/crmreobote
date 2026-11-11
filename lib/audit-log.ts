@@ -100,6 +100,8 @@ export type AuditAction =
   // Acesso do administrativo aos dados sensíveis do cliente (LGPD): quem abriu o documento e quem copiou dados.
   | "DEAL_REGISTRATION_DOC_VIEWED"
   | "DEAL_DATA_COPIED"
+  // O consultor enviou documentos extras de uma venda já ganha e o administrativo foi avisado.
+  | "DEAL_REGISTRATION_DOCS_SENT"
   // Negócios: o que muda dinheiro, dono ou situação da venda.
   | "DEAL_WON"
   | "DEAL_LOST"
