@@ -9,6 +9,7 @@ import {
   ChevronDown,
   ChevronUp,
   Copy,
+  Eraser,
   ExternalLink,
   FileText,
   HelpCircle,
@@ -17,6 +18,7 @@ import {
   RotateCcw,
   Send,
   Trash2,
+  Upload,
   X,
 } from "lucide-react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -127,6 +129,9 @@ const STATUS_BADGE_STYLE: Record<ProposalDTO["status"], string> = {
   CANCELLED: "bg-neutral-100 text-neutral-500 border-neutral-200 dark:bg-neutral-800 dark:text-neutral-500 dark:border-neutral-700",
 };
 
+/** Ver o estado `shown` em ProposalsCard. */
+type ShownCard = { kind: "latest" } | { kind: "empty" } | { kind: "loaded"; id: string };
+
 export function ProposalsCard({
   dealId,
   proposals,
@@ -144,6 +149,11 @@ export function ProposalsCard({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
+  // Qual revisão ocupa o card de cima. "latest" é o padrão (a mais recente);
+  // "empty" é depois do Limpar, com o card fora da tela; "loaded" é uma
+  // revisão trazida do histórico pelo "Carregar proposta". Nada disso vai pro
+  // banco — é só qual revisão está à mostra agora, nesta aba, neste navegador.
+  const [shown, setShown] = useState<ShownCard>({ kind: "latest" });
 
   async function perform<T>(
     proposal: ProposalDTO,
@@ -213,7 +223,19 @@ export function ProposalsCard({
 
   const open = proposals.filter((p) => isProposalOpen(p.status)).length;
   const latest = proposals[0] ?? null;
-  const pastRevisions = proposals.slice(1);
+  // A revisão carregada pode ter sumido da lista enquanto estava à mostra
+  // (outra aba apagou, router.refresh trouxe dados novos) — nesse caso cai
+  // pra mais recente em vez de ficar com um card fantasma.
+  const loaded = shown.kind === "loaded" ? (proposals.find((p) => p.id === shown.id) ?? null) : null;
+  const shownProposal = shown.kind === "empty" ? null : (loaded ?? latest);
+  // O histórico lista todas as outras — era `slice(1)`, que presumia que o
+  // card de cima é sempre a primeira. Com o Limpar e o Carregar isso deixou
+  // de valer: limpo, o histórico mostra todas; com a Revisão 1 carregada, ela
+  // sai do histórico e a 3 entra.
+  const pastRevisions = proposals.filter((p) => p.id !== shownProposal?.id);
+  // Com o card limpo, o histórico abre sozinho: é de lá que se traz uma
+  // revisão de volta, e deixá-lo fechado esconderia a única saída.
+  const historyOpen = showHistory || shown.kind === "empty";
 
   return (
     <div
@@ -269,17 +291,42 @@ export function ProposalsCard({
           </div>
         ) : (
           <>
-            {/* Proposta Ativa / Mais Recente */}
-            {latest && (
+            {/* Proposta Ativa / Mais Recente — ou a revisão carregada do
+                histórico. Fica fora da tela depois do "Limpar". */}
+            {shownProposal ? (
               <ActiveProposalCard
-                key={`${latest.id}:${latest.status}`}
-                p={latest}
-                busy={busyId === latest.id}
-                onSave={(fields) => saveInline(latest, fields)}
-                onGenerate={() => generateAndOpen(latest)}
-                onDuplicate={() => duplicateFrom(latest)}
-                onConfirm={(kind) => setConfirm({ kind, proposal: latest })}
+                // O id no key é o que faz o card remontar ao carregar outra
+                // revisão: sem isso o React reaproveitaria a instância e os
+                // cinco inputs continuariam com os números da revisão antiga.
+                key={`${shownProposal.id}:${shownProposal.status}`}
+                p={shownProposal}
+                busy={busyId === shownProposal.id}
+                onSave={(fields) => saveInline(shownProposal, fields)}
+                onGenerate={() => generateAndOpen(shownProposal)}
+                onDuplicate={() => duplicateFrom(shownProposal)}
+                onConfirm={(kind) => setConfirm({ kind, proposal: shownProposal })}
+                onClear={() => setShown({ kind: "empty" })}
               />
+            ) : (
+              <div className="border border-dashed border-neutral-300 p-6 text-center dark:border-neutral-700 rounded-lg">
+                <FileText className="mx-auto h-7 w-7 text-neutral-300 dark:text-neutral-600" strokeWidth={1.8} />
+                <p className="mt-2 text-sm font-medium text-neutral-800 dark:text-neutral-200">Criar nova proposta</p>
+                {/* Deixa explícito que nada foi apagado — senão "limpei e as
+                    propostas sumiram" vira um susto justificado. */}
+                <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+                  O card foi limpo. As revisões continuam salvas no histórico abaixo.
+                </p>
+                <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+                  <button type="button" onClick={() => setForm({ proposal: null })} className="btn-primary btn-sm">
+                    <Plus className="h-3.5 w-3.5" strokeWidth={2.5} />
+                    Criar nova proposta
+                  </button>
+                  <button type="button" onClick={() => setShown({ kind: "latest" })} className="btn-ghost btn-sm">
+                    <RotateCcw className="h-3.5 w-3.5" strokeWidth={2} />
+                    Voltar a mais recente
+                  </button>
+                </div>
+              </div>
             )}
 
             {/* Histórico de Revisões Anteriores */}
@@ -287,17 +334,17 @@ export function ProposalsCard({
               <div className="pt-2 border-t border-neutral-200/80 dark:border-neutral-800">
                 <button
                   type="button"
-                  onClick={() => setShowHistory(!showHistory)}
+                  onClick={() => setShowHistory(!historyOpen)}
                   className="flex w-full items-center justify-between py-1.5 text-xs font-medium text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200 transition-colors"
                 >
                   <span className="flex items-center gap-1.5">
                     <RotateCcw className="h-3.5 w-3.5 text-neutral-400" />
                     Histórico de revisões anteriores ({pastRevisions.length})
                   </span>
-                  {showHistory ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                  {historyOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                 </button>
 
-                {showHistory && (
+                {historyOpen && (
                   <div className="mt-2 space-y-2">
                     {pastRevisions.map((p) => (
                       <PastRevisionRow
@@ -305,6 +352,7 @@ export function ProposalsCard({
                         p={p}
                         busy={busyId === p.id}
                         onDuplicate={() => duplicateFrom(p)}
+                        onLoad={() => setShown({ kind: "loaded", id: p.id })}
                       />
                     ))}
                   </div>
@@ -352,6 +400,7 @@ function ActiveProposalCard({
   onGenerate,
   onDuplicate,
   onConfirm,
+  onClear,
 }: {
   p: ProposalDTO;
   busy: boolean;
@@ -359,6 +408,7 @@ function ActiveProposalCard({
   onGenerate: () => void;
   onDuplicate: () => void;
   onConfirm: (kind: ConfirmKind) => void;
+  onClear: () => void;
 }) {
   const [savedProposal, setSavedProposal] = useState(p);
   const [creditInput, setCreditInput] = useState(p.credit.toFixed(2));
@@ -445,6 +495,20 @@ function ActiveProposalCard({
           <span className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${STATUS_BADGE_STYLE[savedProposal.status]}`}>
             {PROPOSAL_STATUS_LABEL[savedProposal.status]}
           </span>
+          {/* Tira o card inteiro da tela, em qualquer status — inclusive
+              cancelada e enviada, onde os campos são só de leitura. Não apaga
+              nada: a revisão continua no histórico logo abaixo, e o
+              "Carregar proposta" de lá traz este card de volta. */}
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onClear}
+            title="Tira este card da tela — a revisão continua salva no histórico"
+            className="btn-ghost btn-sm text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
+          >
+            <Eraser className="h-3.5 w-3.5" strokeWidth={2} />
+            Limpar
+          </button>
         </div>
 
         {/* Informação de Orientação em Tooltip/Badge discreta */}
@@ -646,10 +710,13 @@ function PastRevisionRow({
   p,
   busy,
   onDuplicate,
+  onLoad,
 }: {
   p: ProposalDTO;
   busy: boolean;
   onDuplicate: () => void;
+  /** Põe esta revisão no card de cima, no lugar do que estiver lá. */
+  onLoad: () => void;
 }) {
   const perQuota = creditPerQuota(p.credit, p.quotaCount);
   const hasDocument = p.status !== "DRAFT" && p.status !== "CANCELLED";
@@ -675,6 +742,16 @@ function PastRevisionRow({
             Ver PDF
           </Link>
         )}
+        {/* Não é submit de formulário: não existe <form> aqui, e um
+            type="submit" solto ou não faz nada ou dispara o form ancestral
+            errado (foi o que causou o erro de hidratação no editor de
+            scripts). O clique só troca qual revisão o card de cima mostra —
+            os cinco campos remontam preenchidos com os números dela porque o
+            `key` do ActiveProposalCard carrega o id. */}
+        <button type="button" disabled={busy} onClick={onLoad} className="btn-secondary px-2.5 py-1 text-xs" title="Mostrar esta revisão no card acima">
+          <Upload className="h-3 w-3" strokeWidth={2} />
+          Carregar proposta
+        </button>
         <button type="button" disabled={busy} onClick={onDuplicate} className="btn-ghost px-2 py-1 text-xs" title="Criar nova a partir desta revisão">
           <Copy className="h-3.5 w-3.5 text-neutral-400" strokeWidth={2} />
         </button>
