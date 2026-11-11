@@ -15,7 +15,7 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
-function CopyButton({ text, label }: { text: string; label: string }) {
+function CopyButton({ text, label, onCopied }: { text: string; label: string; onCopied?: () => void }) {
   const [done, setDone] = useState(false);
   return (
     <button
@@ -25,6 +25,7 @@ function CopyButton({ text, label }: { text: string; label: string }) {
       onClick={async () => {
         if (await copyText(text)) {
           setDone(true);
+          onCopied?.();
           window.setTimeout(() => setDone(false), 1400);
         }
       }}
@@ -40,7 +41,7 @@ function CopyButton({ text, label }: { text: string; label: string }) {
  * topo e, abaixo, uma linha por conteúdo — cada uma com um botão de copiar discreto.
  * Linhas em que o OCR ficou em dúvida levam um ponto amarelo. Só aparece para o Administrativo.
  */
-export function DocumentTextPanel({ src, fileName }: { src: string; fileName: string }) {
+export function DocumentTextPanel({ src, fileName, onCopied }: { src: string; fileName: string; onCopied?: () => void }) {
   const [lines, setLines] = useState<ReadLine[] | null>(null);
   const [progress, setProgress] = useState<ReadProgress>({ label: "Abrindo o documento…", fraction: null });
   const [error, setError] = useState<string | null>(null);
@@ -60,7 +61,7 @@ export function DocumentTextPanel({ src, fileName }: { src: string; fileName: st
     };
   }, [src, fileName, attempt]);
 
-  const fields = useMemo(() => (lines ? findFields(lines.map((l) => l.text)) : []), [lines]);
+  const fields = useMemo(() => (lines ? findFields(lines) : []), [lines]);
   const hasUncertain = !!lines?.some((l) => l.confidence !== null && l.confidence < LOW_CONFIDENCE);
 
   return (
@@ -68,7 +69,7 @@ export function DocumentTextPanel({ src, fileName }: { src: string; fileName: st
       <div className="flex items-center gap-2 border-b border-neutral-100 px-3 py-2 dark:border-neutral-800">
         <ScanText className="h-4 w-4 text-neutral-400" strokeWidth={1.75} />
         <h3 className="min-w-0 flex-1 truncate text-sm font-medium text-neutral-800 dark:text-neutral-200">Texto do documento</h3>
-        {lines && lines.length > 0 && <CopyButton text={lines.map((l) => l.text).join("\n")} label="Copiar todo o texto" />}
+        {lines && lines.length > 0 && <CopyButton onCopied={onCopied} text={lines.map((l) => l.text).join("\n")} label="Copiar todo o texto" />}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -113,7 +114,7 @@ export function DocumentTextPanel({ src, fileName }: { src: string; fileName: st
                     <li key={f.key} className="flex items-center gap-2 py-0.5">
                       <span className="w-28 shrink-0 text-xs text-neutral-500 dark:text-neutral-400">{f.label}</span>
                       <span className="min-w-0 flex-1 text-sm font-medium break-words text-neutral-900 select-text dark:text-neutral-100">{f.value}</span>
-                      <CopyButton text={f.value} label={`Copiar ${f.label}: ${f.value}`} />
+                      <CopyButton onCopied={onCopied} text={f.value} label={`Copiar ${f.label}: ${f.value}`} />
                     </li>
                   ))}
                 </ul>
@@ -126,7 +127,7 @@ export function DocumentTextPanel({ src, fileName }: { src: string; fileName: st
                   <li key={`${i}-${line.text}`} className="flex items-start gap-1 py-1 pr-1.5 pl-3">
                     {uncertain && <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" title="Leitura incerta: confira com o documento" aria-label="Leitura incerta" />}
                     <span className="min-w-0 flex-1 py-0.5 text-sm break-words text-neutral-800 select-text dark:text-neutral-200">{line.text}</span>
-                    <CopyButton text={line.text} label={`Copiar: ${line.text}`} />
+                    <CopyButton onCopied={onCopied} text={line.text} label={`Copiar: ${line.text}`} />
                   </li>
                 );
               })}

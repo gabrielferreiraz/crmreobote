@@ -6,6 +6,8 @@
 
 import { prisma } from "@/lib/prisma";
 import { sendPushToUser } from "@/lib/push";
+import { createAdministrativePushReminder } from "@/lib/push-reminders/service";
+import { pushReminderEventKey, pushReminderScopeKey } from "@/lib/push-reminders/keys";
 import { logAudit } from "@/lib/audit-log";
 import { getDealAuditLabel } from "@/lib/deal-registration/audit";
 import {
@@ -252,7 +254,12 @@ async function completeRequestItemOnce(params: {
       await closeConsultantTasksIfDone(organizationId, dealId);
       const deal = await dealPeople(organizationId, dealId);
       if (row.requestedById !== actor.userId) {
-        await sendPushToUser(row.requestedById, {
+        await createAdministrativePushReminder({
+          organizationId,
+          userId: row.requestedById,
+          kind: "ADMIN_DOCUMENT_RESPONSE",
+          eventKey: pushReminderEventKey.documentResponse(requestId),
+          scopeKey: pushReminderScopeKey.deal(dealId),
           title: "Consultor atendeu o pedido",
           body: `${deal?.contact.name ?? "Cliente"} · ${items.map((i) => i.label).join(", ")}`,
           url: `/cadastros/${dealId}`,

@@ -7,7 +7,7 @@
  * itens atendidos = pedido atendido.
  */
 
-export type RequestDocKind = "PHOTO_ID" | "SOCIAL_CONTRACT" | "OTHER";
+export type RequestDocKind = "PHOTO_ID" | "SOCIAL_CONTRACT" | "OTHER" | "PAYMENT_PROOF";
 
 export type RequestItem = {
   key: string;
@@ -29,6 +29,7 @@ export const REQUEST_CATALOG: CatalogItem[] = [
   { key: "proof_address", label: "Comprovante de residência", hint: "Dos últimos 90 dias", kind: "OTHER" },
   { key: "proof_income", label: "Comprovante de renda", hint: "Holerite, extrato ou declaração", kind: "OTHER" },
   { key: "marriage", label: "Certidão de casamento", hint: "Quando o cliente é casado(a)", kind: "OTHER" },
+  { key: "payment_proof", label: "Comprovante de pagamento (Pix)", hint: "Print ou PDF do comprovante", kind: "PAYMENT_PROOF" },
   { key: "social_contract", label: "Contrato social", hint: "Pessoa jurídica", kind: "SOCIAL_CONTRACT" },
   { key: "other_file", label: "Outro documento", hint: "Descreva qual na mensagem", kind: "OTHER" },
   {
@@ -62,7 +63,7 @@ export function parseRequestItems(raw: unknown): RequestItem[] {
     if (!entry || typeof entry !== "object") continue;
     const e = entry as Record<string, unknown>;
     if (typeof e.key !== "string" || typeof e.label !== "string") continue;
-    const kind = e.kind === "PHOTO_ID" || e.kind === "SOCIAL_CONTRACT" || e.kind === "OTHER" ? e.kind : null;
+    const kind = e.kind === "PHOTO_ID" || e.kind === "SOCIAL_CONTRACT" || e.kind === "OTHER" || e.kind === "PAYMENT_PROOF" ? e.kind : null;
     items.push({
       key: e.key,
       label: e.label,

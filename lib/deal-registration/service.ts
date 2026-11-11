@@ -8,6 +8,8 @@ import { prisma } from "@/lib/prisma";
 import { logAudit } from "@/lib/audit-log";
 import { getDealAuditLabel } from "@/lib/deal-registration/audit";
 import { sendPushToUser } from "@/lib/push";
+import { createAdministrativePushReminder } from "@/lib/push-reminders/service";
+import { pushReminderEventKey, pushReminderScopeKey } from "@/lib/push-reminders/keys";
 import { formatCurrency } from "@/lib/format";
 import { resolveContactPhones } from "@/lib/phone-normalize";
 import {
@@ -24,7 +26,7 @@ export type RegistrationContext = {
   deal: { id: string; ownerId: string; contactId: string; status: "OPEN" | "WON" | "LOST"; administratorId: string | null };
   contactName: string;
   snapshot: RegistrationSnapshot;
-  documents: { id: string; kind: "PHOTO_ID" | "SOCIAL_CONTRACT" | "OTHER"; fileName: string; size: number; createdAt: Date }[];
+  documents: { id: string; kind: "PHOTO_ID" | "SOCIAL_CONTRACT" | "OTHER" | "PAYMENT_PROOF"; fileName: string; size: number; createdAt: Date }[];
   administratorId: string | null;
   requiresBankData: boolean;
   documentsWaived: boolean;
@@ -334,11 +336,16 @@ export async function notifyAdministrativeQuotaRegistration(organizationId: stri
         data: { organizationId, dealId, contactId: deal.contactId, ownerId: userId, type: "OTHER", title, description, dueAt: null },
       });
     }
-    await sendPushToUser(userId, {
-      title: "Nova cota para cadastrar",
-      body: `${deal.contact.name} · ${deal.administrator?.name ?? "venda ganha"}`,
+    await createAdministrativePushReminder({
+      organizationId,
+      userId,
+      kind: "ADMIN_QUOTA_REGISTRATION",
+      eventKey: pushReminderEventKey.quotaRegistration(dealId),
+      scopeKey: pushReminderScopeKey.deal(dealId),
+      title: "Cota aguardando cadastro",
+      body: `${deal.contact.name} · ${parts.join(" · ")}`,
       url: `/cadastros/${dealId}`,
-    }).catch((err) => console.error("[deal-registration] falha no push", err));
+    }).catch((err) => console.error("[deal-registration] falha no lembrete push da cota", err));
   }
 }
 

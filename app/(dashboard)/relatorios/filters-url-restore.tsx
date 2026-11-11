@@ -5,6 +5,7 @@ import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { buildQuickRanges, normalizeDateKeyRange } from "@/lib/date-ranges";
 import { PIPELINE_FILTER_KEY, WHO_FILTER_KEY, TAGS_FILTER_KEY, DATE_RANGE_FILTER_KEY, PROCESS_PIPELINE_FILTER_KEY } from "./filters-storage";
 import { normalizeReportTags } from "@/lib/reports/tags";
+import { normalizeReportPeople } from "@/lib/reports/people-filter";
 
 /**
  * Componente invisível (renderiza null) — na montagem, se a URL chegou "em
@@ -46,10 +47,17 @@ export function FiltersUrlRestore() {
 
     if (!params.has("who")) {
       try {
-        const saved = localStorage.getItem(WHO_FILTER_KEY);
-        if (saved) {
-          params.set("who", saved);
-          changed = true;
+        const raw = localStorage.getItem(WHO_FILTER_KEY);
+        if (raw) {
+          let stored: unknown = raw;
+          try {
+            stored = JSON.parse(raw);
+          } catch {
+            // Formato antigo: um único "team:<id>" ou "owner:<id>" sem JSON.
+          }
+          const saved = normalizeReportPeople(stored);
+          for (const value of saved) params.append("who", value);
+          if (saved.length > 0) changed = true;
         }
       } catch {}
     }

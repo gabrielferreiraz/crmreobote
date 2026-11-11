@@ -4,7 +4,7 @@ import { getCurrentMembership } from "@/lib/current-membership";
 import { runWithTenant } from "@/lib/tenant-context";
 import { AdminClientsTable, type ClientRow } from "./admin-clients-table";
 
-const CONTACT_SELECT = { id: true, name: true, email: true, phone: true, whatsapp: true, jobTitle: true, source: true } as const;
+const CONTACT_SELECT = { id: true, name: true, email: true, phone: true, whatsapp: true, company: true, jobTitle: true, source: true } as const;
 
 /**
  * "Clientes" para quem não vende — bem diferente da lista de Vendas (que mostra
@@ -23,6 +23,7 @@ export async function AdminClientsView() {
   const membership = await getCurrentMembership();
   // Quem cadastra a cota abre a venda direto na tela de Cadastros; o Financeiro e a pós-contemplação, na ficha do cliente.
   const opensRegistration = membership?.area === "ADMINISTRATIVO";
+  const canExport = membership?.role === "OWNER" || membership?.area === "ADMINISTRATIVO";
   // Administrativo, Pós-contemplação e Financeiro enxergam todos os clientes ganhos; qualquer outro vê só os próprios.
   const seesAll = access.isAdmin || membership?.area === "FINANCEIRO";
   const ownDealsOnly = seesAll ? {} : { ownerId: access.userId };
@@ -35,11 +36,13 @@ export async function AdminClientsView() {
         select: {
           id: true,
           name: true,
+          value: true,
+          grossValue: true,
           closedAt: true,
           contact: { select: CONTACT_SELECT },
           owner: { select: { id: true, name: true } },
-          process: { select: { id: true, stage: { select: { id: true, name: true, color: true } } } },
-          registration: { select: { quotaRegisteredAt: true } },
+          process: { select: { id: true, value: true, groupNumber: true, quotaNumber: true, stage: { select: { id: true, name: true, color: true } } } },
+          registration: { select: { quotaRegisteredAt: true, groupNumber: true, quotaNumber: true, quotaDigit: true } },
         },
       }),
       // Processos de cliente (com ou sem negócio ganho): cada contato com processo aparece mesmo sem venda registrada.
@@ -49,10 +52,13 @@ export async function AdminClientsView() {
         select: {
           id: true,
           createdAt: true,
+          value: true,
+          groupNumber: true,
+          quotaNumber: true,
           contact: { select: CONTACT_SELECT },
           owner: { select: { id: true, name: true } },
           stage: { select: { id: true, name: true, color: true } },
-          deal: { select: { id: true, name: true } },
+          deal: { select: { id: true, name: true, value: true, grossValue: true } },
         },
       }),
     ]);
@@ -70,16 +76,18 @@ export async function AdminClientsView() {
         existing.dealsCount += 1;
         continue;
       }
-      const process = d.process ? { id: d.process.id, stage: d.process.stage } : (() => {
-        const p = processByContact.get(d.contact.id);
-        return p ? { id: p.id, stage: p.stage } : null;
-      })();
+      const process = d.process ?? processByContact.get(d.contact.id) ?? null;
       const registered = d.registration?.quotaRegisteredAt != null;
+      const dealValue = d.grossValue ?? d.value ?? process?.value;
       rows.set(d.contact.id, {
         key: d.contact.id,
         contact: d.contact,
         owner: d.owner,
         deal: { id: d.id, name: d.name },
+        value: dealValue == null ? null : Number(dealValue),
+        groupNumber: d.registration?.groupNumber ?? process?.groupNumber ?? null,
+        quotaNumber: d.registration?.quotaNumber ?? process?.quotaNumber ?? null,
+        quotaDigit: d.registration?.quotaDigit ?? null,
         dealsCount: 1,
         wonAt: d.closedAt ? d.closedAt.toISOString() : null,
         badge: process
@@ -97,11 +105,16 @@ export async function AdminClientsView() {
     // Clientes cadastrados direto num Processo, sem negócio ganho neste CRM.
     for (const p of processes) {
       if (!p.contact || rows.has(p.contact.id)) continue;
+      const processValue = p.deal?.grossValue ?? p.deal?.value ?? p.value;
       rows.set(p.contact.id, {
         key: p.contact.id,
         contact: p.contact,
         owner: p.owner,
         deal: p.deal,
+        value: processValue == null ? null : Number(processValue),
+        groupNumber: p.groupNumber,
+        quotaNumber: p.quotaNumber,
+        quotaDigit: null,
         dealsCount: p.deal ? 1 : 0,
         wonAt: null,
         badge: { label: p.stage.name, color: p.stage.color },
@@ -121,7 +134,7 @@ export async function AdminClientsView() {
           </p>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto pb-4 lg:pb-3">
-          <AdminClientsTable clients={clients} />
+          <AdminClientsTable clients={clients} canExport={canExport} />
         </div>
       </div>
     );

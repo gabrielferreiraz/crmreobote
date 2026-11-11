@@ -62,7 +62,20 @@ export function DocumentThumb({
  * Visualizador em tela grande: imagem inteira ou PDF paginado, com baixar e abrir em outra aba.
  * Com `showText` (Administrativo), o texto do documento aparece ao lado, pronto para copiar.
  */
-export function DocumentViewer({ src, fileName, onClose, showText = false }: { src: string; fileName: string; onClose: () => void; showText?: boolean }) {
+export function DocumentViewer({
+  src,
+  fileName,
+  onClose,
+  showText = false,
+  onTextCopied,
+}: {
+  src: string;
+  fileName: string;
+  onClose: () => void;
+  showText?: boolean;
+  /** Chamado quando alguém copia texto lido do documento (para a auditoria). */
+  onTextCopied?: () => void;
+}) {
   const image = isImageFile(fileName);
   return (
     <Modal onClose={onClose} maxWidth={showText ? "max-w-6xl" : "max-w-4xl"}>
@@ -87,7 +100,7 @@ export function DocumentViewer({ src, fileName, onClose, showText = false }: { s
           </div>
           {showText && (
             <div className="flex max-h-[72vh] min-h-0 flex-col">
-              <DocumentTextPanel src={src} fileName={fileName} />
+              <DocumentTextPanel src={src} fileName={fileName} onCopied={onTextCopied} />
             </div>
           )}
         </div>

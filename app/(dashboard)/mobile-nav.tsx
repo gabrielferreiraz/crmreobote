@@ -279,36 +279,40 @@ export function MobileNav({
                     <ChevronRight className="h-4 w-4 shrink-0 text-neutral-300 dark:text-neutral-600" strokeWidth={2} />
                   </Link>
                 ))}
-                <a
-                  href="/api/simulador-sso"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={() => setSheetOpen(false)}
-                  className="flex items-center gap-3 p-3 text-sm transition-colors active:bg-neutral-50 dark:active:bg-neutral-800/60"
-                >
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-brand-light dark:bg-brand-light">
-                    <Calculator className="h-4 w-4 text-brand dark:text-brand" strokeWidth={1.75} />
-                  </span>
-                  <span className="flex-1 font-medium text-neutral-700 dark:text-neutral-300">Simulador</span>
-                  <ChevronRight className="h-4 w-4 shrink-0 text-neutral-300 dark:text-neutral-600" strokeWidth={2} />
-                </a>
-                {/* Mesmo padrão do Simulador acima — link SIMPLES pro `/auth/start` da
-                    Academy (ela inicia o fluxo OAuth sozinha a partir daí, ver
-                    app/api/academy/authorize/route.ts). */}
-                {academyHref && (
-                  <a
-                    href={academyHref}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={() => setSheetOpen(false)}
-                    className="flex items-center gap-3 p-3 text-sm transition-colors active:bg-neutral-50 dark:active:bg-neutral-800/60"
-                  >
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-brand-light dark:bg-brand-light">
-                      <GraduationCap className="h-4 w-4 text-brand dark:text-brand" strokeWidth={1.75} />
-                    </span>
-                    <span className="flex-1 font-medium text-neutral-700 dark:text-neutral-300">Treinamento</span>
-                    <ChevronRight className="h-4 w-4 shrink-0 text-neutral-300 dark:text-neutral-600" strokeWidth={2} />
-                  </a>
+                {!isAdministrativo && (
+                  <>
+                    <a
+                      href="/api/simulador-sso"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={() => setSheetOpen(false)}
+                      className="flex items-center gap-3 p-3 text-sm transition-colors active:bg-neutral-50 dark:active:bg-neutral-800/60"
+                    >
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-brand-light dark:bg-brand-light">
+                        <Calculator className="h-4 w-4 text-brand dark:text-brand" strokeWidth={1.75} />
+                      </span>
+                      <span className="flex-1 font-medium text-neutral-700 dark:text-neutral-300">Simulador</span>
+                      <ChevronRight className="h-4 w-4 shrink-0 text-neutral-300 dark:text-neutral-600" strokeWidth={2} />
+                    </a>
+                    {/* Mesmo padrão do Simulador acima — link SIMPLES pro `/auth/start` da
+                        Academy (ela inicia o fluxo OAuth sozinha a partir daí, ver
+                        app/api/academy/authorize/route.ts). */}
+                    {academyHref && (
+                      <a
+                        href={academyHref}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={() => setSheetOpen(false)}
+                        className="flex items-center gap-3 p-3 text-sm transition-colors active:bg-neutral-50 dark:active:bg-neutral-800/60"
+                      >
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-brand-light dark:bg-brand-light">
+                          <GraduationCap className="h-4 w-4 text-brand dark:text-brand" strokeWidth={1.75} />
+                        </span>
+                        <span className="flex-1 font-medium text-neutral-700 dark:text-neutral-300">Treinamento</span>
+                        <ChevronRight className="h-4 w-4 shrink-0 text-neutral-300 dark:text-neutral-600" strokeWidth={2} />
+                      </a>
+                    )}
+                  </>
                 )}
                 {/* A Central de ajuda não tem botão flutuante no celular (esse
                     canto já é do "+" logo acima) — o caminho dela é aqui. Abre

@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireProcessAccess } from "@/lib/processes/access";
 import { runWithTenant } from "@/lib/tenant-context";
+import { resolvePushReminderEvent } from "@/lib/push-reminders/service";
+import { pushReminderEventKey } from "@/lib/push-reminders/keys";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +34,13 @@ export async function PATCH(_req: Request, { params }: { params: Promise<{ id: s
       data: { resolvedAt: new Date(), resolvedById: access.userId },
       include: { requestedBy: { select: { id: true, name: true } }, resolvedBy: { select: { id: true, name: true } } },
     });
+
+    if (!existing.targetUserId) {
+      await resolvePushReminderEvent(
+        access.organizationId,
+        pushReminderEventKey.processRequest(existing.id),
+      ).catch((err) => console.error("[processes] falha ao encerrar lembretes da solicitação", err));
+    }
 
     return NextResponse.json(updated);
   });

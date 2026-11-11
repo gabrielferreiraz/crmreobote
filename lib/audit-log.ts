@@ -97,6 +97,9 @@ export type AuditAction =
   | "DEAL_QUOTA_UPDATED"
   | "DEAL_QUOTA_REGISTERED"
   | "DEAL_QUOTA_REGISTRATION_UNDONE"
+  // Acesso do administrativo aos dados sensíveis do cliente (LGPD): quem abriu o documento e quem copiou dados.
+  | "DEAL_REGISTRATION_DOC_VIEWED"
+  | "DEAL_DATA_COPIED"
   // Negócios: o que muda dinheiro, dono ou situação da venda.
   | "DEAL_WON"
   | "DEAL_LOST"

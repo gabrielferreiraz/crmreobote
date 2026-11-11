@@ -18,6 +18,9 @@ import {
   Tag,
   Tags,
   Briefcase,
+  Building2,
+  BadgeDollarSign,
+  Hash,
   IdCard,
   Trash2,
   Send,
@@ -37,6 +40,7 @@ import { Select } from "@/components/select";
 import { FieldError, focusField } from "@/components/field-error";
 import { Field } from "@/components/form-field";
 import { PhoneInput } from "@/components/phone-input";
+import { CurrencyInput } from "@/components/currency-input";
 import { BirthDateInput } from "@/components/birth-date-input";
 import { sortAlpha } from "@/lib/sort-alpha";
 import { DateRangeField } from "@/components/date-range-calendar";
@@ -58,6 +62,7 @@ import { validatePhoneField } from "@/lib/phone-normalize";
 import { birthDateInputError, parseBirthDateInput } from "@/lib/birth-date";
 import { useCepAutofill } from "@/lib/use-cep-autofill";
 import { trackUse } from "@/lib/feature-usage/track";
+import { formatCurrency } from "@/lib/format";
 import { useDesktopViewport } from "@/lib/use-desktop-viewport";
 import { LazyDialogLoading } from "@/components/lazy-dialog-loading";
 
@@ -92,6 +97,9 @@ const CLIENTES_DEFAULT_FILTERS_JSON = JSON.stringify({
   responsavelFilter: "",
   stateFilter: "",
   cityFilter: "",
+  dealValueMin: "",
+  dealValueMax: "",
+  groupNumberFilter: "",
   onlyWithDeals: false,
   hasEmailFilter: "",
   hasWhatsappFilter: "",
@@ -238,6 +246,9 @@ export function ContactsTable({
   const [responsavelFilter, setResponsavelFilter] = useState("");
   const [stateFilter, setStateFilter] = useState("");
   const [cityFilter, setCityFilter] = useState("");
+  const [dealValueMin, setDealValueMin] = useState("");
+  const [dealValueMax, setDealValueMax] = useState("");
+  const [groupNumberFilter, setGroupNumberFilter] = useState("");
   const [onlyWithDeals, setOnlyWithDeals] = useState(false);
   // Filtro rápido de coluna (ver ColumnFilter no cabeçalho da tabela) — "" =
   // não filtra, "yes"/"no" = só com/sem o campo preenchido.
@@ -277,7 +288,7 @@ export function ContactsTable({
 
   // Lembra o filtro usado da última vez nesta tela (F5, fechar a aba e
   // voltar, ou navegar pra outra tela e voltar) — ver lib/use-persisted-filters.ts.
-  const persistedFilterValues = { search, sourceFilter, jobTitleFilter, tagFilter, responsavelFilter, stateFilter, cityFilter, onlyWithDeals, hasEmailFilter, hasWhatsappFilter, registeredFrom, registeredTo, updatedFrom, updatedTo, pageSize };
+  const persistedFilterValues = { search, sourceFilter, jobTitleFilter, tagFilter, responsavelFilter, stateFilter, cityFilter, dealValueMin, dealValueMax, groupNumberFilter, onlyWithDeals, hasEmailFilter, hasWhatsappFilter, registeredFrom, registeredTo, updatedFrom, updatedTo, pageSize };
   const { hydrated } = usePersistedFilters(
     "clientes",
     persistedFilterValues,
@@ -289,6 +300,9 @@ export function ContactsTable({
       if (saved.responsavelFilter !== undefined) setResponsavelFilter(saved.responsavelFilter);
       if (saved.stateFilter !== undefined) setStateFilter(saved.stateFilter);
       if (saved.cityFilter !== undefined) setCityFilter(saved.cityFilter);
+      if (saved.dealValueMin !== undefined) setDealValueMin(saved.dealValueMin);
+      if (saved.dealValueMax !== undefined) setDealValueMax(saved.dealValueMax);
+      if (saved.groupNumberFilter !== undefined) setGroupNumberFilter(saved.groupNumberFilter);
       if (saved.onlyWithDeals !== undefined) setOnlyWithDeals(saved.onlyWithDeals);
       if (saved.hasEmailFilter !== undefined) setHasEmailFilter(saved.hasEmailFilter);
       if (saved.hasWhatsappFilter !== undefined) setHasWhatsappFilter(saved.hasWhatsappFilter);
@@ -323,6 +337,9 @@ export function ContactsTable({
     if (responsavelFilter) params.set("responsavelId", responsavelFilter);
     if (stateFilter) params.set("state", stateFilter);
     if (cityFilter) params.set("city", cityFilter);
+    if (dealValueMin) params.set("dealValueMin", dealValueMin);
+    if (dealValueMax) params.set("dealValueMax", dealValueMax);
+    if (groupNumberFilter.trim()) params.set("groupNumber", groupNumberFilter.trim());
     if (onlyWithDeals) params.set("onlyWithDeals", "1");
     if (hasEmailFilter) params.set("hasEmail", hasEmailFilter);
     if (hasWhatsappFilter) params.set("hasWhatsapp", hasWhatsappFilter);
@@ -394,7 +411,7 @@ export function ContactsTable({
       });
     return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hydrated, page, pageSize, debouncedSearch, sourceFilter, jobTitleFilter, tagFilter, responsavelFilter, stateFilter, cityFilter, onlyWithDeals, hasEmailFilter, hasWhatsappFilter, registeredFrom, registeredTo, updatedFrom, updatedTo, initialContacts]);
+  }, [hydrated, page, pageSize, debouncedSearch, sourceFilter, jobTitleFilter, tagFilter, responsavelFilter, stateFilter, cityFilter, dealValueMin, dealValueMax, groupNumberFilter, onlyWithDeals, hasEmailFilter, hasWhatsappFilter, registeredFrom, registeredTo, updatedFrom, updatedTo, initialContacts]);
 
   // Junta a lista editável (Configurações → Origens) com qualquer valor
   // visto na página atual — cobre valor "antigo" que só apareceria depois de
@@ -459,6 +476,9 @@ export function ContactsTable({
     !!responsavelFilter ||
     !!stateFilter ||
     !!cityFilter ||
+    !!dealValueMin ||
+    !!dealValueMax ||
+    !!groupNumberFilter ||
     onlyWithDeals ||
     !!hasEmailFilter ||
     !!hasWhatsappFilter ||
@@ -479,6 +499,9 @@ export function ContactsTable({
     setResponsavelFilter("");
     setStateFilter("");
     setCityFilter("");
+    setDealValueMin("");
+    setDealValueMax("");
+    setGroupNumberFilter("");
     setOnlyWithDeals(false);
     setHasEmailFilter("");
     setHasWhatsappFilter("");
@@ -917,6 +940,25 @@ export function ContactsTable({
             className="field-input w-full py-1.5 pl-8 text-sm"
           />
         </div>
+        {isManager && (
+          <Select
+            value={responsavelFilter}
+            onChange={(value) => {
+              setResponsavelFilter(value);
+              setPage(1);
+            }}
+            className="w-full py-1.5 text-sm sm:w-52"
+            ariaLabel="Filtrar por consultor"
+            options={[
+              { value: "", label: "Todos os consultores" },
+              { value: NO_RESPONSAVEL, label: "Sem consultor" },
+              ...orderedMembers.map((member) => ({
+                value: member.id,
+                label: member.id === currentUserId ? "Eu" : member.name,
+              })),
+            ]}
+          />
+        )}
         <FilterPopover active={hasFilters} onClear={clearFilters} onOpen={loadAvailableTags}>
           {sourceOptions.length > 0 && (
             <div className="space-y-1">
@@ -974,7 +1016,7 @@ export function ContactsTable({
             )}
           </div>
           <div className="space-y-1">
-            <label className="field-label">Responsável</label>
+            <label className="field-label">Consultor</label>
             <Select
               value={responsavelFilter}
               onChange={(v) => {
@@ -983,8 +1025,8 @@ export function ContactsTable({
               }}
               className="w-full py-1.5 text-sm"
               options={[
-                { value: "", label: "Todos os responsáveis" },
-                { value: NO_RESPONSAVEL, label: "Sem responsável" },
+                { value: "", label: "Todos os consultores" },
+                { value: NO_RESPONSAVEL, label: "Sem consultor" },
                 ...orderedMembers.map((m) => ({ value: m.id, label: m.id === currentUserId ? "Eu" : m.name })),
               ]}
             />
@@ -1012,6 +1054,46 @@ export function ContactsTable({
               placeholder="Buscar por cidade"
               className="field-input w-full py-1.5 text-sm"
             />
+          </div>
+          <div className="space-y-1">
+            <label className="field-label">Grupo</label>
+            <input
+              value={groupNumberFilter}
+              onChange={(event) => {
+                setGroupNumberFilter(event.target.value.replace(/\D/g, ""));
+                setPage(1);
+              }}
+              inputMode="numeric"
+              placeholder="Número exato do grupo"
+              className="field-input w-full py-1.5 text-sm"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="field-label">Valor do negócio</label>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="space-y-1 text-[11px] text-neutral-400 dark:text-neutral-500">
+                <span>Mínimo</span>
+                <CurrencyInput
+                  value={dealValueMin}
+                  onChange={(value) => {
+                    setDealValueMin(value);
+                    setPage(1);
+                  }}
+                  className="py-1.5 text-sm"
+                />
+              </label>
+              <label className="space-y-1 text-[11px] text-neutral-400 dark:text-neutral-500">
+                <span>Máximo</span>
+                <CurrencyInput
+                  value={dealValueMax}
+                  onChange={(value) => {
+                    setDealValueMax(value);
+                    setPage(1);
+                  }}
+                  className="py-1.5 text-sm"
+                />
+              </label>
+            </div>
           </div>
           <button
             onClick={() => {
@@ -1214,7 +1296,31 @@ export function ContactsTable({
                     <IdCard className="h-3.5 w-3.5 shrink-0 opacity-50" strokeWidth={2} />
                     {c.jobTitle ?? "—"}
                   </p>
+                  {c.company && (
+                    <p className="flex items-center gap-1.5 truncate">
+                      <Building2 className="h-3.5 w-3.5 shrink-0 opacity-50" strokeWidth={2} />
+                      {c.company}
+                    </p>
+                  )}
                 </div>
+                {c.latestDeal && (
+                  <div className="mt-2 grid grid-cols-2 gap-3 border-t border-neutral-100 pt-2 dark:border-neutral-800">
+                    <div className="min-w-0">
+                      <p className="text-[11px] text-neutral-400 dark:text-neutral-500">Valor</p>
+                      <p className="truncate text-sm font-semibold tabular-nums text-neutral-800 dark:text-neutral-200">
+                        {c.latestDeal.value != null ? formatCurrency(c.latestDeal.value) : "—"}
+                      </p>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[11px] text-neutral-400 dark:text-neutral-500">Grupo e cota</p>
+                      <p className="truncate text-sm font-medium text-neutral-700 dark:text-neutral-300">
+                        {c.latestDeal.groupNumber
+                          ? `${c.latestDeal.groupNumber}${c.latestDeal.quotaNumber ? ` · ${c.latestDeal.quotaNumber}${c.latestDeal.quotaDigit ? `-${c.latestDeal.quotaDigit}` : ""}` : ""}`
+                          : "—"}
+                      </p>
+                    </div>
+                  </div>
+                )}
                 <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                   {c.source ? (
                     <Badge tone={SOURCE_TONE[c.source] ?? "neutral"} dot>
@@ -1286,6 +1392,25 @@ export function ContactsTable({
                       />
                     </span>
                   </th>
+                  <th className="group/th border-r border-neutral-200 px-4 py-3 whitespace-nowrap dark:border-neutral-800/60">
+                    <span className="inline-flex w-full items-center justify-between gap-1.5">
+                      <span className="inline-flex items-center gap-1.5">
+                        <Mail className="h-3.5 w-3.5 opacity-60" strokeWidth={2} />
+                        E-mail
+                      </span>
+                      <ColumnFilter
+                        value={hasEmailFilter}
+                        onChange={(value) => { setHasEmailFilter(value as "" | "yes" | "no"); setPage(1); }}
+                        options={[{ value: "yes", label: "Com e-mail" }, { value: "no", label: "Sem e-mail" }]}
+                      />
+                    </span>
+                  </th>
+                  <th className="border-r border-neutral-200 px-4 py-3 whitespace-nowrap dark:border-neutral-800/60">
+                    <span className="inline-flex items-center gap-1.5">
+                      <Building2 className="h-3.5 w-3.5 opacity-60" strokeWidth={2} />
+                      Empresa
+                    </span>
+                  </th>
                   <th className="group/th border-r border-neutral-200 dark:border-neutral-800/60 px-4 py-3 whitespace-nowrap">
                     <span className="inline-flex w-full items-center justify-between gap-1.5">
                       <span className="inline-flex items-center gap-1.5">
@@ -1323,14 +1448,14 @@ export function ContactsTable({
                     <span className="inline-flex w-full items-center justify-between gap-1.5">
                       <span className="inline-flex items-center gap-1.5">
                         <User className="h-3.5 w-3.5 opacity-60" strokeWidth={2} />
-                        Responsável
+                        Consultor
                       </span>
                       <ColumnFilter
                         value={responsavelFilter}
                         onChange={(v) => { setResponsavelFilter(v); setPage(1); }}
-                        allLabel="Todos os responsáveis"
+                        allLabel="Todos os consultores"
                         options={[
-                          { value: NO_RESPONSAVEL, label: "Sem responsável" },
+                          { value: NO_RESPONSAVEL, label: "Sem consultor" },
                           ...orderedMembers.map((m) => ({ value: m.id, label: m.id === currentUserId ? "Eu" : m.name })),
                         ]}
                       />
@@ -1348,6 +1473,18 @@ export function ContactsTable({
                         allLabel="Todos"
                         options={[{ value: "1", label: "Só com negócios" }]}
                       />
+                    </span>
+                  </th>
+                  <th className="border-r border-neutral-200 px-4 py-3 whitespace-nowrap dark:border-neutral-800/60">
+                    <span className="inline-flex items-center gap-1.5">
+                      <BadgeDollarSign className="h-3.5 w-3.5 text-emerald-500 dark:text-emerald-400" strokeWidth={2} />
+                      Valor
+                    </span>
+                  </th>
+                  <th className="border-r border-neutral-200 px-4 py-3 whitespace-nowrap dark:border-neutral-800/60">
+                    <span className="inline-flex items-center gap-1.5">
+                      <Hash className="h-3.5 w-3.5 opacity-60" strokeWidth={2} />
+                      Grupo / cota
                     </span>
                   </th>
                   <th className="group/th border-r border-neutral-200 dark:border-neutral-800/60 px-4 py-3 whitespace-nowrap">
@@ -1420,6 +1557,12 @@ export function ContactsTable({
                         <span className="text-neutral-400 dark:text-neutral-600">—</span>
                       )}
                     </td>
+                    <td className="max-w-64 border-r border-neutral-200 px-4 py-3 text-neutral-700 dark:border-neutral-800/60 dark:text-neutral-300">
+                      <span className="block truncate" title={c.email ?? undefined}>{c.email ?? "—"}</span>
+                    </td>
+                    <td className="max-w-56 border-r border-neutral-200 px-4 py-3 text-neutral-700 dark:border-neutral-800/60 dark:text-neutral-300">
+                      <span className="block truncate" title={c.company ?? undefined}>{c.company ?? "—"}</span>
+                    </td>
                     <td className="border-r border-neutral-200 dark:border-neutral-800/60 px-4 py-3 text-neutral-700 dark:text-neutral-300 whitespace-nowrap">
                       {c.jobTitle ?? <span className="text-neutral-400 dark:text-neutral-600">—</span>}
                     </td>
@@ -1439,7 +1582,7 @@ export function ContactsTable({
                           <span className="whitespace-nowrap">{c.responsavel.name}</span>
                         </span>
                       ) : (
-                        <span className="text-neutral-400 dark:text-neutral-600 italic whitespace-nowrap">Sem responsável</span>
+                        <span className="text-neutral-400 dark:text-neutral-600 italic whitespace-nowrap">Sem consultor</span>
                       )}
                     </td>
                     <td className="border-r border-neutral-200 dark:border-neutral-800/60 px-4 py-3 whitespace-nowrap">
@@ -1450,6 +1593,23 @@ export function ContactsTable({
                         </span>
                       ) : (
                         <span className="text-neutral-400 dark:text-neutral-600 font-mono text-xs">0</span>
+                      )}
+                    </td>
+                    <td className="border-r border-neutral-200 px-4 py-3 font-semibold tabular-nums whitespace-nowrap text-neutral-800 dark:border-neutral-800/60 dark:text-neutral-200">
+                      {c.latestDeal?.value != null ? formatCurrency(c.latestDeal.value) : "—"}
+                    </td>
+                    <td className="border-r border-neutral-200 px-4 py-3 whitespace-nowrap dark:border-neutral-800/60">
+                      {c.latestDeal?.groupNumber ? (
+                        <div>
+                          <p className="font-medium text-neutral-800 dark:text-neutral-200">Grupo {c.latestDeal.groupNumber}</p>
+                          {c.latestDeal.quotaNumber && (
+                            <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                              Cota {c.latestDeal.quotaNumber}{c.latestDeal.quotaDigit ? `-${c.latestDeal.quotaDigit}` : ""}
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-neutral-400 dark:text-neutral-600">—</span>
                       )}
                     </td>
                     <td className="border-r border-neutral-200 dark:border-neutral-800/60 px-4 py-3 whitespace-nowrap">

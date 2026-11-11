@@ -20,7 +20,7 @@ import { DOCUMENT_KIND_LABELS } from "@/lib/deal-registration/rules";
 export const dynamic = "force-dynamic";
 
 const EXT_TYPES: Record<string, string> = { pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp" };
-const KINDS = new Set(["PHOTO_ID", "SOCIAL_CONTRACT", "OTHER"]);
+const KINDS = new Set(["PHOTO_ID", "SOCIAL_CONTRACT", "OTHER", "PAYMENT_PROOF"]);
 
 /** Envia um documento do cliente (foto ou PDF) para o cadastro do negócio. */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {

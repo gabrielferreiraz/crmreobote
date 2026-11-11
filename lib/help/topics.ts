@@ -146,6 +146,7 @@ export const HELP_TOPICS: HelpTopic[] = [
     summary: "Simulação de prazos, cotas e parcelas para apresentar ao cliente com login via SSO.",
     category: "produtividade",
     icon: "Calculator",
+    salesOnly: true,
     keywords: ["simulador", "simulação", "simular", "cota", "parcela", "prazo", "consórcio", "crédito", "calculadora"],
     steps: [
       "Clique no ícone de calculadora no topo do CRM para abrir o Simulador.",
@@ -160,6 +161,7 @@ export const HELP_TOPICS: HelpTopic[] = [
     summary: "Aulas em vídeo, tutoriais de vendas e passo a passo completo da plataforma.",
     category: "primeiros-passos",
     icon: "GraduationCap",
+    salesOnly: true,
     keywords: ["treinamento", "academy", "aula", "curso", "vídeo", "aprender", "tutorial", "capacitação", "vendas"],
     steps: [
       "Clique no ícone de capelo no topo do CRM para acessar o Reobote Academy.",

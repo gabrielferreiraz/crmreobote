@@ -184,32 +184,36 @@ export default async function DashboardLayout({ children }: { children: React.Re
           }
           fixedActions={
             <>
-              <a
-                href="/api/simulador-sso"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn-secondary btn-sm group overflow-hidden transition-all duration-300"
-                title="Simulador"
-              >
-                <Calculator className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
-                <span className="max-w-0 overflow-hidden opacity-0 whitespace-nowrap transition-all duration-300 ease-in-out group-hover:ml-1 group-hover:max-w-xs group-hover:opacity-100">
-                  Simulador
-                </span>
-              </a>
-              {academyHref && (
-                <a
-                  href={academyHref}
-                  data-help="academy"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="btn-secondary btn-sm group overflow-hidden transition-all duration-300"
-                  title="Treinamento"
-                >
-                  <GraduationCap className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
-                  <span className="max-w-0 overflow-hidden opacity-0 whitespace-nowrap transition-all duration-300 ease-in-out group-hover:ml-1 group-hover:max-w-xs group-hover:opacity-100">
-                    Treinamento
-                  </span>
-                </a>
+              {!isAdministrativo && (
+                <>
+                  <a
+                    href="/api/simulador-sso"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn-secondary btn-sm group overflow-hidden transition-all duration-300"
+                    title="Simulador"
+                  >
+                    <Calculator className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+                    <span className="max-w-0 overflow-hidden opacity-0 whitespace-nowrap transition-all duration-300 ease-in-out group-hover:ml-1 group-hover:max-w-xs group-hover:opacity-100">
+                      Simulador
+                    </span>
+                  </a>
+                  {academyHref && (
+                    <a
+                      href={academyHref}
+                      data-help="academy"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn-secondary btn-sm group overflow-hidden transition-all duration-300"
+                      title="Treinamento"
+                    >
+                      <GraduationCap className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+                      <span className="max-w-0 overflow-hidden opacity-0 whitespace-nowrap transition-all duration-300 ease-in-out group-hover:ml-1 group-hover:max-w-xs group-hover:opacity-100">
+                        Treinamento
+                      </span>
+                    </a>
+                  )}
+                </>
               )}
               <NotificationBell />
               <UserMenu

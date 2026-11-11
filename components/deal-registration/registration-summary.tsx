@@ -12,7 +12,7 @@ import { DOCUMENT_KIND_LABELS, PAYMENT_METHOD_OPTIONS, formatQuotaLabel } from "
 type Summary = {
   contact: Record<string, string | null>;
   registration: Record<string, string | number | null>;
-  documents: { id: string; kind: "PHOTO_ID" | "SOCIAL_CONTRACT" | "OTHER"; fileName: string }[];
+  documents: { id: string; kind: "PHOTO_ID" | "SOCIAL_CONTRACT" | "OTHER" | "PAYMENT_PROOF"; fileName: string }[];
   requiresBankData: boolean;
   completedAt: string | null;
   waivedReason: string | null;

@@ -158,6 +158,7 @@ model Organization {
   dealRegistrations      DealRegistration[]
   dealRegistrationDocuments DealRegistrationDocument[]
   dealDocumentRequests   DealDocumentRequest[]
+  pushReminders          PushReminder[]
   commissionRules        CommissionRule[]
   commissionSales        CommissionSale[]
   commissionEntries      CommissionEntry[]
@@ -198,6 +199,7 @@ model User {
   teamsLed                    Team[]                    @relation("TeamLeader")
   teamsManaged                Team[]                    @relation("TeamManager")
   pushSubscriptions           PushSubscription[]
+  pushReminders               PushReminder[]
   whatsappInstances           WhatsAppInstance[]         @relation("WhatsAppInstancePersonalOwner")
   whatsappInstancesConnected  WhatsAppInstance[]         @relation("WhatsAppInstanceConnectedBy")
   campaignsCreated            Campaign[]
@@ -355,6 +357,44 @@ model PushSubscription {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+enum PushReminderKind {
+  ADMIN_QUOTA_REGISTRATION
+  ADMIN_PROCESS_REQUEST
+  ADMIN_DOCUMENT_RESPONSE
+}
+
+/// Lembrete push persistente por destinatário e evento. `openedAt` registra
+/// leitura real do conteúdo; `resolvedAt` encerra o evento para todos quando
+/// o trabalho deixa de estar pendente. São estados diferentes de propósito.
+model PushReminder {
+  id             String           @id @default(cuid())
+  organizationId String
+  userId         String
+  kind           PushReminderKind
+  /// Identidade imutável do evento, por exemplo `quota:<dealId>`.
+  eventKey       String
+  /// Conteúdo que encerra a repetição ao ser aberto: `deal:<id>` ou `process:<id>`.
+  scopeKey       String
+  title          String
+  body           String?
+  url            String
+  firstSentAt    DateTime?
+  lastSentAt     DateTime?
+  nextSendAt     DateTime?
+  attemptCount   Int              @default(0)
+  openedAt       DateTime?
+  resolvedAt     DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId, eventKey])
+  @@index([organizationId, openedAt, resolvedAt, nextSendAt])
+  @@index([organizationId, userId, scopeKey])
 }
 
 // ─── WhatsApp (Evolution API + API oficial da Meta) ──────────────────
@@ -4396,6 +4436,8 @@ enum DealRegistrationDocKind {
   PHOTO_ID
   SOCIAL_CONTRACT
   OTHER
+  // Comprovante do pagamento via PIX, anexado pelo consultor no cadastro do Ganho.
+  PAYMENT_PROOF
 }
 
 // O que a administradora exige para cadastrar a cota (dados + documentos),

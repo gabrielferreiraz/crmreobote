@@ -147,3 +147,47 @@ export function rotateCanvas(source: HTMLCanvasElement, degrees: 90 | 180 | 270)
   ctx.drawImage(source, -source.width / 2, -source.height / 2);
   return out;
 }
+
+/** Lê os tons de cinza de um canvas. */
+export function canvasToGray(source: HTMLCanvasElement): { gray: Uint8ClampedArray; width: number; height: number } {
+  const ctx = source.getContext("2d");
+  if (!ctx) throw new Error("Seu navegador não conseguiu preparar a imagem.");
+  const image = ctx.getImageData(0, 0, source.width, source.height);
+  return { gray: toGray(image.data), width: source.width, height: source.height };
+}
+
+/** Desenha tons de cinza num canvas (para entregar ao OCR). */
+export function grayToCanvas(gray: Uint8ClampedArray, width: number, height: number): HTMLCanvasElement {
+  const out = document.createElement("canvas");
+  out.width = width;
+  out.height = height;
+  const ctx = out.getContext("2d");
+  if (!ctx) throw new Error("Seu navegador não conseguiu preparar a imagem.");
+  const image = ctx.createImageData(width, height);
+  for (let p = 0, i = 0; p < gray.length; p++, i += 4) {
+    image.data[i] = image.data[i + 1] = image.data[i + 2] = gray[p];
+    image.data[i + 3] = 255;
+  }
+  ctx.putImageData(image, 0, 0);
+  return out;
+}
+
+/** Gira em qualquer ângulo (graus, horário), aumentando a tela e preenchendo de branco — para endireitar fotos tortas. */
+export function rotateCanvasBy(source: HTMLCanvasElement, degrees: number): HTMLCanvasElement {
+  if (Math.abs(degrees) < 0.05) return source;
+  const rad = (degrees * Math.PI) / 180;
+  const sin = Math.abs(Math.sin(rad));
+  const cos = Math.abs(Math.cos(rad));
+  const out = document.createElement("canvas");
+  out.width = Math.ceil(source.width * cos + source.height * sin);
+  out.height = Math.ceil(source.width * sin + source.height * cos);
+  const ctx = out.getContext("2d");
+  if (!ctx) return source;
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, out.width, out.height);
+  ctx.imageSmoothingQuality = "high";
+  ctx.translate(out.width / 2, out.height / 2);
+  ctx.rotate(rad);
+  ctx.drawImage(source, -source.width / 2, -source.height / 2);
+  return out;
+}

@@ -14,7 +14,10 @@ import {
 } from "@/lib/deal-registration/service";
 import { diffQuotaSnapshots, diffRegistrationSnapshots, getDealAuditLabel, loadRegistrationAuditSnapshot } from "@/lib/deal-registration/audit";
 import { logAudit } from "@/lib/audit-log";
+import { formatDateTimeBR, formatElapsed } from "@/lib/format-datetime";
 import { getClientIp } from "@/lib/rate-limit";
+import { resolvePushReminderEvent } from "@/lib/push-reminders/service";
+import { pushReminderEventKey } from "@/lib/push-reminders/keys";
 import { BANK_ACCOUNT_TYPE_OPTIONS, MARITAL_STATUS_OPTIONS, PAYMENT_METHOD_OPTIONS, normalizeRegistrationCnpj, normalizeRegistrationCpf } from "@/lib/deal-registration/rules";
 
 export const dynamic = "force-dynamic";
@@ -275,6 +278,42 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         where: { organizationId: access.organizationId, dealId: id, completedAt: null, title: { startsWith: "Cadastrar cota:" } },
         data: { completedAt: new Date() },
       });
+      await resolvePushReminderEvent(
+        access.organizationId,
+        pushReminderEventKey.quotaRegistration(id),
+      ).catch((err) => console.error("[deal-registration] falha ao encerrar lembretes da cota", err));
+    }
+    // Registro completo da marcação: situação antes -> depois, os dados da cota no momento e quanto o administrativo levou.
+    let markDetail = done ? "Cota marcada como cadastrada na administradora." : "A cota voltou a ficar pendente.";
+    let markChanges: { field: string; label: string; from: string | null; to: string | null }[] = [];
+    try {
+      const snap = await prisma.dealRegistration.findUnique({
+        where: { dealId: id },
+        select: { completedAt: true, groupNumber: true, quotaNumber: true, quotaDigit: true, termMonths: true, paymentMethod: true, deal: { select: { closedAt: true } } },
+      });
+      const when = stamp.quotaRegisteredAt;
+      const requestedAt = snap?.completedAt ?? snap?.deal.closedAt ?? null;
+      const dataParts = [
+        snap?.groupNumber ? `Grupo ${snap.groupNumber}` : null,
+        snap?.quotaNumber ? `Cota ${snap.quotaNumber}${snap.quotaDigit ? `-${snap.quotaDigit}` : ""}` : null,
+        snap?.termMonths ? `Prazo ${snap.termMonths} meses` : null,
+        snap?.paymentMethod ? `Pagamento ${snap.paymentMethod}` : null,
+      ].filter(Boolean);
+      if (done && when) {
+        markChanges = [{ field: "quotaRegisteredAt", label: "Situação da cota", from: "Pendente", to: `Cadastrada em ${formatDateTimeBR(when)}` }];
+        markDetail = [
+          "Cota marcada como cadastrada na administradora.",
+          dataParts.length ? `${dataParts.join(" · ")}.` : null,
+          requestedAt ? `Pedido do consultor em ${formatDateTimeBR(requestedAt)}; cadastrada ${formatElapsed(when.getTime() - requestedAt.getTime())} depois.` : null,
+        ]
+          .filter(Boolean)
+          .join(" ");
+      } else if (!done) {
+        markChanges = [{ field: "quotaRegisteredAt", label: "Situação da cota", from: "Cadastrada", to: "Pendente" }];
+        markDetail = ["A cota voltou a ficar pendente.", dataParts.length ? `Dados no momento: ${dataParts.join(" · ")}.` : null].filter(Boolean).join(" ");
+      }
+    } catch (err) {
+      console.error("[audit] falha ao montar o detalhe da marcação da cota", err);
     }
     await logAudit({
       organizationId: access.organizationId,
@@ -284,7 +323,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       targetType: "Deal",
       targetId: id,
       targetLabel: await getDealAuditLabel(access.organizationId, id),
-      detail: done ? "Cota marcada como cadastrada na administradora." : "A cota voltou a ficar pendente.",
+      detail: markDetail,
+      changes: markChanges,
       ip: getClientIp(req),
     });
     // O consultor é avisado (sino + celular); se o administrativo desfez, o aviso antigo some.

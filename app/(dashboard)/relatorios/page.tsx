@@ -21,6 +21,7 @@ import { FiltersUrlRestore } from "./filters-url-restore";
 import { TagsFilter } from "./tags-filter";
 import { ClearReportFilters } from "./clear-filters";
 import { normalizeReportTags } from "@/lib/reports/tags";
+import { normalizeReportPeople } from "@/lib/reports/people-filter";
 import { GoalCard } from "./goal-card";
 import { getCurrentUserArea } from "@/lib/user-area";
 import { getCurrentMembership } from "@/lib/current-membership";
@@ -58,6 +59,7 @@ export default async function RelatoriosPage({
     to?: ReportSearchParam;
     /** "all" = Tudo escolhido explicitamente no filtro (ver date-range-filter.tsx) — precisa ser distinguível de "nunca escolheu nada", ver lib/reports/commercial-data.ts. */
     range?: ReportSearchParam;
+    /** Repetido (?who=team:<id>&who=owner:<id>) — equipes e consultores são unidos no filtro comercial. */
     who?: ReportSearchParam;
     /** Repetido (?tag=A&tag=B) — o negócio entra se o contato tem QUALQUER uma (ver lib/reports/tags.ts). */
     tag?: ReportSearchParam;
@@ -84,7 +86,10 @@ export default async function RelatoriosPage({
   const rangeParam = firstSearchParam(rawParams.range) === "all" ? "all" : undefined;
   const fromParam = rangeParam === "all" ? undefined : selectedRange?.from;
   const toParam = rangeParam === "all" ? undefined : selectedRange?.to;
-  const whoParam = firstSearchParam(rawParams.who);
+  const whoParams = normalizeReportPeople(rawParams.who);
+  // Processos/Administrativo continuam com um responsável por vez. O filtro
+  // comercial, abaixo, recebe a lista completa.
+  const whoParam = whoParams[0];
   const tagParams = normalizeReportTags(rawParams.tag);
   const viewParam = firstSearchParam(rawParams.view);
   const processPipelineIdParam = firstSearchParam(rawParams.processPipelineId);
@@ -197,7 +202,7 @@ export default async function RelatoriosPage({
     fromParam,
     toParam,
     rangeParam,
-    whoParam,
+    whoParams,
     tagParams,
     compareParam,
     compareFromParam,
@@ -534,7 +539,9 @@ export default async function RelatoriosPage({
             </FilterGroup>
             <FilterGroup label="Filtrar por">
               <PipelineFilter pipelines={pipelines.map((p) => ({ id: p.id, name: p.name }))} />
-              {!isPersonalView && <TeamOwnerFilter teams={teamFilterOptions} members={memberFilterOptions} currentUserId={userId} />}
+              {!isPersonalView && (
+                <TeamOwnerFilter teams={teamFilterOptions} members={memberFilterOptions} currentUserId={userId} multiple />
+              )}
               <TagsFilter />
               <ClearReportFilters />
             </FilterGroup>

@@ -9,6 +9,8 @@
 
 import { prisma } from "@/lib/prisma";
 import { sendPushToUser } from "@/lib/push";
+import { createAdministrativePushReminder } from "@/lib/push-reminders/service";
+import { pushReminderEventKey, pushReminderScopeKey } from "@/lib/push-reminders/keys";
 
 async function getProcessAdminUserIds(organizationId: string): Promise<string[]> {
   const admins = await prisma.organizationUser.findMany({
@@ -36,11 +38,16 @@ export async function notifyProcessRequestCreated(
   const adminIds = await getProcessAdminUserIds(organizationId);
   await Promise.all(
     adminIds.map((userId) =>
-      sendPushToUser(userId, {
+      createAdministrativePushReminder({
+        organizationId,
+        userId,
+        kind: "ADMIN_PROCESS_REQUEST",
+        eventKey: pushReminderEventKey.processRequest(request.id),
+        scopeKey: pushReminderScopeKey.process(request.processId),
         title: "Solicitação de consultor",
-        body: `${request.requesterName} pediu algo sobre ${request.contactName}`,
+        body: `${request.requesterName} pediu algo sobre ${request.contactName}.`,
         url: `/processos/${request.processId}`,
-      }).catch((err) => console.error("[processes] falha ao mandar push de solicitação", err)),
+      }).catch((err) => console.error("[processes] falha ao criar lembrete da solicitação", err)),
     ),
   );
 }

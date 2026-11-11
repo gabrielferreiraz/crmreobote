@@ -102,6 +102,8 @@ export function NotificationBell() {
   const { tasks, leadRequests, removeTask, removeLeadRequest } = notifications;
   const [resolvingId, setResolvingId] = useState<string | null>(null);
   const [handlingTaskId, setHandlingTaskId] = useState<string | null>(null);
+  const [taskFeedback, setTaskFeedback] = useState<{ id: string; action: "snooze" | "complete" } | null>(null);
+  const [dismissingTaskId, setDismissingTaskId] = useState<string | null>(null);
   const [taskActionError, setTaskActionError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   // Pedido de lead que está aberto no popup "Ver cliente" (ver
@@ -129,11 +131,17 @@ export function NotificationBell() {
         setTaskActionError(data.error ?? "Não foi possível atualizar o lembrete.");
         return;
       }
+      setTaskFeedback({ id: taskId, action });
+      await new Promise((resolve) => window.setTimeout(resolve, 650));
+      setDismissingTaskId(taskId);
+      await new Promise((resolve) => window.setTimeout(resolve, 180));
       removeTask(taskId);
     } catch {
       setTaskActionError("Sem conexão. Tente novamente.");
     } finally {
       setHandlingTaskId(null);
+      setTaskFeedback(null);
+      setDismissingTaskId(null);
     }
   }
 
@@ -196,7 +204,7 @@ export function NotificationBell() {
             : ""
         }`}
       >
-        {consultantRequestTasks.length > 0 ? <BellRing className="h-4 w-4" strokeWidth={2} /> : <Bell className="h-4 w-4" strokeWidth={2} />}
+        {consultantRequestTasks.length > 0 ? <BellRing className="notification-bell-attention h-4 w-4" strokeWidth={2} /> : <Bell className="h-4 w-4" strokeWidth={2} />}
         {totalCount > 0 && (
           <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand px-1 text-[10px] font-semibold leading-none text-white">
             {totalCount > 9 ? "9+" : totalCount}
@@ -209,6 +217,8 @@ export function NotificationBell() {
           task={consultantRequestTasks[0]}
           total={consultantRequestTasks.length}
           busy={handlingTaskId === consultantRequestTasks[0].id}
+          feedback={taskFeedback?.id === consultantRequestTasks[0].id ? taskFeedback.action : null}
+          leaving={dismissingTaskId === consultantRequestTasks[0].id}
           error={taskActionError}
           onOpen={() => setOpen(true)}
           onSnooze={() => void handleConsultantRequestTask(consultantRequestTasks[0].id, "snooze")}
@@ -248,6 +258,8 @@ export function NotificationBell() {
                   <ConsultantRequestGroup
                     tasks={consultantRequestTasks}
                     handlingTaskId={handlingTaskId}
+                    feedback={taskFeedback}
+                    dismissingTaskId={dismissingTaskId}
                     error={taskActionError}
                     onNavigate={() => setOpen(false)}
                     onSnooze={(id) => void handleConsultantRequestTask(id, "snooze")}
@@ -338,6 +350,8 @@ function ConsultantRequestNudge({
   task,
   total,
   busy,
+  feedback,
+  leaving,
   error,
   onOpen,
   onSnooze,
@@ -346,6 +360,8 @@ function ConsultantRequestNudge({
   task: NotificationTask;
   total: number;
   busy: boolean;
+  feedback: "snooze" | "complete" | null;
+  leaving: boolean;
   error: string | null;
   onOpen: () => void;
   onSnooze: () => void;
@@ -355,41 +371,84 @@ function ConsultantRequestNudge({
   return (
     <div
       role="status"
-      className="surface-glass-panel animate-pop-in absolute top-11 right-0 z-50 w-[calc(100vw-2rem)] max-w-80 overflow-hidden rounded-md border-l-4 border-l-amber-500 shadow-xl"
+      aria-live="polite"
+      className={`surface-glass-panel animate-pop-in absolute top-11 right-0 z-50 w-[calc(100vw-1.5rem)] max-w-[22rem] origin-top-right overflow-hidden rounded-lg border border-neutral-200 shadow-2xl transition duration-200 ease-out dark:border-neutral-700 ${
+        leaving ? "pointer-events-none translate-y-1 scale-[0.98] opacity-0" : "translate-y-0 scale-100 opacity-100"
+      }`}
     >
-      <div className="flex items-start gap-3 px-3 py-3">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+      <div className="h-0.5 bg-amber-500" />
+      <div className="flex items-start gap-3 px-4 pt-3.5 pb-2">
+        <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
           <FileWarning className="h-4 w-4" strokeWidth={2} />
+          <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-amber-500 ring-2 ring-white motion-safe:animate-pulse dark:ring-neutral-900" />
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">Cadastro aguardando você</p>
-              <p className="truncate text-xs font-medium text-neutral-700 dark:text-neutral-300">{consultantRequestContact(task)}</p>
+              <p className="text-sm font-semibold leading-5 text-neutral-900 dark:text-neutral-100">Cadastro aguardando você</p>
+              <p className="truncate text-sm text-neutral-700 dark:text-neutral-300">{consultantRequestContact(task)}</p>
             </div>
             {total > 1 && (
-              <button type="button" onClick={onOpen} className="shrink-0 text-xs font-semibold text-brand hover:underline">
+              <button
+                type="button"
+                onClick={onOpen}
+                className="shrink-0 rounded-md bg-neutral-100 px-2 py-1 text-[11px] font-semibold text-neutral-600 transition-colors hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700"
+                title="Ver todas as solicitações"
+              >
                 +{total - 1}
               </button>
             )}
           </div>
-          <p className="mt-1 line-clamp-2 text-xs leading-4 text-neutral-600 dark:text-neutral-400">{request.text}</p>
-          <p className="mt-1 text-[11px] text-neutral-400 dark:text-neutral-500">Pedido por {request.requestedBy}</p>
         </div>
       </div>
-      {error && <p className="px-3 pb-2 text-xs text-red-600 dark:text-red-400">{error}</p>}
-      <div className="grid grid-cols-[1fr_auto_auto] items-center gap-1 border-t border-neutral-100 px-2 py-2 dark:border-neutral-800">
-        <Link href={consultantRequestHref(task)} className="btn-primary btn-sm justify-center" title="Abrir a venda e atender a solicitação">
-          Abrir solicitação
-        </Link>
-        <button type="button" onClick={onSnooze} disabled={busy} className="btn-ghost text-xs" title="Lembrar novamente em 1 hora">
-          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Clock3 className="h-3.5 w-3.5" />}
-          Depois
-        </button>
-        <button type="button" onClick={onComplete} disabled={busy} className="btn-ghost text-xs text-emerald-700 dark:text-emerald-400" title="Concluir lembrete">
-          <CircleCheck className="h-3.5 w-3.5" /> Concluir
-        </button>
+      <div className="px-4 pb-3">
+        <p className="text-sm font-medium leading-5 text-neutral-800 dark:text-neutral-200">{request.text}</p>
+        <p className="mt-1.5 text-xs text-neutral-500 dark:text-neutral-400">
+          {request.requestedBy} · {requestWhen(request.requestedAt)}
+        </p>
       </div>
+      {error && (
+        <p className="border-t border-red-100 bg-red-50 px-4 py-2 text-xs text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300">{error}</p>
+      )}
+      {feedback ? (
+        <div
+          className={`animate-pop-in flex items-center gap-2 border-t px-4 py-3 text-sm font-medium ${
+            feedback === "complete"
+              ? "border-emerald-100 bg-emerald-50 text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-300"
+              : "border-neutral-100 bg-neutral-50 text-neutral-700 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200"
+          }`}
+        >
+          {feedback === "complete" ? <CircleCheck className="h-4 w-4" /> : <Clock3 className="h-4 w-4" />}
+          {feedback === "complete" ? "Marcado como concluído" : "Lembro você novamente em 1 hora"}
+        </div>
+      ) : (
+        <div className="border-t border-neutral-100 px-3 py-3 dark:border-neutral-800">
+          <Link href={consultantRequestHref(task)} className="btn-primary w-full justify-center" title="Abrir a venda e atender a solicitação">
+            <Eye className="h-4 w-4" strokeWidth={2} /> Abrir cadastro
+          </Link>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={onSnooze}
+              disabled={busy}
+              className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-neutral-200 text-xs font-medium text-neutral-600 transition-colors hover:bg-neutral-50 disabled:cursor-wait disabled:opacity-60 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+              title="Lembrar novamente em 1 hora"
+            >
+              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Clock3 className="h-3.5 w-3.5" />}
+              Lembrar em 1h
+            </button>
+            <button
+              type="button"
+              onClick={onComplete}
+              disabled={busy}
+              className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-emerald-200 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60 dark:border-emerald-500/30 dark:text-emerald-400 dark:hover:bg-emerald-500/10"
+              title="Concluir lembrete"
+            >
+              <CircleCheck className="h-3.5 w-3.5" /> Concluir
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -397,6 +456,8 @@ function ConsultantRequestNudge({
 function ConsultantRequestGroup({
   tasks,
   handlingTaskId,
+  feedback,
+  dismissingTaskId,
   error,
   onNavigate,
   onSnooze,
@@ -404,6 +465,8 @@ function ConsultantRequestGroup({
 }: {
   tasks: NotificationTask[];
   handlingTaskId: string | null;
+  feedback: { id: string; action: "snooze" | "complete" } | null;
+  dismissingTaskId: string | null;
   error: string | null;
   onNavigate: () => void;
   onSnooze: (id: string) => void;
@@ -418,8 +481,14 @@ function ConsultantRequestGroup({
       {tasks.map((task) => {
         const request = task.consultantRequest!;
         const busy = handlingTaskId === task.id;
+        const taskFeedback = feedback?.id === task.id ? feedback.action : null;
         return (
-          <div key={task.id} className="border-t border-amber-200/50 px-4 py-3 first:border-t-0 dark:border-amber-500/15">
+          <div
+            key={task.id}
+            className={`border-t border-amber-200/50 px-4 py-3 transition duration-200 first:border-t-0 dark:border-amber-500/15 ${
+              dismissingTaskId === task.id ? "translate-x-2 opacity-0" : "translate-x-0 opacity-100"
+            }`}
+          >
             <Link href={consultantRequestHref(task)} onClick={onNavigate} className="block min-w-0 hover:underline">
               <p className="truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100">{consultantRequestContact(task)}</p>
               <p className="mt-0.5 line-clamp-2 text-xs leading-4 text-neutral-600 dark:text-neutral-300">{request.text}</p>
@@ -427,15 +496,22 @@ function ConsultantRequestGroup({
             <p className="mt-1 text-[11px] text-neutral-500 dark:text-neutral-400">
               {request.requestedBy} · {requestWhen(request.requestedAt)}
             </p>
-            <div className="mt-2 flex items-center gap-2">
-              <button type="button" onClick={() => onSnooze(task.id)} disabled={busy} className="btn-ghost text-xs">
-                {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Clock3 className="h-3.5 w-3.5" />}
-                Lembrar em 1h
-              </button>
-              <button type="button" onClick={() => onComplete(task.id)} disabled={busy} className="btn-ghost text-xs text-emerald-700 dark:text-emerald-400">
-                <CircleCheck className="h-3.5 w-3.5" /> Concluir
-              </button>
-            </div>
+            {taskFeedback ? (
+              <p className={`mt-2 flex items-center gap-1.5 text-xs font-medium ${taskFeedback === "complete" ? "text-emerald-700 dark:text-emerald-400" : "text-neutral-600 dark:text-neutral-300"}`}>
+                {taskFeedback === "complete" ? <CircleCheck className="h-3.5 w-3.5" /> : <Clock3 className="h-3.5 w-3.5" />}
+                {taskFeedback === "complete" ? "Concluído" : "Lembrar em 1 hora"}
+              </p>
+            ) : (
+              <div className="mt-2 flex items-center gap-2">
+                <button type="button" onClick={() => onSnooze(task.id)} disabled={busy} className="btn-ghost text-xs">
+                  {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Clock3 className="h-3.5 w-3.5" />}
+                  Lembrar em 1h
+                </button>
+                <button type="button" onClick={() => onComplete(task.id)} disabled={busy} className="btn-ghost text-xs text-emerald-700 dark:text-emerald-400">
+                  <CircleCheck className="h-3.5 w-3.5" /> Concluir
+                </button>
+              </div>
+            )}
           </div>
         );
       })}

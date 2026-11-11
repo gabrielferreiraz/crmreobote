@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CheckCircle2, Eraser, Loader2, Upload, X } from "lucide-react";
+import { CheckCircle2, Eraser, Loader2, QrCode, Upload, X } from "lucide-react";
 import { Select } from "@/components/select";
 import { DocumentThumb, DocumentViewer, formatFileSize } from "@/components/deal-registration/document-preview";
 import { CurrencyInput } from "@/components/currency-input";
@@ -22,7 +22,7 @@ import {
   type RegistrationSnapshot,
 } from "@/lib/deal-registration/rules";
 
-type DocKind = "PHOTO_ID" | "SOCIAL_CONTRACT" | "OTHER";
+type DocKind = "PHOTO_ID" | "SOCIAL_CONTRACT" | "OTHER" | "PAYMENT_PROOF";
 type Doc = { id: string; kind: DocKind; fileName: string; size: number };
 
 type Form = {
@@ -441,6 +441,9 @@ export function RegistrationForm({
     );
   };
 
+  const isPix = form.paymentMethod === "PIX";
+  const hasPixProof = documents.some((d) => d.kind === "PAYMENT_PROOF");
+
   const docSlot = (kind: DocKind, hint: string) => {
     const list = documents.filter((d) => d.kind === kind);
     const bad = missingKeys.has(`doc:${kind}`) && (showErrors || touched.has(`doc:${kind}`));
@@ -450,11 +453,11 @@ export function RegistrationForm({
         {list.map((d) => {
           const src = `/api/deals/${dealId}/registration/documents/${d.id}`;
           return (
-            <div key={d.id} className="flex items-center gap-3 rounded-xl border border-emerald-200/70 bg-emerald-50/70 p-2 dark:border-emerald-500/20 dark:bg-emerald-500/10">
+            <div key={d.id} className="proof-file-in flex items-center gap-3 rounded-xl border border-emerald-200/70 bg-emerald-50/70 p-2 dark:border-emerald-500/20 dark:bg-emerald-500/10">
               <DocumentThumb src={src} fileName={d.fileName} onClick={() => setViewing(d)} />
               <div className="min-w-0 flex-1">
                 <p className="flex items-center gap-1.5 text-sm font-medium text-neutral-900 dark:text-neutral-100">
-                  <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                  <CheckCircle2 className="proof-check h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
                   <span className="truncate">{d.fileName}</span>
                 </p>
                 <p className="mt-0.5 flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
@@ -481,7 +484,9 @@ export function RegistrationForm({
             setDragOver(null);
             void upload(kind, e.dataTransfer.files);
           }}
-          className={`flex cursor-pointer flex-col items-center gap-1 rounded-xl border-2 border-dashed px-4 text-center transition-colors ${
+          className={`flex cursor-pointer flex-col items-center gap-1 rounded-xl border-2 border-dashed px-4 text-center transition-[border-color,background-color,transform,box-shadow,padding] duration-300 ease-smooth ${
+            dragOver === kind ? "scale-[1.015] shadow-md" : ""
+          } ${uploading === kind ? "animate-pulse" : ""} ${
             list.length ? "py-3" : "py-6"
           } ${
             dragOver === kind
@@ -491,7 +496,11 @@ export function RegistrationForm({
                 : "border-neutral-300 hover:border-neutral-400 dark:border-neutral-700 dark:hover:border-neutral-500"
           }`}
         >
-          {uploading === kind ? <Loader2 className="h-5 w-5 animate-spin text-neutral-500" /> : <Upload className="h-5 w-5 text-neutral-400" />}
+          {uploading === kind ? (
+            <Loader2 className="h-5 w-5 animate-spin text-neutral-500" />
+          ) : (
+            <Upload className={`h-5 w-5 text-neutral-400 transition-transform duration-300 ease-smooth ${dragOver === kind ? "-translate-y-1 scale-125 text-brand" : ""}`} />
+          )}
           <span className="text-sm font-medium text-neutral-800 dark:text-neutral-100">
             {uploading === kind ? "Enviando…" : list.length ? "Adicionar outro arquivo" : "Arraste o arquivo aqui ou clique para escolher"}
           </span>
@@ -712,6 +721,33 @@ export function RegistrationForm({
             "Forma de pagamento",
             <Select value={form.paymentMethod} onChange={(v) => set("paymentMethod", v)} options={PAYMENT_METHOD_OPTIONS.map((o) => ({ value: o, label: o }))} placeholder="Escolha" ariaLabel="Forma de pagamento" />,
           )}
+        </div>
+        <div
+          className={`grid transition-[grid-template-rows,opacity] duration-500 ease-smooth ${isPix ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`}
+          aria-hidden={!isPix}
+          inert={!isPix}
+        >
+          <div className="min-h-0 overflow-hidden">
+            <div className={`pix-proof space-y-2 rounded-xl border border-brand/30 bg-brand-light/30 p-3 dark:border-brand/30 dark:bg-brand-light/10 ${isPix ? "pix-proof-open" : ""}`}>
+              <div className="flex items-center justify-between gap-2">
+                <p className="flex items-center gap-1.5 text-xs font-semibold text-neutral-700 dark:text-neutral-200">
+                  <QrCode className="h-3.5 w-3.5 text-brand" strokeWidth={2} /> Pagamento via PIX
+                </p>
+                <span
+                  key={hasPixProof ? "ok" : "pending"}
+                  className={`proof-pop inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                    hasPixProof ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" : "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
+                  }`}
+                >
+                  {hasPixProof && <CheckCircle2 className="h-3 w-3" strokeWidth={2.25} />}
+                  {hasPixProof ? "Comprovante anexado" : "Falta anexar o comprovante"}
+                </span>
+              </div>
+              {docSlot("PAYMENT_PROOF", "Comprovante do Pix em PDF, PNG ou JPG (pode ser o print do app do banco).")}
+              <p className="text-xs text-neutral-500 dark:text-neutral-400">Recomendado: o financeiro confere o pagamento por este comprovante.</p>
+              {docError && <p className="text-sm text-red-600">{docError}</p>}
+            </div>
+          </div>
         </div>
         <p className="text-xs text-neutral-500 dark:text-neutral-400">A cota e o dígito quem preenche é o administrativo, quando cadastrar na administradora.</p>
       </Section>

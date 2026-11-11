@@ -27,13 +27,17 @@ import { DocumentThumb, DocumentViewer, formatFileSize } from "@/components/deal
 import { RequestComposer, RequestHistory } from "@/components/deal-registration/document-requests";
 import { AuditTimeline } from "@/components/audit/audit-timeline";
 import { prefetchDocumentText, warmUpOcr } from "@/lib/ocr/extract-document-text";
-import { DOCUMENT_KIND_LABELS, PAYMENT_METHOD_OPTIONS, formatQuotaLabel } from "@/lib/deal-registration/rules";
+import { formatDateTimeBR, formatElapsed } from "@/lib/format-datetime";
+import { trackDealAccess } from "@/lib/deal-registration/track-access";
+import { DOCUMENT_KIND_LABELS, PAYMENT_METHOD_OPTIONS } from "@/lib/deal-registration/rules";
 import type { DocumentRequestDTO } from "@/lib/deal-registration/requests";
 import { formatCurrency } from "@/lib/format";
 import { maskCpf } from "@/lib/cpf";
 import { formatCnpj } from "@/lib/cnpj";
+import { useAcknowledgePushReminderScope } from "@/lib/push-reminders/client";
+import { pushReminderScopeKey } from "@/lib/push-reminders/keys";
 
-type Doc = { id: string; kind: "PHOTO_ID" | "SOCIAL_CONTRACT" | "OTHER"; fileName: string; size: number; createdAt: string };
+type Doc = { id: string; kind: "PHOTO_ID" | "SOCIAL_CONTRACT" | "OTHER" | "PAYMENT_PROOF"; fileName: string; size: number; createdAt: string };
 
 export type WorkspaceProps = {
   dealId: string;
@@ -54,7 +58,7 @@ export type WorkspaceProps = {
   requests: DocumentRequestDTO[];
 };
 
-function CopyRow({ label, value }: { label: string; value: string | null }) {
+function CopyRow({ label, value, onCopied }: { label: string; value: string | null; onCopied?: (label: string) => void }) {
   const [copied, setCopied] = useState(false);
   if (!value) {
     return (
@@ -69,6 +73,7 @@ function CopyRow({ label, value }: { label: string; value: string | null }) {
       await navigator.clipboard.writeText(value ?? "");
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
+      onCopied?.(label);
     } catch {
       /* sem permissão da área de transferência: o texto continua selecionável */
     }
@@ -94,11 +99,13 @@ function SummaryItem({
   label,
   value,
   emphasis = false,
+  showFullValue = false,
 }: {
   icon: LucideIcon;
   label: string;
   value: string;
   emphasis?: boolean;
+  showFullValue?: boolean;
 }) {
   return (
     <div className="flex min-w-0 items-center gap-2.5 bg-white px-3 py-3 sm:gap-3 sm:px-4 dark:bg-neutral-950">
@@ -107,7 +114,12 @@ function SummaryItem({
       </span>
       <div className="min-w-0">
         <p className="truncate text-[11px] font-medium text-neutral-500 dark:text-neutral-400" title={label}>{label}</p>
-        <p className={`truncate tabular-nums ${emphasis ? "text-sm font-semibold text-neutral-950 sm:text-base dark:text-white" : "text-sm font-medium text-neutral-800 dark:text-neutral-100"}`} title={value}>
+        <p
+          className={`${showFullValue ? "whitespace-normal break-words leading-5" : "truncate"} tabular-nums ${
+            emphasis ? "text-sm font-semibold text-neutral-950 sm:text-base dark:text-white" : "text-sm font-medium text-neutral-800 dark:text-neutral-100"
+          }`}
+          title={value}
+        >
           {value}
         </p>
       </div>
@@ -129,6 +141,7 @@ function Card({ title, children, aside }: { title: string; children: React.React
 
 export function CadastroWorkspace(props: WorkspaceProps) {
   const { dealId, contact: c, registration: r } = props;
+  useAcknowledgePushReminderScope(pushReminderScopeKey.deal(dealId));
   const [requests, setRequests] = useState(props.requests);
   const [quotaAt, setQuotaAt] = useState(props.quotaRegisteredAt);
   const initialQuota = {
@@ -160,6 +173,19 @@ export function CadastroWorkspace(props: WorkspaceProps) {
   const [auditKey, setAuditKey] = useState(0);
   const refreshAudit = () => setAuditKey((k) => k + 1);
 
+  // Abrir documento e copiar dado do cliente também entram no histórico (LGPD): quem, quando e qual.
+  function recordAccess(event: Parameters<typeof trackDealAccess>[1]) {
+    trackDealAccess(dealId, event);
+    window.setTimeout(refreshAudit, 1200);
+  }
+  const viewingId = viewing?.id ?? null;
+  useEffect(() => {
+    if (!viewingId) return;
+    trackDealAccess(dealId, { event: "doc_viewed", docId: viewingId });
+    const timer = window.setTimeout(() => setAuditKey((k) => k + 1), 1200);
+    return () => window.clearTimeout(timer);
+  }, [dealId, viewingId]);
+
   // Deixa o leitor de texto pronto e lê os documentos em segundo plano (um por vez, o do cliente primeiro),
   // para o texto já estar na tela quando a pessoa abrir o documento.
   const docsKey = props.documents.map((d) => d.id).join(",");
@@ -181,6 +207,10 @@ export function CadastroWorkspace(props: WorkspaceProps) {
     // props.documents muda de identidade a cada render; docsKey representa o conteúdo.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dealId, docsKey]);
+
+  // O pedido do consultor = o momento em que ele fechou a venda com o cadastro preenchido.
+  const requestedAt = props.completedAt ?? props.closedAt;
+  const registeredAfter = quotaAt && requestedAt ? formatElapsed(new Date(quotaAt).getTime() - new Date(requestedAt).getTime()) : null;
 
   const docSrc = (id: string) => `/api/deals/${dealId}/registration/documents/${id}`;
   const openRequest = requests.find((x) => x.status === "OPEN");
@@ -348,11 +378,11 @@ export function CadastroWorkspace(props: WorkspaceProps) {
     ["Nome no CRM", props.clientName],
     ...dataGroups.flatMap((group) => group.rows),
   ];
-  const quotaLabel = formatQuotaLabel({
-    groupNumber: savedQuota.groupNumber,
-    quotaNumber: savedQuota.quotaNumber,
-    quotaDigit: savedQuota.quotaDigit,
-  });
+  const quotaLabel = [
+    savedQuota.groupNumber && `Grupo ${savedQuota.groupNumber}`,
+    savedQuota.quotaNumber && `Cota ${savedQuota.quotaNumber}`,
+    savedQuota.quotaDigit && `Dígito ${savedQuota.quotaDigit}`,
+  ].filter(Boolean).join(" · ");
 
   async function copyAll() {
     const text = rows.map(([k, v]) => `${k}: ${v ?? "-"}`).join("\n") + (address ? `\nEndereço completo: ${address}` : "");
@@ -360,6 +390,7 @@ export function CadastroWorkspace(props: WorkspaceProps) {
       await navigator.clipboard.writeText(text);
       setCopiedAll(true);
       setTimeout(() => setCopiedAll(false), 1800);
+      recordAccess({ event: "data_copied", what: "Todos os dados do cadastro" });
     } catch {
       /* ignora */
     }
@@ -372,7 +403,7 @@ export function CadastroWorkspace(props: WorkspaceProps) {
 
   return (
     <div className="mx-auto max-w-7xl space-y-4">
-      {viewing && <DocumentViewer src={docSrc(viewing.id)} fileName={viewing.fileName} onClose={() => setViewing(null)} showText />}
+      {viewing && <DocumentViewer src={docSrc(viewing.id)} fileName={viewing.fileName} onClose={() => setViewing(null)} showText onTextCopied={() => recordAccess({ event: "data_copied", what: `Texto lido do documento ${viewing?.fileName ?? ""}`.trim() })} />}
 
       <div>
         <Link href="/cadastros" className="inline-flex items-center gap-1.5 text-sm text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100">
@@ -384,11 +415,12 @@ export function CadastroWorkspace(props: WorkspaceProps) {
             <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
               {savedHolderName && savedHolderName !== props.clientName ? `No CRM: ${props.clientName}` : "Cadastro da cota e conferência dos documentos"}
             </p>
+            {registeredAfter && <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">Cadastrada {registeredAfter} depois do pedido do consultor</p>}
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2 max-sm:w-full max-sm:flex-col max-sm:items-stretch">
             {quotaAt ? (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-700 max-sm:justify-center dark:bg-emerald-500/10 dark:text-emerald-400">
-                <CheckCircle2 className="h-4 w-4" /> Cota cadastrada em {new Date(quotaAt).toLocaleDateString("pt-BR")}
+                <CheckCircle2 className="h-4 w-4" /> Cota cadastrada em {formatDateTimeBR(quotaAt)}
               </span>
             ) : openRequest ? (
               <span className="rounded-full bg-amber-50 px-3 py-1 text-center text-sm font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-400">Aguardando o consultor</span>
@@ -407,10 +439,10 @@ export function CadastroWorkspace(props: WorkspaceProps) {
           <SummaryItem icon={UserRound} label="Consultor responsável" value={props.consultantName} />
           <SummaryItem
             icon={CalendarDays}
-            label="Venda ganha em"
-            value={props.closedAt ? new Date(props.closedAt).toLocaleDateString("pt-BR", { timeZone: "America/Campo_Grande" }) : "Não informado"}
+            label="Pedido do consultor em"
+            value={requestedAt ? formatDateTimeBR(requestedAt) : "Não informado"}
           />
-          <SummaryItem icon={Hash} label="Grupo e cota" value={quotaLabel || "Ainda não definidos"} />
+          <SummaryItem icon={Hash} label="Grupo, cota e dígito" value={quotaLabel || "Ainda não definidos"} showFullValue />
         </div>
       </div>
 
@@ -512,7 +544,7 @@ export function CadastroWorkspace(props: WorkspaceProps) {
                     </div>
                     <dl className="divide-y divide-neutral-100 dark:divide-neutral-800">
                       {group.rows.map(([label, value]) => (
-                        <CopyRow key={label} label={label} value={value} />
+                        <CopyRow key={label} label={label} value={value} onCopied={(what) => recordAccess({ event: "data_copied", what })} />
                       ))}
                     </dl>
                   </section>

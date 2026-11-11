@@ -62,7 +62,7 @@ export type RegistrationSnapshot = {
     bankAccount: string | null;
     bankAccountType: string | null;
   };
-  documents: { kind: "PHOTO_ID" | "SOCIAL_CONTRACT" | "OTHER" }[];
+  documents: { kind: "PHOTO_ID" | "SOCIAL_CONTRACT" | "OTHER" | "PAYMENT_PROOF" }[];
 };
 
 export type RegistrationOptions = {
@@ -166,10 +166,11 @@ export function canBypassRegistration(m: { role: string; area: string }): boolea
   return m.role === "OWNER" || m.area === "ADMINISTRATIVO";
 }
 
-export const DOCUMENT_KIND_LABELS: Record<"PHOTO_ID" | "SOCIAL_CONTRACT" | "OTHER", string> = {
+export const DOCUMENT_KIND_LABELS: Record<"PHOTO_ID" | "SOCIAL_CONTRACT" | "OTHER" | "PAYMENT_PROOF", string> = {
   PHOTO_ID: "Documento com foto (CNH ou RG)",
   SOCIAL_CONTRACT: "Contrato social",
   OTHER: "Outro documento",
+  PAYMENT_PROOF: "Comprovante de pagamento (Pix)",
 };
 
 /** Os documentos pessoais ficam no servidor só o tempo de o administrativo baixá-los. */

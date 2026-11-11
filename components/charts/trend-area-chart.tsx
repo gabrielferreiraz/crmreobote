@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useEffect } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { ChevronLeft } from "lucide-react";
 import { formatCurrency, formatDuration } from "@/lib/format";
 
@@ -35,22 +35,44 @@ function formatTrendValue(format: TrendValueFormat, value: number): string {
   }
 }
 
-/** Catmull-Rom → Bézier cúbica (tensão padrão) — curva suave passando por
- * todos os pontos, sem precisar de lib de gráfico. */
+/**
+ * Interpolação cúbica monotônica em Bézier. Diferente de Catmull-Rom, não
+ * ultrapassa máximos/mínimos entre dois períodos e nunca sugere valor negativo
+ * onde os dados não têm um.
+ */
 function smoothPath(points: { x: number; y: number }[]): string {
   if (points.length === 0) return "";
   if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
+
+  const widths = points.slice(0, -1).map((point, index) => points[index + 1].x - point.x);
+  const slopes = widths.map((width, index) => (points[index + 1].y - points[index].y) / width);
+  const tangents = new Array<number>(points.length);
+  tangents[0] = slopes[0];
+  tangents[tangents.length - 1] = slopes[slopes.length - 1];
+  for (let index = 1; index < points.length - 1; index++) {
+    const before = slopes[index - 1];
+    const after = slopes[index];
+    if (before === 0 || after === 0 || Math.sign(before) !== Math.sign(after)) {
+      tangents[index] = 0;
+      continue;
+    }
+    const previousWidth = widths[index - 1];
+    const nextWidth = widths[index];
+    const weightBefore = 2 * nextWidth + previousWidth;
+    const weightAfter = nextWidth + 2 * previousWidth;
+    tangents[index] = (weightBefore + weightAfter) / (weightBefore / before + weightAfter / after);
+  }
+
   let d = `M ${points[0].x} ${points[0].y}`;
-  for (let i = 0; i < points.length - 1; i++) {
-    const p0 = points[i - 1] ?? points[i];
-    const p1 = points[i];
-    const p2 = points[i + 1];
-    const p3 = points[i + 2] ?? p2;
-    const cp1x = p1.x + (p2.x - p0.x) / 6;
-    const cp1y = p1.y + (p2.y - p0.y) / 6;
-    const cp2x = p2.x - (p3.x - p1.x) / 6;
-    const cp2y = p2.y - (p3.y - p1.y) / 6;
-    d += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`;
+  for (let index = 0; index < points.length - 1; index++) {
+    const current = points[index];
+    const next = points[index + 1];
+    const width = widths[index];
+    const cp1x = current.x + width / 3;
+    const cp1y = Math.max(0, Math.min(100, current.y + (tangents[index] * width) / 3));
+    const cp2x = next.x - width / 3;
+    const cp2y = Math.max(0, Math.min(100, next.y - (tangents[index + 1] * width) / 3));
+    d += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${next.x} ${next.y}`;
   }
   return d;
 }
@@ -87,11 +109,26 @@ function TrendChartVisual({
 }) {
   const formatValue = (value: number) => formatTrendValue(format, value);
   const containerRef = useRef<HTMLDivElement>(null);
+  const chartId = useId().replace(/:/g, "");
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const [pointerX, setPointerX] = useState<number | null>(null);
   const [drawn, setDrawn] = useState(false);
+  const gestureRef = useRef<{
+    pointerId: number;
+    pointerType: string;
+    startX: number;
+    startY: number;
+    moved: boolean;
+  } | null>(null);
 
   useEffect(() => {
-    const frame = requestAnimationFrame(() => setDrawn(true));
+    const frame = requestAnimationFrame(() => {
+      setDrawn(true);
+      setHoverIndex(null);
+      setSelectedIndex(null);
+      setPointerX(null);
+    });
     return () => cancelAnimationFrame(frame);
   }, [data]);
 
@@ -113,10 +150,11 @@ function TrendChartVisual({
   const labelStep = Math.max(1, Math.ceil(points.length / MAX_LABELS));
   const axisLabels = points.filter((_, i) => i % labelStep === 0 || i === points.length - 1);
 
-  function nearestIndex(clientX: number): number | null {
+  function pointerPosition(clientX: number): { index: number; pctX: number } | null {
     if (!containerRef.current || points.length === 0) return null;
     const rect = containerRef.current.getBoundingClientRect();
-    const pctX = ((clientX - rect.left) / rect.width) * 100;
+    if (rect.width <= 0) return null;
+    const pctX = Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100));
     let nearest = 0;
     let nearestDist = Infinity;
     points.forEach((p, i) => {
@@ -126,34 +164,102 @@ function TrendChartVisual({
         nearest = i;
       }
     });
-    return nearest;
+    return { index: nearest, pctX };
+  }
+
+  function updatePointer(clientX: number, persistSelection = false) {
+    const position = pointerPosition(clientX);
+    if (!position) return null;
+    setPointerX(position.pctX);
+    setHoverIndex(position.index);
+    if (persistSelection) setSelectedIndex(position.index);
+    return position.index;
+  }
+
+  function handlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    updatePointer(e.clientX, e.pointerType !== "mouse");
+    gestureRef.current = {
+      pointerId: e.pointerId,
+      pointerType: e.pointerType,
+      startX: e.clientX,
+      startY: e.clientY,
+      moved: false,
+    };
+    e.currentTarget.setPointerCapture(e.pointerId);
   }
 
   function handlePointerMove(e: React.PointerEvent<HTMLDivElement>) {
-    setHoverIndex(nearestIndex(e.clientX));
+    const gesture = gestureRef.current;
+    if (gesture?.pointerId === e.pointerId) {
+      if (Math.hypot(e.clientX - gesture.startX, e.clientY - gesture.startY) > 7) gesture.moved = true;
+      updatePointer(e.clientX, gesture.pointerType !== "mouse");
+      return;
+    }
+    updatePointer(e.clientX);
   }
 
-  function handleClick(e: React.MouseEvent<HTMLDivElement>) {
-    if (!onPointClick) return;
-    const index = nearestIndex(e.clientX);
-    if (index !== null) onPointClick(index);
+  function handlePointerUp(e: React.PointerEvent<HTMLDivElement>) {
+    const gesture = gestureRef.current;
+    const index = updatePointer(e.clientX, e.pointerType !== "mouse");
+    if (gesture?.pointerId === e.pointerId && !gesture.moved && index !== null && onPointClick) onPointClick(index);
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+    gestureRef.current = null;
   }
 
-  const active = hoverIndex !== null ? points[hoverIndex] : null;
+  function handlePointerCancel(e: React.PointerEvent<HTMLDivElement>) {
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+    gestureRef.current = null;
+    setPointerX(null);
+    setHoverIndex(null);
+  }
+
+  function handlePointerLeave(e: React.PointerEvent<HTMLDivElement>) {
+    if (gestureRef.current?.pointerId === e.pointerId) return;
+    setPointerX(null);
+    setHoverIndex(null);
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (points.length === 0) return;
+    const current = selectedIndex ?? hoverIndex ?? 0;
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      e.preventDefault();
+      const direction = e.key === "ArrowRight" ? 1 : -1;
+      const next = Math.max(0, Math.min(points.length - 1, current + direction));
+      setSelectedIndex(next);
+      setHoverIndex(null);
+      setPointerX(points[next].x);
+    } else if ((e.key === "Enter" || e.key === " ") && onPointClick) {
+      e.preventDefault();
+      onPointClick(current);
+    } else if (e.key === "Escape") {
+      setSelectedIndex(null);
+      setHoverIndex(null);
+      setPointerX(null);
+    }
+  }
+
+  const activeIndex = hoverIndex ?? selectedIndex;
+  const active = activeIndex !== null ? points[activeIndex] : null;
   const activeBreakdown = active?.breakdown?.filter((b) => b.value > 0) ?? [];
-  // Perto das bordas do gráfico, um balão centrado no ponto vaza pra fora do
-  // card — perto do início ele "nasce" grudado na esquerda do ponto, perto do
-  // fim grudado na direita, só no meio fica centrado.
-  const anchor = !active ? "center" : active.x < 15 ? "left" : active.x > 85 ? "right" : "center";
+  const focusX = pointerX ?? active?.x ?? null;
 
   return (
     <div>
       <div
         ref={containerRef}
-        className={`relative w-full touch-none ${heightClassName} ${onPointClick ? "cursor-pointer" : "cursor-crosshair"}`}
+        role="group"
+        tabIndex={0}
+        aria-label="Evolução do valor ganho. Use as setas para navegar entre os períodos."
+        className={`relative w-full touch-pan-y select-none overflow-visible rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-[#2a78d6]/50 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-[#3987e5]/60 dark:focus-visible:ring-offset-neutral-950 ${heightClassName} ${
+          onPointClick ? "cursor-pointer" : "cursor-ew-resize"
+        }`}
+        onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
-        onPointerLeave={() => setHoverIndex(null)}
-        onClick={handleClick}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerCancel}
+        onPointerLeave={handlePointerLeave}
+        onKeyDown={handleKeyDown}
       >
         {/* Grade de referência recessiva — 2 linhas horizontais, sem número
             do eixo (o card já é compacto demais pra caber uma coluna de
@@ -166,16 +272,16 @@ function TrendChartVisual({
 
         <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 h-full w-full overflow-visible">
           <defs>
-            <linearGradient id="trend-fill" x1="0" y1="0" x2="0" y2="1">
+            <linearGradient id={`${chartId}-fill`} x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor="currentColor" stopOpacity="0.22" />
               <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
             </linearGradient>
-            <clipPath id="trend-reveal">
-              <rect x="0" y="0" width={drawn ? 100 : 0} height="100" className="transition-[width] duration-[900ms] ease-out" />
+            <clipPath id={`${chartId}-reveal`}>
+              <rect x="0" y="0" width={drawn ? 100 : 0} height="100" className="transition-[width] duration-700 ease-out" />
             </clipPath>
           </defs>
-          <g clipPath="url(#trend-reveal)">
-            <path d={areaPath} fill="url(#trend-fill)" stroke="none" className="text-[#2a78d6] dark:text-[#3987e5]" />
+          <g clipPath={`url(#${chartId}-reveal)`}>
+            <path d={areaPath} fill={`url(#${chartId}-fill)`} stroke="none" className="text-[#2a78d6] dark:text-[#3987e5]" />
             <path
               d={linePath}
               fill="none"
@@ -213,8 +319,14 @@ function TrendChartVisual({
             const isLast = p.x === 100;
             return (
               <span
-                key={i}
-                className={`pointer-events-none absolute -translate-y-full whitespace-nowrap pb-1 text-[10px] font-medium tabular-nums text-neutral-500 dark:text-neutral-400 ${
+                key={`${p.tooltipLabel ?? p.label}-${i}`}
+                className={`pointer-events-none absolute -translate-y-full whitespace-nowrap pb-1 text-[11px] font-medium tabular-nums transition-[color,opacity,transform] duration-200 motion-reduce:transition-none ${
+                  active && active.x === p.x
+                    ? "text-[#1f69bf] dark:text-[#66a9f5]"
+                    : active
+                      ? "text-neutral-400 opacity-45 dark:text-neutral-600"
+                      : "text-neutral-500 dark:text-neutral-400"
+                } ${
                   isFirst ? "left-0" : isLast ? "right-0" : "-translate-x-1/2"
                 }`}
                 style={{ left: isFirst || isLast ? undefined : `${p.x}%`, top: `${p.y}%` }}
@@ -226,26 +338,37 @@ function TrendChartVisual({
 
         {/* Crosshair — segue o ponteiro, encaixa no ponto mais próximo em vez
             de exigir mira precisa num alvo de poucos pixels. */}
-        {active && (
+        {active && focusX !== null && (
           <>
             <div
-              className="pointer-events-none absolute top-0 bottom-0 w-px bg-neutral-300 dark:bg-neutral-600"
-              style={{ left: `${active.x}%` }}
+              className="pointer-events-none absolute inset-y-0 w-12 -translate-x-1/2 bg-gradient-to-r from-transparent via-[#2a78d6]/[0.07] to-transparent transition-[left,opacity] duration-100 ease-out motion-reduce:transition-none dark:via-[#3987e5]/[0.09]"
+              style={{ left: `${focusX}%` }}
             />
             <div
-              className="pointer-events-none absolute h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#2a78d6] ring-2 ring-[#fcfcfb] dark:bg-[#3987e5] dark:ring-neutral-900"
+              className="pointer-events-none absolute inset-y-0 w-px bg-[#2a78d6]/45 transition-[left] duration-75 ease-out motion-reduce:transition-none dark:bg-[#66a9f5]/50"
+              style={{ left: `${focusX}%` }}
+            />
+            <div
+              className="pointer-events-none absolute left-0 h-px border-t border-dashed border-[#2a78d6]/25 transition-[top,width] duration-150 ease-out motion-reduce:transition-none dark:border-[#66a9f5]/25"
+              style={{ top: `${active.y}%`, width: `${active.x}%` }}
+            />
+            <div
+              className="pointer-events-none absolute h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#2a78d6]/15 transition-[left,top] duration-150 ease-out motion-reduce:transition-none dark:bg-[#3987e5]/20"
               style={{ left: `${active.x}%`, top: `${active.y}%` }}
             />
             <div
-              className={`pointer-events-none absolute bottom-full z-10 mb-2 rounded-md bg-neutral-900 px-2.5 py-1.5 text-[11px] font-medium text-white shadow-lg dark:bg-white dark:text-neutral-900 ${
-                activeBreakdown.length > 0 || clickHint ? "w-48" : "whitespace-nowrap"
-              } ${anchor === "left" ? "left-0" : anchor === "right" ? "right-0" : "left-1/2 -translate-x-1/2"}`}
-              style={{ left: anchor === "center" ? `${active.x}%` : undefined }}
+              className="pointer-events-none absolute h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-[#2a78d6] shadow-[0_0_0_2px_rgba(42,120,214,0.2)] transition-[left,top] duration-150 ease-out motion-reduce:transition-none dark:border-neutral-950 dark:bg-[#3987e5] dark:shadow-[0_0_0_2px_rgba(57,135,229,0.28)]"
+              style={{ left: `${active.x}%`, top: `${active.y}%` }}
+            />
+            <div
+              className={`pointer-events-none absolute top-2 z-20 max-w-[calc(100%_-_1rem)] -translate-x-1/2 rounded-md border border-neutral-800/70 bg-neutral-950/95 px-3 py-2 text-xs font-medium text-white shadow-xl backdrop-blur-sm transition-[left,opacity,transform] duration-150 ease-out motion-reduce:transition-none dark:border-neutral-200/20 dark:bg-white/95 dark:text-neutral-950 ${
+                activeBreakdown.length > 0 || clickHint ? "w-52" : "w-max"
+              }`}
+              style={{ left: `clamp(6.5rem, ${active.x}%, calc(100% - 6.5rem))` }}
             >
-              <p className="whitespace-nowrap">
-                <span className="capitalize opacity-70">{active.tooltipLabel ?? active.label}</span>
-                <span className="mx-1 opacity-50">·</span>
-                <span className="font-semibold">{formatValue(active.value)}</span>
+              <p className="truncate capitalize opacity-70">{active.tooltipLabel ?? active.label}</p>
+              <p className="mt-0.5 whitespace-nowrap text-sm font-semibold tabular-nums">
+                {formatValue(active.value)}
               </p>
               {activeBreakdown.length > 0 && (
                 <div className="mt-1 space-y-0.5 border-t border-white/15 pt-1 dark:border-neutral-900/10">
@@ -273,8 +396,8 @@ function TrendChartVisual({
           const isLast = p.x === 100;
           return (
             <span
-              key={i}
-              className={`absolute whitespace-nowrap transition-colors ${hoverIndex !== null && points[hoverIndex]?.x === p.x ? "font-medium text-neutral-700 dark:text-neutral-300" : ""} ${
+              key={`${p.tooltipLabel ?? p.label}-${i}`}
+              className={`absolute whitespace-nowrap transition-[color,transform] duration-150 ${active?.x === p.x ? "font-semibold text-[#1f69bf] dark:text-[#66a9f5]" : ""} ${
                 isFirst ? "left-0" : isLast ? "right-0" : "-translate-x-1/2"
               }`}
               style={isFirst || isLast ? undefined : { left: `${p.x}%` }}
@@ -452,15 +575,18 @@ export function DrillableTrendChart({
             {stack.length > 1 ? view.label : "Visão geral"}
           </span>
         </div>
-        {canDrill && <span className="shrink-0 text-neutral-400 dark:text-neutral-500">clique num ponto pra detalhar</span>}
+        <span className="shrink-0 text-neutral-400 dark:text-neutral-500">
+          {view.level === "month" ? "Por mês" : view.level === "week" ? "Por semana" : "Por dia"}
+        </span>
       </div>
       <TrendChartVisual
+        key={`${view.level}-${stack.length}-${view.label}`}
         points={points}
         format={format}
         showValueLabels
         heightClassName="h-44"
         onPointClick={canDrill ? handlePointClick : undefined}
-        clickHint={canDrill ? "Clique para ver os detalhes" : undefined}
+        clickHint={canDrill ? "Abrir período" : undefined}
       />
     </div>
   );

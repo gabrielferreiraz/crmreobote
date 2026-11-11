@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { formatCurrency } from "@/lib/format";
+import { formatTimeBR } from "@/lib/format-datetime";
 
 export type CadastroRow = {
   id: string;
@@ -246,8 +247,13 @@ export function CadastrosList({ rows, doneTotal }: { rows: CadastroRow[]; doneTo
                       </div>
 
                       <div className="min-w-0">
-                        <p className="mb-0.5 text-[11px] font-medium text-neutral-400 lg:hidden">{row.state === "done" ? "Cadastrada em" : "Venda ganha em"}</p>
-                        <p className="text-sm tabular-nums text-neutral-600 dark:text-neutral-300">{row.state === "done" ? fmt(row.quotaAt) : fmt(row.closedAt)}</p>
+                        <p className="mb-0.5 text-[11px] font-medium text-neutral-400 lg:hidden">{row.state === "done" ? "Cadastrada em" : "Pedido do consultor em"}</p>
+                        <p className="text-sm tabular-nums text-neutral-600 dark:text-neutral-300">
+                          {row.state === "done" ? fmt(row.quotaAt) : fmt(row.closedAt)}
+                          {(row.state === "done" ? row.quotaAt : row.closedAt) && (
+                            <span className="ml-1.5 text-xs text-neutral-400 dark:text-neutral-500">{formatTimeBR((row.state === "done" ? row.quotaAt : row.closedAt)!)}</span>
+                          )}
+                        </p>
                       </div>
 
                       <ChevronRight className="hidden h-4 w-4 text-neutral-300 transition-transform group-hover:translate-x-0.5 group-hover:text-brand lg:block dark:text-neutral-600" strokeWidth={2} />

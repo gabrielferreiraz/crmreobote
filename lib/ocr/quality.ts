@@ -3,9 +3,12 @@
  * limpar o resultado. Ficam separadas para poderem ser testadas.
  */
 
-/** Uma linha lida. `confidence` vai de 0 a 100; null = texto vindo direto do PDF (sem dúvida). */
-export type ReadLine = { text: string; confidence: number | null };
+/** Retângulo em pixels da imagem lida. */
+export type Box = { x0: number; y0: number; x1: number; y1: number };
+/** Uma linha lida. `confidence` vai de 0 a 100; null = texto vindo direto do PDF (sem dúvida). `box` só existe em OCR. */
+export type ReadLine = { text: string; confidence: number | null; box?: Box };
 export type ScoredWord = { text: string; confidence: number };
+export type WordBox = ScoredWord & { box: Box };
 
 /** Abaixo disso a linha é marcada como "leitura incerta" na tela. */
 export const LOW_CONFIDENCE = 70;
@@ -51,7 +54,9 @@ export function cleanReadLines(raw: ReadLine[]): ReadLine[] {
     if (alnumCount(text) / text.length < 0.4) continue;
     // Faixa curta e com confiança muito baixa é quase sempre borda/sujeira da foto, não texto.
     if (line.confidence !== null && line.confidence < 40 && alnumCount(text) < 10) continue;
-    out.push({ text, confidence: line.confidence });
+    // Pedaço minúsculo ("fo", "ua", "PAX") com confiança só razoável: ruído do fundo da foto.
+    if (line.confidence !== null && line.confidence < 80 && alnumCount(text) <= 3) continue;
+    out.push({ text, confidence: line.confidence, ...(line.box ? { box: line.box } : {}) });
   }
   return out;
 }

@@ -35,6 +35,7 @@ import { getGoalTeamSnapshot, suggestedGoalValue } from "@/lib/goals/suggestion"
 import { defaultTrendWindow, buildDailyOrMonthlyBuckets, buildDailyBuckets, findBucket, findBucketIndex } from "@/lib/reports/trend";
 import { isCompareMode, resolveComparePeriod } from "@/lib/reports/period-compare";
 import { dealTagWhere, normalizeReportTags } from "@/lib/reports/tags";
+import { normalizeReportPeople } from "@/lib/reports/people-filter";
 import type { Session } from "next-auth";
 
 export async function getCommercialReportData(params: {
@@ -53,7 +54,8 @@ export async function getCommercialReportData(params: {
    * quando a pessoa tinha escolhido Tudo de propósito).
    */
   rangeParam?: string;
-  whoParam?: string;
+  /** Equipes/consultores escolhidos (?who=..., repetido). A combinação usa união. */
+  whoParams?: string[];
   /** Tags escolhidas no filtro (?tag=…, repetido) — o negócio entra se o CONTATO tem alguma delas (ver lib/reports/tags.ts). */
   tagParams?: string[];
   /** "mirror" | "month" | "last3" | "year" | "custom" — ver
@@ -75,7 +77,7 @@ export async function getCommercialReportData(params: {
     fromParam,
     toParam,
     rangeParam,
-    whoParam,
+    whoParams,
     tagParams,
     compareParam,
     compareFromParam,
@@ -149,18 +151,34 @@ export async function getCommercialReportData(params: {
   );
   const memberFilterOptions = visibleMembers.map((m) => ({ id: m.userId, name: m.user.name }));
 
-  // "team:<id>" ou "owner:<id>" — um único parâmetro de URL pro dropdown
-  // combinado (ver team-owner-filter.tsx), mais simples que dois selects que
-  // precisariam se zerar um ao outro.
-  const filterTeamId = whoParam?.startsWith("team:") ? whoParam.slice(5) : undefined;
-  const filterOwnerId = whoParam?.startsWith("owner:") ? whoParam.slice(6) : undefined;
+  // `who` se repete na URL. Equipes e consultores convivem no mesmo painel e
+  // são unidos abaixo, sem uma escolha apagar a outra.
+  const selectedPeople = normalizeReportPeople(whoParams);
+  const visibleTeamIds = new Set(teamFilterOptions.map((team) => team.id));
+  const visibleOwnerIds = new Set(memberFilterOptions.map((member) => member.id));
+  const filterTeamIds = new Set(
+    selectedPeople
+      .filter((value) => value.startsWith("team:"))
+      .map((value) => value.slice(5))
+      .filter((id) => visibleTeamIds.has(id)),
+  );
+  const filterOwnerIds = new Set(
+    selectedPeople
+      .filter((value) => value.startsWith("owner:"))
+      .map((value) => value.slice(6))
+      .filter((id) => visibleOwnerIds.has(id)),
+  );
+  const hasPeopleFilter = filterTeamIds.size > 0 || filterOwnerIds.size > 0;
 
   let effectiveScope: DealScope = scope;
-  if (filterTeamId) {
-    const ids = visibleMembers.filter((m) => m.teamId === filterTeamId).map((m) => m.userId);
-    effectiveScope = { type: "owners", ownerIds: ids };
-  } else if (filterOwnerId && visibleMembers.some((m) => m.userId === filterOwnerId)) {
-    effectiveScope = { type: "owners", ownerIds: [filterOwnerId] };
+  if (hasPeopleFilter) {
+    // União, não interseção: equipe A + consultor B mostra os membros de A e B.
+    // Set evita dupla contagem quando B já pertence a uma equipe selecionada.
+    const ids = new Set(filterOwnerIds);
+    for (const member of visibleMembers) {
+      if (member.teamId && filterTeamIds.has(member.teamId)) ids.add(member.userId);
+    }
+    effectiveScope = { type: "owners", ownerIds: Array.from(ids) };
   }
   const ownerScopeWhere = effectiveScope.type === "owners" ? { userId: { in: effectiveScope.ownerIds } } : {};
   // Activity usa userId; Task usa ownerId. Mantemos filtros separados para
@@ -169,7 +187,7 @@ export async function getCommercialReportData(params: {
   // Ranking de equipes exige a visão irrestrita de base — um líder de equipe
   // só veria a própria equipe sozinha (não é comparação de verdade), e um
   // filtro ativo (equipe/pessoa específica) já não faz sentido comparar times.
-  const showTeamRanking = scope.type === "all" && !filterTeamId && !filterOwnerId;
+  const showTeamRanking = scope.type === "all" && !hasPeopleFilter;
 
   // Tempo no CRM e contagem de alterações são dados sensíveis de desempenho —
   // só Dono/Gerente vê (reaproveita os papéis existentes, sem tela de

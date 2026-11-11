@@ -47,10 +47,11 @@ test("datas reais, com o rótulo do que são; datas impossíveis ficam de fora",
   ]);
 });
 
-test("CEP e nome (palpite) são achados; nome da mãe não", () => {
+test("CEP e nome são achados pelo rótulo; nome da mãe fica separado", () => {
   const f = findFields(["NOME", "MARIA APARECIDA DA SILVA", "FILIAÇÃO", "NOME DA MÃE JOANA SOUZA", "CEP 79002-000"]);
   assert.deepEqual(f.map((x) => [x.label, x.value]), [
-    ["Nome (provável)", "MARIA APARECIDA DA SILVA"],
+    ["Nome", "MARIA APARECIDA DA SILVA"],
+    ["Nome da mãe", "JOANA SOUZA"],
     ["CEP", "79002-000"],
   ]);
 });

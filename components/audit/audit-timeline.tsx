@@ -6,6 +6,7 @@ import { AuditEntryCard } from "@/components/audit/audit-entry";
 import { Modal } from "@/components/modal";
 import { actionLabel, actionTone } from "@/lib/audit-meta";
 import type { AuditEntry } from "@/lib/audit-query";
+import { summarizeChanges } from "@/lib/audit-diff";
 import { formatAuditDateTime, formatAuditWhen } from "@/components/audit/audit-entry";
 
 const RECENT_LIMIT = 4;
@@ -27,7 +28,11 @@ function RecentAuditEntry({ entry }: { entry: AuditEntry }) {
           <span className="font-medium">{actionLabel(entry.action)}</span>
           <span className="text-neutral-500 dark:text-neutral-400"> por {entry.actorName}</span>
         </p>
-        {entry.detail && <p className="mt-0.5 truncate text-xs text-neutral-500 dark:text-neutral-400">{entry.detail}</p>}
+        {(entry.changes.length > 0 || entry.detail) && (
+          <p className="mt-0.5 line-clamp-2 text-xs break-words text-neutral-500 dark:text-neutral-400" title={entry.detail ?? undefined}>
+            {entry.detail ?? summarizeChanges(entry.changes, 3)}
+          </p>
+        )}
       </div>
       <time dateTime={entry.createdAt} title={formatAuditDateTime(entry.createdAt)} className="shrink-0 text-xs text-neutral-400 dark:text-neutral-500">
         {formatAuditWhen(entry.createdAt)}
