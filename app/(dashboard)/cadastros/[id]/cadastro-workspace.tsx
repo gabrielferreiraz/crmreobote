@@ -13,6 +13,7 @@ import {
   Copy,
   Download,
   FileX2,
+  Files,
   Hash,
   Landmark,
   MapPin,
@@ -41,11 +42,13 @@ type Doc = { id: string; kind: "PHOTO_ID" | "SOCIAL_CONTRACT" | "OTHER" | "PAYME
 
 export type WorkspaceProps = {
   dealId: string;
+  dealStatus: "OPEN" | "WON" | "LOST";
   clientName: string;
   consultantName: string;
   administratorName: string | null;
   credit: number | null;
   closedAt: string | null;
+  lastDocumentAt: string | null;
   contact: Record<string, string | null>;
   registration: Record<string, string | number | null>;
   documents: Doc[];
@@ -141,6 +144,7 @@ function Card({ title, children, aside }: { title: string; children: React.React
 
 export function CadastroWorkspace(props: WorkspaceProps) {
   const { dealId, contact: c, registration: r } = props;
+  const isWon = props.dealStatus === "WON";
   useAcknowledgePushReminderScope(pushReminderScopeKey.deal(dealId));
   const [requests, setRequests] = useState(props.requests);
   const [quotaAt, setQuotaAt] = useState(props.quotaRegisteredAt);
@@ -209,7 +213,7 @@ export function CadastroWorkspace(props: WorkspaceProps) {
   }, [dealId, docsKey]);
 
   // O pedido do consultor = o momento em que ele fechou a venda com o cadastro preenchido.
-  const requestedAt = props.completedAt ?? props.closedAt;
+  const requestedAt = props.completedAt ?? props.closedAt ?? props.lastDocumentAt;
   const registeredAfter = quotaAt && requestedAt ? formatElapsed(new Date(quotaAt).getTime() - new Date(requestedAt).getTime()) : null;
 
   const docSrc = (id: string) => `/api/deals/${dealId}/registration/documents/${id}`;
@@ -412,13 +416,18 @@ export function CadastroWorkspace(props: WorkspaceProps) {
         <div className="mt-3 flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
             <h1 className="break-words text-2xl font-semibold tracking-tight text-neutral-900 sm:truncate dark:text-neutral-100">{savedHolderName || props.clientName}</h1>
-            <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
+            <p className={`mt-1 text-sm text-neutral-500 dark:text-neutral-400 ${!isWon ? "hidden" : ""}`}>
               {savedHolderName && savedHolderName !== props.clientName ? `No CRM: ${props.clientName}` : "Cadastro da cota e conferência dos documentos"}
             </p>
+            {!isWon && <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Documentos enviados antes do ganho. A cota fica disponível após a venda ser ganha.</p>}
             {registeredAfter && <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">Cadastrada {registeredAfter} depois do pedido do consultor</p>}
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2 max-sm:w-full max-sm:flex-col max-sm:items-stretch">
-            {quotaAt ? (
+            {!isWon ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-light px-3 py-1 text-sm font-medium text-brand dark:bg-[var(--brand-subtle)]">
+                <Files className="h-4 w-4" /> Consultor preenchendo documentação
+              </span>
+            ) : quotaAt ? (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-700 max-sm:justify-center dark:bg-emerald-500/10 dark:text-emerald-400">
                 <CheckCircle2 className="h-4 w-4" /> Cota cadastrada em {formatDateTimeBR(quotaAt)}
               </span>
@@ -427,9 +436,9 @@ export function CadastroWorkspace(props: WorkspaceProps) {
             ) : (
               <span className="rounded-full bg-neutral-100 px-3 py-1 text-center text-sm font-medium text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">Cota ainda não cadastrada</span>
             )}
-            <button type="button" onClick={() => void toggleQuota()} disabled={busy} className={`${quotaAt ? "btn-ghost" : "btn-primary"} max-sm:w-full`}>
+            {isWon && <button type="button" onClick={() => void toggleQuota()} disabled={busy} className={`${quotaAt ? "btn-ghost" : "btn-primary"} max-sm:w-full`}>
               {quotaAt ? "Desfazer" : "Marcar cota cadastrada"}
-            </button>
+            </button>}
           </div>
         </div>
 
@@ -439,7 +448,7 @@ export function CadastroWorkspace(props: WorkspaceProps) {
           <SummaryItem icon={UserRound} label="Consultor responsável" value={props.consultantName} />
           <SummaryItem
             icon={CalendarDays}
-            label="Pedido do consultor em"
+            label={isWon ? "Pedido do consultor em" : "Último documento enviado"}
             value={requestedAt ? formatDateTimeBR(requestedAt) : "Não informado"}
           />
           <SummaryItem icon={Hash} label="Grupo, cota e dígito" value={quotaLabel || "Ainda não definidos"} showFullValue />
@@ -460,7 +469,7 @@ export function CadastroWorkspace(props: WorkspaceProps) {
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
         <div className="order-2 space-y-4 lg:order-1">
-          {props.missing.length > 0 && (
+          {isWon && props.missing.length > 0 && (
             <div className="flex flex-col items-stretch gap-3 rounded-lg border border-red-200 bg-red-50/70 px-3 py-3 sm:flex-row sm:items-center sm:justify-between dark:border-red-500/30 dark:bg-red-500/10">
               <p className="flex min-w-0 items-start gap-2 text-sm leading-5 text-red-700 dark:text-red-300">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> <span><span className="font-medium">Falta no cadastro:</span> {props.missing.map((m) => m.label).join(", ")}</span>
@@ -616,7 +625,7 @@ export function CadastroWorkspace(props: WorkspaceProps) {
         </div>
 
         <aside className="contents lg:order-2 lg:block lg:space-y-4 lg:sticky lg:top-4 lg:self-start">
-          <div id="cota-da-venda" className="order-1 scroll-mt-4 lg:order-none">
+          {isWon && <div id="cota-da-venda" className="order-1 scroll-mt-4 lg:order-none">
             <Card title="Cota e dígito">
               <div className="space-y-5">
                 <div className="grid grid-cols-[minmax(0,1fr)_72px] gap-3">
@@ -738,9 +747,9 @@ export function CadastroWorkspace(props: WorkspaceProps) {
                 </p>
               </div>
             </Card>
-          </div>
+          </div>}
 
-          <div id="pedir-ao-consultor" className="order-3 scroll-mt-4 lg:order-none">
+          {isWon && <div id="pedir-ao-consultor" className="order-3 scroll-mt-4 lg:order-none">
             <Card title="Pedir ao consultor">
               <RequestComposer
                 key={composerKey}
@@ -753,7 +762,11 @@ export function CadastroWorkspace(props: WorkspaceProps) {
                 }}
               />
             </Card>
-          </div>
+          </div>}
+
+          {!isWon && <Card title="Aguardando o ganho">
+            <p className="text-sm leading-6 text-neutral-600 dark:text-neutral-300">O consultor ainda está preenchendo a documentação. Você já pode conferir os arquivos; os dados da cota ficam disponíveis quando a venda for marcada como ganha.</p>
+          </Card>}
 
           {requests.length > 0 && (
             <div className="order-3 lg:order-none">

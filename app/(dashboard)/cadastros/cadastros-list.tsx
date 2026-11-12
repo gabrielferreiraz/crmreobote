@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
   ClipboardCheck,
   Files,
@@ -12,11 +13,9 @@ import {
   FileSpreadsheet,
   Hourglass,
   ListFilter,
-  RefreshCw,
   Search,
   ShieldAlert,
   Sparkles,
-  WifiOff,
   type LucideIcon,
 } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
@@ -26,6 +25,8 @@ import { useVisiblePoll } from "@/lib/use-visible-poll";
 
 export type CadastroRow = {
   id: string;
+  activityAt: string | null;
+  documentDates: string[];
   consultantId: string;
   administratorId: string | null;
   client: string;
@@ -36,7 +37,7 @@ export type CadastroRow = {
   administrator: string | null;
   credit: number | null;
   closedAt: string | null;
-  state: "ready" | "waiting" | "done";
+  state: "ready" | "waiting" | "filling" | "done";
   answered: boolean;
   waitingFor: string | null;
   docs: number;
@@ -46,10 +47,11 @@ export type CadastroRow = {
   quotaAt: string | null;
 };
 
-type Tab = "ready" | "waiting" | "done" | "all";
+type Tab = "ready" | "filling" | "waiting" | "done" | "all";
 type FilterOption = { id: string; name: string };
 const TABS: { key: Tab; label: string; hint: string; icon: LucideIcon }[] = [
   { key: "ready", label: "Para cadastrar", hint: "Prontas para ação", icon: ClipboardCheck },
+  { key: "filling", label: "Consultor preenchendo", hint: "Documentos recebidos", icon: Files },
   { key: "waiting", label: "Aguardando consultor", hint: "Com pendência externa", icon: Hourglass },
   { key: "done", label: "Cadastradas", hint: "Concluídas", icon: CheckCircle2 },
   { key: "all", label: "Todas", hint: "Visão completa", icon: ListFilter },
@@ -76,16 +78,14 @@ export function CadastrosList({ rows, doneTotal, signature, consultants, adminis
   const [administratorId, setAdministratorId] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
-  const [refreshing, startRefresh] = useTransition();
+  const [, startRefresh] = useTransition();
 
   // ---- Atualização automática: nenhuma venda pode ficar escondida atrás de uma tela parada ----
   const knownSignature = useRef(signature);
   const lastRefreshAt = useRef(0);
-  const failures = useRef(0);
-  const [offline, setOffline] = useState(false);
-  const [checkedAt, setCheckedAt] = useState(() => Date.now());
 
   useEffect(() => {
     knownSignature.current = signature;
@@ -93,14 +93,7 @@ export function CadastrosList({ rows, doneTotal, signature, consultants, adminis
 
   useVisiblePoll(async () => {
     const res = await fetch("/api/cadastros/pulse", { cache: "no-store" }).catch(() => null);
-    if (!res || !res.ok) {
-      failures.current += 1;
-      if (failures.current >= 2) setOffline(true);
-      return;
-    }
-    failures.current = 0;
-    setOffline(false);
-    setCheckedAt(Date.now());
+    if (!res || !res.ok) return;
     const body = (await res.json().catch(() => null)) as { signature?: string } | null;
     if (!body?.signature) return;
     // Só recarrega se a assinatura mudou; a trava de 6 s evita pedir de novo enquanto a anterior ainda carrega.
@@ -156,6 +149,7 @@ export function CadastrosList({ rows, doneTotal, signature, consultants, adminis
   const counts = useMemo(
     () => ({
       ready: rows.filter((r) => r.state === "ready").length,
+      filling: rows.filter((r) => r.state === "filling").length,
       waiting: rows.filter((r) => r.state === "waiting").length,
       done: doneTotal,
       all: rows.filter((r) => r.state !== "done").length + doneTotal,
@@ -171,9 +165,12 @@ export function CadastrosList({ rows, doneTotal, signature, consultants, adminis
         (tab === "all" || r.state === tab) &&
         (!consultantId || r.consultantId === consultantId) &&
         (!administratorId || r.administratorId === administratorId) &&
-        (!(from || to) || Boolean(dateKey(r.state === "done" ? r.quotaAt : r.closedAt))) &&
-        (!from || dateKey(r.state === "done" ? r.quotaAt : r.closedAt) >= from) &&
-        (!to || dateKey(r.state === "done" ? r.quotaAt : r.closedAt) <= to) &&
+        (!(from || to) || (r.state === "filling" ? r.documentDates.some((date) => {
+          const key = dateKey(date);
+          return key && (!from || key >= from) && (!to || key <= to);
+        }) : Boolean(dateKey(r.state === "done" ? r.quotaAt : r.closedAt)))) &&
+        (r.state === "filling" || !from || dateKey(r.state === "done" ? r.quotaAt : r.closedAt) >= from) &&
+        (r.state === "filling" || !to || dateKey(r.state === "done" ? r.quotaAt : r.closedAt) <= to) &&
         (!term ||
           r.client.toLowerCase().includes(term) ||
           r.holderName.toLowerCase().includes(term) ||
@@ -182,11 +179,19 @@ export function CadastrosList({ rows, doneTotal, signature, consultants, adminis
           r.quotaLabel.toLowerCase().includes(term)),
     );
     // Pendentes: a venda mais antiga primeiro (fila); cadastradas: as mais recentes.
-    const dir = tab === "done" ? -1 : 1;
-    return [...list].sort((a, b) => dir * (a.closedAt ?? "").localeCompare(b.closedAt ?? ""));
+    const dir = tab === "done" || tab === "filling" ? -1 : 1;
+    return [...list].sort((a, b) => dir * (a.activityAt ?? "").localeCompare(b.activityAt ?? ""));
   }, [rows, tab, q, consultantId, administratorId, from, to]);
 
-  const hasFilters = Boolean(consultantId || administratorId || from || to);
+  const activeFilterCount = Number(Boolean(consultantId)) + Number(Boolean(administratorId)) + Number(Boolean(from || to));
+  const hasFilters = activeFilterCount > 0;
+  const selectedConsultant = consultants.find((option) => option.id === consultantId)?.name;
+  const selectedAdministrator = administrators.find((option) => option.id === administratorId)?.name;
+  const activeFilterSummary = [
+    selectedConsultant,
+    selectedAdministrator,
+    from || to ? `${from ? fmt(`${from}T12:00:00`) : "Início"} – ${to ? fmt(`${to}T12:00:00`) : "Hoje"}` : null,
+  ].filter(Boolean).join(" · ");
 
   async function exportRows() {
     setExporting(true);
@@ -230,25 +235,6 @@ export function CadastrosList({ rows, doneTotal, signature, consultants, adminis
           <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Cadastros</h1>
           <p className="text-sm text-neutral-500 dark:text-neutral-400">Vendas ganhas esperando a cota ser cadastrada na administradora.</p>
         </div>
-        <div className="ml-auto hidden shrink-0 sm:block" title="Esta tela se atualiza sozinha enquanto está aberta">
-          {offline ? (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-400">
-              <WifiOff className="h-3.5 w-3.5" /> Sem conexão — tentando de novo
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400">
-              {refreshing ? (
-                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <span className="relative flex h-2 w-2">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-60" />
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-                </span>
-              )}
-              {refreshing ? "Atualizando…" : `Ao vivo · ${formatTimeBR(new Date(checkedAt))}`}
-            </span>
-          )}
-        </div>
       </div>
 
       {notice && (
@@ -258,7 +244,7 @@ export function CadastrosList({ rows, doneTotal, signature, consultants, adminis
         </div>
       )}
 
-      <div role="tablist" className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-neutral-200 bg-neutral-200 lg:grid-cols-4 dark:border-neutral-800 dark:bg-neutral-800">
+      <div role="tablist" className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-neutral-200 bg-neutral-200 lg:grid-cols-3 xl:grid-cols-5 dark:border-neutral-800 dark:bg-neutral-800">
         {TABS.map((item) => {
           const Icon = item.icon;
           const active = tab === item.key;
@@ -297,37 +283,61 @@ export function CadastrosList({ rows, doneTotal, signature, consultants, adminis
               {visible.length} {visible.length === 1 ? "cadastro exibido" : "cadastros exibidos"}
             </p>
           </div>
-          <div className="relative w-full sm:w-80">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
-            <input className="field-input pl-9" placeholder="Buscar cliente, consultor ou grupo" value={q} onChange={(e) => setQ(e.target.value)} />
+          <div className="flex min-w-0 flex-1 items-center gap-2 sm:max-w-2xl sm:justify-end">
+            <div className="relative min-w-0 flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
+              <input className="field-input h-10 pl-9 text-sm" placeholder="Buscar cliente, consultor ou grupo" value={q} onChange={(e) => setQ(e.target.value)} />
+            </div>
+            <button
+              type="button"
+              aria-expanded={filtersOpen}
+              aria-controls="cadastros-filtros"
+              onClick={() => setFiltersOpen((open) => !open)}
+              className={`inline-flex h-10 shrink-0 items-center gap-2 rounded-md border px-3 text-sm font-medium transition-colors ${filtersOpen || hasFilters ? "border-brand/40 bg-brand-light/70 text-brand dark:bg-[var(--brand-subtle)]" : "border-neutral-200 text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-900"}`}
+            >
+              <ListFilter className="h-4 w-4" />
+              <span className="hidden sm:inline">Filtros</span>
+              {hasFilters && <span className="min-w-5 rounded-full bg-brand px-1.5 text-center text-xs font-semibold leading-5 text-white">{activeFilterCount}</span>}
+              <ChevronDown className={`h-3.5 w-3.5 transition-transform ${filtersOpen ? "rotate-180" : ""}`} />
+            </button>
+            <button type="button" onClick={exportRows} disabled={exporting} aria-label="Exportar resultados para Excel" title="Exportar para Excel" className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-md bg-brand px-3 text-sm font-semibold text-white transition hover:brightness-105 disabled:opacity-60">
+              <FileSpreadsheet className="h-4 w-4" />
+              <span className="hidden sm:inline">{exporting ? "Gerando…" : "Exportar"}</span>
+            </button>
           </div>
           </div>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(180px,1fr)_minmax(180px,1fr)_150px_150px_auto_auto]">
+          {filtersOpen && (
+          <div id="cadastros-filtros" className="animate-loading-delay grid gap-2 border-t border-neutral-100 pt-3 sm:grid-cols-2 lg:grid-cols-[minmax(180px,1fr)_minmax(180px,1fr)_minmax(150px,190px)_minmax(150px,190px)_auto] dark:border-neutral-800">
             <label className="sr-only" htmlFor="cadastro-consultor">Filtrar por consultor</label>
-            <select id="cadastro-consultor" className="field-input" value={consultantId} onChange={(e) => setConsultantId(e.target.value)}>
+            <select id="cadastro-consultor" aria-label="Consultor" className="field-input h-10 py-2 text-sm" value={consultantId} onChange={(e) => setConsultantId(e.target.value)}>
               <option value="">Todos os consultores</option>
               {consultants.map(({ id, name }) => <option key={id} value={id}>{name}</option>)}
             </select>
             <label className="sr-only" htmlFor="cadastro-administradora">Filtrar por administradora</label>
-            <select id="cadastro-administradora" className="field-input" value={administratorId} onChange={(e) => setAdministratorId(e.target.value)}>
+            <select id="cadastro-administradora" aria-label="Administradora" className="field-input h-10 py-2 text-sm" value={administratorId} onChange={(e) => setAdministratorId(e.target.value)}>
               <option value="">Todas as administradoras</option>
               {administrators.map(({ id, name }) => <option key={id} value={id}>{name}</option>)}
             </select>
             <label className="flex min-w-0 flex-col gap-1 text-xs font-medium text-neutral-500 dark:text-neutral-400" htmlFor="cadastro-data-inicial">De<input id="cadastro-data-inicial" aria-label="Data inicial" className="field-input text-sm" type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
             <label className="flex min-w-0 flex-col gap-1 text-xs font-medium text-neutral-500 dark:text-neutral-400" htmlFor="cadastro-data-final">Até<input id="cadastro-data-final" aria-label="Data final" className="field-input text-sm" type="date" value={to} onChange={(e) => setTo(e.target.value)} /></label>
             {hasFilters && <button type="button" onClick={() => { setConsultantId(""); setAdministratorId(""); setFrom(""); setTo(""); }} className="rounded-md px-3 py-2 text-sm font-medium text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800">Limpar filtros</button>}
-            <button type="button" onClick={exportRows} disabled={exporting} className="inline-flex items-center justify-center gap-2 rounded-md bg-brand px-3 py-2 text-sm font-semibold text-white transition hover:brightness-105 disabled:opacity-60">
-              <FileSpreadsheet className="h-4 w-4" />{exporting ? "Gerando…" : "Exportar Excel"}
-            </button>
           </div>
+          )}
+          {hasFilters && !filtersOpen && (
+            <div className="flex min-w-0 items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
+              <span className="shrink-0 font-medium">Ativos:</span>
+              <span className="truncate">{activeFilterSummary}</span>
+              <button type="button" onClick={() => { setConsultantId(""); setAdministratorId(""); setFrom(""); setTo(""); }} className="ml-auto shrink-0 font-medium text-brand hover:underline">Limpar</button>
+            </div>
+          )}
           {exportError && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{exportError}</p>}
         </div>
 
         {visible.length === 0 ? (
           <EmptyState
             icon={ClipboardCheck}
-            title={tab === "ready" ? "Nada para cadastrar agora" : "Nenhuma venda aqui"}
-            description={q ? "Nenhum resultado para essa busca." : "Quando um consultor marcar uma venda como ganha, ela aparece aqui."}
+            title={tab === "ready" ? "Nada para cadastrar agora" : tab === "filling" ? "Nenhum documento em preenchimento" : "Nenhuma venda aqui"}
+            description={q || hasFilters ? "Nenhum resultado para os filtros selecionados." : tab === "filling" ? "Quando um consultor enviar documentos antes de marcar o ganho, eles aparecem aqui." : "Quando um consultor marcar uma venda como ganha, ela aparece aqui."}
           />
         ) : (
           <>
@@ -336,21 +346,23 @@ export function CadastrosList({ rows, doneTotal, signature, consultants, adminis
               <span>Crédito</span>
               <span>Consultor</span>
               <span>Documentos</span>
-              <span>{tab === "done" ? "Conclusão" : "Entrada"}</span>
+              <span>{tab === "done" ? "Conclusão" : tab === "filling" ? "Último envio" : "Entrada"}</span>
               <span />
             </div>
             <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
               {visible.map((row) => {
                 const left = row.docsExpireAt && row.state !== "done" && row.docs > 0 ? daysLeft(row.docsExpireAt) : null;
-                const StateIcon = row.state === "done" ? CheckCircle2 : row.state === "waiting" ? Hourglass : ClipboardCheck;
-                const stateLabel = row.state === "done" ? "Cota cadastrada" : row.state === "waiting" ? "Aguardando retorno" : "Cadastro pendente";
+                const StateIcon = row.state === "done" ? CheckCircle2 : row.state === "waiting" ? Hourglass : row.state === "filling" ? Files : ClipboardCheck;
+                const stateLabel = row.state === "done" ? "Cota cadastrada" : row.state === "waiting" ? "Aguardando retorno" : row.state === "filling" ? "Consultor preenchendo documentação" : "Negócio ganho";
                 const DocumentIcon = row.docs > 0 ? Files : FileWarning;
                 const documentLabel = row.docsPurged
                   ? "Arquivos removidos"
                   : row.docs === 0
                     ? "Sem documentos"
                     : `${row.docs} ${row.docs === 1 ? "documento" : "documentos"}`;
-                const documentNote = row.state === "waiting"
+                const documentNote = row.state === "filling"
+                  ? "Negócio ainda não marcado como ganho"
+                  : row.state === "waiting"
                   ? `Aguardando: ${row.waitingFor ?? "consultor"}`
                   : row.answered
                     ? "Consultor respondeu"
@@ -363,7 +375,9 @@ export function CadastrosList({ rows, doneTotal, signature, consultants, adminis
                             ? "Baixar hoje"
                             : `Baixar em ${left} ${left === 1 ? "dia" : "dias"}`
                           : "Disponíveis para conferência";
-                const documentTone = row.state === "waiting"
+                const documentTone = row.state === "filling"
+                  ? "text-brand"
+                  : row.state === "waiting"
                   ? "text-amber-600 dark:text-amber-400"
                   : row.answered
                     ? "text-emerald-600 dark:text-emerald-400"
@@ -435,11 +449,11 @@ export function CadastrosList({ rows, doneTotal, signature, consultants, adminis
                       </div>
 
                       <div className="min-w-0">
-                        <p className="mb-0.5 text-[11px] font-medium text-neutral-400 lg:hidden">{row.state === "done" ? "Cadastrada em" : "Pedido do consultor em"}</p>
+                        <p className="mb-0.5 text-[11px] font-medium text-neutral-400 lg:hidden">{row.state === "done" ? "Cadastrada em" : row.state === "filling" ? "Último envio" : "Pedido do consultor em"}</p>
                         <p className="text-sm tabular-nums text-neutral-600 dark:text-neutral-300">
-                          {row.state === "done" ? fmt(row.quotaAt) : fmt(row.closedAt)}
-                          {(row.state === "done" ? row.quotaAt : row.closedAt) && (
-                            <span className="ml-1.5 text-xs text-neutral-400 dark:text-neutral-500">{formatTimeBR((row.state === "done" ? row.quotaAt : row.closedAt)!)}</span>
+                          {fmt(row.activityAt)}
+                          {row.activityAt && (
+                            <span className="ml-1.5 text-xs text-neutral-400 dark:text-neutral-500">{formatTimeBR(row.activityAt)}</span>
                           )}
                         </p>
                       </div>

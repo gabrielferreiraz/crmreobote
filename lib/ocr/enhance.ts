@@ -115,6 +115,18 @@ export function flatFieldGray(gray: Uint8ClampedArray, width: number, height: nu
   return out;
 }
 
+/**
+ * Escurece o que é fraco: corrige a luz (papel = branco) e eleva à potência `power`. O fundo continua
+ * perto de 255 e um cinza médio (letra fina e clara) cai para quase preto, sem virar preto e branco
+ * duro — preserva as bordas suaves que o OCR gosta.
+ */
+export function faintTextGray(gray: Uint8ClampedArray, width: number, height: number, power = 3): Uint8ClampedArray {
+  const flat = flatFieldGray(gray, width, height);
+  const out = new Uint8ClampedArray(flat.length);
+  for (let i = 0; i < flat.length; i++) out[i] = 255 * Math.pow(flat[i] / 255, power);
+  return out;
+}
+
 export function enhanceCanvas(source: HTMLCanvasElement): HTMLCanvasElement {
   const ctx = source.getContext("2d");
   if (!ctx) return source;

@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { findFields, missingFieldLabels, needsImageReading } from "@/lib/ocr/find-fields";
 import { detectDocumentType } from "@/lib/ocr/document-type";
+import { adaptiveThreshold } from "@/lib/ocr/binarize";
+import { faintTextGray } from "@/lib/ocr/enhance";
 import type { ReadLine } from "@/lib/ocr/quality";
 
 const at = (text: string, x0: number, y0: number, w = 400, h = 35, confidence = 90): ReadLine => ({ text, confidence, box: { x0, y0, x1: x0 + w, y1: y0 + h } });
@@ -138,4 +140,63 @@ test("a data da 1ª habilitação não aparece também como 'Data' solta", () =>
 test("palpite de nome ignora frases em minúsculas (rodapés, avisos) mesmo com 3+ palavras", () => {
   const f = findFields(["ser confirmada por meio do programa Assinador Serpro.", "Abrir em outra aba", "Texto do documento"]);
   assert.ok(!f.some((x) => x.key === "name"));
+});
+
+// ---------------------------------------------------------------------------
+// CNH digital real (MARLENE…): texto cinza, fino e claro sobre verde-claro.
+// ---------------------------------------------------------------------------
+
+test("limiar local: traço fino e CLARO sobre fundo claro vira preto; fundo liso e sombra suave ficam brancos", () => {
+  const W = 200;
+  const H = 80;
+  const gray = new Uint8ClampedArray(W * H);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) gray[y * W + x] = 235 - Math.round((x / W) * 30); // sombra suave: 235 → 205
+  for (let x = 40; x < 90; x++) for (let y = 30; y < 33; y++) gray[y * W + x] = 125; // "letra": cinza médio, 3 px
+  const out = adaptiveThreshold(gray, W, H);
+  assert.equal(out[31 * W + 60], 0, "o traço cinza vira preto");
+  assert.equal(out[10 * W + 20], 255, "fundo liso fica branco");
+  assert.equal(out[10 * W + 180], 255, "a parte mais escura da sombra suave também fica branca");
+  // o isolamento de traços escuros (tratamento antigo) é um corte absoluto e perde esse tipo de texto fraco — o novo não
+  const faint = new Uint8ClampedArray(W * H).fill(235);
+  for (let x = 40; x < 90; x++) for (let y = 30; y < 33; y++) faint[y * W + x] = 190;
+  assert.equal(adaptiveThreshold(faint, W, H, 0.9)[31 * W + 60], 0, "mesmo um traço só 20% mais escuro que o fundo é achado");
+});
+
+test("contraste elevado: cinza médio fica bem escuro e o fundo continua branco", () => {
+  const W = 120;
+  const H = 60;
+  const gray = new Uint8ClampedArray(W * H).fill(232);
+  for (let x = 20; x < 70; x++) for (let y = 25; y < 29; y++) gray[y * W + x] = 125;
+  const out = faintTextGray(gray, W, H);
+  assert.ok(out[27 * W + 40] < 60, `letra deveria ficar escura, ficou ${out[27 * W + 40]}`);
+  assert.ok(out[5 * W + 5] > 230, "fundo continua claro");
+});
+
+test("CNH: valor ANTES do rótulo (o OCR junta a caixinha numa linha) é lido; o nº de registro não vira um segundo CPF", () => {
+  // 022.589.982-55 fecha a conta do CPF por coincidência, mas é o nº de registro do cartão
+  const f = Object.fromEntries(
+    findFields([
+      "CARTEIRA NACIONAL DE HABILITAÇÃO",
+      "NOME",
+      "MARLENE DO CARMO MESSIA",
+      "812.729.871-91 CPF",
+      "DATA NASCIMENTO",
+      "16/09/1975",
+      "02/02/2032 VALIDADE",
+      "26/03/2002 1º HABILITAÇÃO",
+      "02258998255 Nº REGISTRO",
+    ]).map((x) => [x.key, x.value]),
+  );
+  assert.equal(f["name"], "MARLENE DO CARMO MESSIA");
+  assert.equal(f["cpf-81272987191"], "812.729.871-91");
+  assert.equal(f["validity"], "02/02/2032");
+  assert.equal(f["first-license"], "26/03/2002");
+  assert.equal(f["cnh-registry"], "02258998255");
+  assert.ok(!("cpf-02258998255" in f), "o registro não é CPF");
+  assert.ok(!Object.keys(f).some((k) => k.startsWith("date-")), "nenhuma data solta sobrando");
+});
+
+test("rótulo no fim da linha só vale para data/CPF/registro: 'Atendimento ao Cliente' não vira nome", () => {
+  const f = findFields(["CARTEIRA NACIONAL DE HABILITAÇÃO", "Atendimento ao Cliente", "Falar com o Titular"]);
+  assert.ok(!f.some((x) => x.key === "name" && /Cliente|Titular/.test(x.value)));
 });

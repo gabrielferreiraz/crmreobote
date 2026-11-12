@@ -239,7 +239,6 @@ export function RegistrationForm({
   }, [dealId, administratorId]);
 
   const save = useCallback(async (): Promise<boolean> => {
-    if (!dirty.current) return true;
     if (savePromise.current) await savePromise.current.catch(() => false);
     if (!dirty.current) return true;
     dirty.current = false;

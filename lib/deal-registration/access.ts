@@ -9,7 +9,7 @@ export type RegistrationAccess = {
   userId: string;
   actorName: string;
   canBypass: boolean;
-  deal: { id: string; ownerId: string; contactId: string };
+  deal: { id: string; ownerId: string; contactId: string; status: "OPEN" | "WON" | "LOST" };
 };
 
 /**
@@ -25,7 +25,7 @@ export async function requireRegistrationAccess(dealId: string): Promise<{ acces
   }
   const deal = await prisma.deal.findFirst({
     where: { id: dealId, organizationId: m.organizationId },
-    select: { id: true, ownerId: true, contactId: true, participants: { select: { userId: true } } },
+    select: { id: true, ownerId: true, contactId: true, status: true, participants: { select: { userId: true } } },
   });
   if (!deal) return { response: NextResponse.json({ error: "Não encontrado" }, { status: 404 }) };
 
@@ -40,7 +40,7 @@ export async function requireRegistrationAccess(dealId: string): Promise<{ acces
       userId: m.userId,
       actorName: m.name ?? m.email ?? "Usuário",
       canBypass: privileged,
-      deal: { id: deal.id, ownerId: deal.ownerId, contactId: deal.contactId },
+      deal: { id: deal.id, ownerId: deal.ownerId, contactId: deal.contactId, status: deal.status },
     },
   };
 }

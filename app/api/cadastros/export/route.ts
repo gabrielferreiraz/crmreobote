@@ -12,7 +12,7 @@ import { rateLimitOrResponse } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
-type Tab = "ready" | "waiting" | "done" | "all";
+type Tab = "ready" | "filling" | "waiting" | "done" | "all";
 
 function validDate(value: string | null): value is string {
   if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -31,7 +31,7 @@ export async function GET(request: Request) {
 
   const params = new URL(request.url).searchParams;
   const rawTab = params.get("tab");
-  const tab: Tab = rawTab === "ready" || rawTab === "waiting" || rawTab === "done" ? rawTab : "all";
+  const tab: Tab = rawTab === "ready" || rawTab === "filling" || rawTab === "waiting" || rawTab === "done" ? rawTab : "all";
   const q = (params.get("q") ?? "").trim().slice(0, 120);
   const consultantId = params.get("consultantId")?.slice(0, 100) || undefined;
   const administratorId = params.get("administratorId")?.slice(0, 100) || undefined;
@@ -58,6 +58,7 @@ export async function GET(request: Request) {
     and.push({ registration: { is: { quotaRegisteredAt: null } } });
     and.push({ documentRequests: { some: { status: "OPEN" } } });
   }
+  if (tab === "filling") and.push({ registration: { is: { documents: { some: {} } } } });
   if (consultantId) and.push({ ownerId: consultantId });
   if (administratorId) and.push({ administratorId });
   if (start || end) {
@@ -65,11 +66,14 @@ export async function GET(request: Request) {
       and.push({ registration: { is: { quotaRegisteredAt: range } } });
     } else if (tab === "ready" || tab === "waiting") {
       and.push({ closedAt: range });
+    } else if (tab === "filling") {
+      and.push({ registration: { is: { documents: { some: { createdAt: range } } } } });
     } else {
       and.push({
         OR: [
-          { registration: { is: { quotaRegisteredAt: range } } },
-          { registration: { is: { quotaRegisteredAt: null } }, closedAt: range },
+          { status: "WON", registration: { is: { quotaRegisteredAt: range } } },
+          { status: "WON", registration: { is: { quotaRegisteredAt: null } }, closedAt: range },
+          { status: "OPEN", registration: { is: { documents: { some: { createdAt: range } } } } },
         ],
       });
     }
@@ -88,10 +92,15 @@ export async function GET(request: Request) {
   }
 
   const deals = await runWithTenant(membership.organizationId, () => prisma.deal.findMany({
-    where: { organizationId: membership.organizationId, status: "WON", AND: and },
+    where: {
+      organizationId: membership.organizationId,
+      ...(tab === "all" ? { OR: [{ status: "WON" }, { status: "OPEN", registration: { is: { documents: { some: {} } } } }] } : { status: tab === "filling" ? "OPEN" : "WON" }),
+      AND: and,
+    },
     orderBy: [{ closedAt: "desc" }, { id: "asc" }],
     select: {
       id: true,
+      status: true,
       name: true,
       value: true,
       grossValue: true,
@@ -106,7 +115,7 @@ export async function GET(request: Request) {
           quotaNumber: true,
           quotaDigit: true,
           quotaRegisteredAt: true,
-          documents: { select: { id: true } },
+          documents: { select: { id: true, createdAt: true } },
         },
       },
       documentRequests: { where: { status: "OPEN" }, orderBy: { createdAt: "desc" }, take: 1, select: { items: true } },
@@ -125,7 +134,7 @@ export async function GET(request: Request) {
     { header: "Crédito (R$)", key: "credit", width: 17, style: { numFmt: '"R$" #,##0.00' } },
     { header: "Grupo / cota", key: "quota", width: 24 },
     { header: "Situação", key: "state", width: 22 },
-    { header: "Data do ganho", key: "closedAt", width: 16, style: { numFmt: "dd/mm/yyyy hh:mm" } },
+    { header: "Data do ganho / último envio", key: "closedAt", width: 24, style: { numFmt: "dd/mm/yyyy hh:mm" } },
     { header: "Data do cadastro", key: "quotaAt", width: 18, style: { numFmt: "dd/mm/yyyy hh:mm" } },
     { header: "Documentos", key: "documents", width: 13 },
     { header: "Aguardando", key: "waitingFor", width: 36 },
@@ -139,6 +148,8 @@ export async function GET(request: Request) {
     const reg = deal.registration;
     const openRequest = deal.documentRequests[0];
     const isDone = Boolean(reg?.quotaRegisteredAt);
+    const isFilling = deal.status === "OPEN";
+    const latestDocumentAt = reg?.documents.reduce<Date | null>((latest, doc) => !latest || doc.createdAt > latest ? doc.createdAt : latest, null) ?? null;
     sheet.addRow({
       holder: sanitizeCell(reg?.holderName?.trim() || deal.contact.name),
       client: sanitizeCell(deal.contact.name),
@@ -146,8 +157,8 @@ export async function GET(request: Request) {
       consultant: sanitizeCell(deal.owner.name),
       credit: deal.grossValue != null ? Number(deal.grossValue) : deal.value != null ? Number(deal.value) : null,
       quota: sanitizeCell(reg ? formatQuotaLabel(reg) : ""),
-      state: isDone ? "Cota cadastrada" : openRequest ? "Aguardando consultor" : "Para cadastrar",
-      closedAt: deal.closedAt,
+      state: isDone ? "Cota cadastrada" : isFilling ? "Consultor preenchendo documentação" : openRequest ? "Aguardando consultor" : "Para cadastrar",
+      closedAt: deal.closedAt ?? latestDocumentAt,
       quotaAt: reg?.quotaRegisteredAt,
       documents: reg?.documents.length ?? 0,
       waitingFor: openRequest ? sanitizeCell(summarizeRequestItems(parseRequestItems(openRequest.items), 5)) : "",

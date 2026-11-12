@@ -84,6 +84,29 @@ function matchLabel(text: string, labels: string[]): { rest: string } | null {
   return null;
 }
 
+/**
+ * O inverso: a linha TERMINA com o rótulo e o valor vem antes ("02/02/2032 VALIDADE", "812.729.871-91 CPF").
+ * Acontece quando o OCR junta, numa linha só, o valor e o rótulo da caixinha ao lado.
+ */
+function matchTrailingLabel(text: string, labels: string[]): { before: string } | null {
+  const raw = text.split(/\s+/).filter(Boolean);
+  const flat: Flat[] = [];
+  raw.forEach((token, rawIndex) => {
+    for (const part of norm(token).split(" ").filter(Boolean)) flat.push({ norm: part, rawIndex });
+  });
+  for (const label of labels) {
+    const want = label.split(" ");
+    if (flat.length < want.length + 1) continue;
+    const start = flat.length - want.length;
+    if (!want.every((w, i) => tokenEquals(flat[start + i].norm, w))) continue;
+    const firstRaw = flat[start].rawIndex;
+    if (start > 0 && flat[start - 1].rawIndex === firstRaw) continue; // rótulo no meio de uma palavra só
+    const before = raw.slice(0, firstRaw).join(" ").trim();
+    if (before) return { before };
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Validadores por tipo
 // ---------------------------------------------------------------------------
@@ -389,10 +412,20 @@ function findLabeled(lines: ReadLine[], typeId?: DocumentTypeId): FoundField[] {
     for (const spec of LABEL_SPECS) {
       if (spec.types && !(typeId && spec.types.includes(typeId))) continue;
       if (used.has(spec.key)) continue;
-      const m = matchLabel(line.text, spec.labels);
+      let m = matchLabel(line.text, spec.labels);
+      // Valor antes do rótulo: só para datas, CPF e o nº de registro da CNH (valores curtos e inconfundíveis).
+      let trailing = false;
+      if (!m && (spec.kind === "date" || spec.kind === "cpf" || spec.key === "cnh-registry")) {
+        const t = matchTrailingLabel(line.text, spec.labels);
+        if (t) {
+          m = { rest: t.before };
+          trailing = true;
+        }
+      }
       if (!m) continue;
       let value = m.rest ? parseByKind(spec.kind, m.rest, spec) : null;
       let source = m.rest;
+      if (!value && trailing) continue;
       if (!value && !spec.sameLine) {
         for (const c of candidatesFor(lines, i)) {
           const idx = lines.indexOf(c);
@@ -697,10 +730,14 @@ export function findFields(input: (string | ReadLine)[]): FoundField[] {
   const addressGuess = type && ["proof_address", "cnpj"].includes(type.id) && !labeled.some((f) => f.key === "address") ? findAddressLine(texts) : [];
   const all = [...(type ? [{ key: "type", label: "Documento", value: type.label }] : []), ...labeled, ...boletoFields, ...addressGuess, ...findDocuments(texts), ...findLooseDates(texts, dateValues), ...findCep(texts), ...findEmail(texts)];
 
+  // O nº de registro da CNH (11 dígitos) às vezes fecha a conta do CPF por coincidência: não é um segundo CPF.
+  const registry = all.find((f) => f.key === "cnh-registry")?.value.replace(/\D/g, "");
+  const candidates = registry ? all.filter((f) => !(f.key.startsWith("cpf-") && f.key.slice(4) === registry)) : all;
+
   // um nome só (o rótulo "NOME" ganha das tentativas soltas) e sem valores repetidos
   const seen = new Set<string>();
   const result: FoundField[] = [];
-  for (const f of all.sort((a, b) => orderOf(a.key) - orderOf(b.key))) {
+  for (const f of candidates.sort((a, b) => orderOf(a.key) - orderOf(b.key))) {
     const id = `${f.label}|${f.value}`;
     if (seen.has(id)) continue;
     seen.add(id);

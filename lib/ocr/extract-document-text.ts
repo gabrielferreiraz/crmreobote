@@ -22,8 +22,8 @@
  * origem do CRM; o navegador não baixa nada de sites de fora.
  */
 
-import { estimateSkewDetailed, isolateText } from "@/lib/ocr/binarize";
-import { canvasToGray, flatFieldGray, grayToCanvas, rotateCanvas, rotateCanvasBy } from "@/lib/ocr/enhance";
+import { adaptiveThreshold, estimateSkewDetailed, isolateText } from "@/lib/ocr/binarize";
+import { canvasToGray, faintTextGray, flatFieldGray, grayToCanvas, rotateCanvas, rotateCanvasBy } from "@/lib/ocr/enhance";
 import { detectDocumentType } from "@/lib/ocr/document-type";
 import { findFields, isLikelyNoise, missingExpectedFields, needsImageReading } from "@/lib/ocr/find-fields";
 import { imageRectsFromOps, largeImageRects, type ImageRect } from "@/lib/ocr/pdf-images";
@@ -137,14 +137,18 @@ async function recognizeWords(worker: OcrWorker, canvas: HTMLCanvasElement, psm:
   }
 }
 
-type Variant = "P" | "S" | "B" | "G" | "C";
+type Variant = "P" | "S" | "B" | "G" | "C" | "A" | "K";
 type PassPlan = { variant: Variant; psm: "3" | "11"; label: string };
 
 // P = letras do tipo mais provável (escuras sobre claro, ou claras sobre escuro, o que tiver mais cara de texto);
-// S = o outro tipo; B = P com corte mais firme; G = cinza puro (o próprio OCR inverte sozinho); C = luz corrigida.
+// S = o outro tipo; B = P com corte mais firme; G = cinza puro (o próprio OCR inverte sozinho); C = luz corrigida;
+// A = limiar local e K = contraste elevado: os dois enxergam texto FINO e CLARO (cinza sobre verde, como nos valores
+// da CNH digital), que o isolamento de traços escuros (P/B) apaga por parecer "textura".
 const PLAN: PassPlan[] = [
   { variant: "P", psm: "11", label: "Lendo o texto…" },
   { variant: "P", psm: "3", label: "Conferindo com outro modo de leitura…" },
+  { variant: "A", psm: "3", label: "Conferindo com outro tratamento da imagem…" },
+  { variant: "K", psm: "3", label: "Conferindo com outro tratamento da imagem…" },
   { variant: "B", psm: "3", label: "Conferindo com outro tratamento da imagem…" },
   { variant: "B", psm: "11", label: "Conferindo com outro tratamento da imagem…" },
   { variant: "G", psm: "11", label: "Conferindo com outro tratamento da imagem…" },
@@ -217,6 +221,10 @@ async function readUpright(worker: OcrWorker, canvas: HTMLCanvasElement, onProgr
         return make("G", () => gray);
       case "C":
         return make("C", () => flatFieldGray(gray, width, height));
+      case "A":
+        return make(lightIsPrimary ? "AL" : "AD", () => adaptiveThreshold(primaryBase, width, height));
+      case "K":
+        return make(lightIsPrimary ? "KL" : "KD", () => faintTextGray(primaryBase, width, height));
     }
   };
 

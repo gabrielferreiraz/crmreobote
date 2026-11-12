@@ -29,7 +29,7 @@ export default async function CadastroPage({ params }: { params: Promise<{ id: s
         administrator: { select: { name: true } },
       },
     });
-    if (!deal) notFound();
+    if (!deal || deal.status === "LOST") notFound();
     const [ctx, requests] = await Promise.all([loadRegistrationContext(m.organizationId, id), listDealRequests(m.organizationId, id)]);
     if (!ctx) notFound();
     const credit = deal.grossValue ?? deal.value;
@@ -37,11 +37,13 @@ export default async function CadastroPage({ params }: { params: Promise<{ id: s
     return (
       <CadastroWorkspace
         dealId={id}
+        dealStatus={deal.status}
         clientName={ctx.contactName}
         consultantName={deal.owner.name}
         administratorName={deal.administrator?.name ?? null}
         credit={credit != null ? Number(credit) : null}
         closedAt={deal.closedAt ? deal.closedAt.toISOString() : null}
+        lastDocumentAt={ctx.documents.at(-1)?.createdAt.toISOString() ?? null}
         contact={ctx.snapshot.contact as Record<string, string | null>}
         registration={ctx.snapshot.registration as Record<string, string | number | null>}
         documents={ctx.documents.map((d) => ({ ...d, createdAt: d.createdAt.toISOString() }))}

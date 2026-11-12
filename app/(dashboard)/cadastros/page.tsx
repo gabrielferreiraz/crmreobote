@@ -24,6 +24,7 @@ export default async function CadastrosPage() {
     const signature = await getCadastrosSignature(m.organizationId);
     const select = {
       id: true,
+      status: true,
       ownerId: true,
       administratorId: true,
       value: true,
@@ -48,9 +49,12 @@ export default async function CadastrosPage() {
       documentRequests: { orderBy: { createdAt: "desc" }, take: 5, select: { status: true, items: true } },
     } satisfies Prisma.DealSelect;
     const base = { organizationId: m.organizationId, status: "WON" as const };
+    const draftWhere = { organizationId: m.organizationId, status: "OPEN" as const, registration: { is: { documents: { some: {} } } } };
+    const visibleDealsWhere: Prisma.DealWhereInput = { organizationId: m.organizationId, OR: [{ status: "WON" }, draftWhere] };
     // Pendentes: todas (a fila nunca pode esconder uma venda antiga). Cadastradas: só as mais recentes.
-    const [pending, done, doneTotal, consultantRecords, administratorRecords] = await Promise.all([
+    const [pending, drafts, done, doneTotal, consultantRecords, administratorRecords] = await Promise.all([
       prisma.deal.findMany({ where: { ...base, registration: { is: { quotaRegisteredAt: null } } }, orderBy: { closedAt: "desc" }, take: 1500, select }),
+      prisma.deal.findMany({ where: draftWhere, orderBy: { updatedAt: "desc" }, select }),
       prisma.deal.findMany({
         where: { ...base, registration: { is: { quotaRegisteredAt: { not: null } } } },
         orderBy: { registration: { quotaRegisteredAt: "desc" } },
@@ -59,44 +63,49 @@ export default async function CadastrosPage() {
       }),
       prisma.deal.count({ where: { ...base, registration: { is: { quotaRegisteredAt: { not: null } } } } }),
       prisma.deal.findMany({
-        where: base,
+        where: visibleDealsWhere,
         distinct: ["ownerId"],
         select: { ownerId: true, owner: { select: { name: true } } },
       }),
       prisma.deal.findMany({
-        where: { ...base, administratorId: { not: null } },
+        where: { ...visibleDealsWhere, administratorId: { not: null } },
         distinct: ["administratorId"],
         select: { administratorId: true, administrator: { select: { name: true } } },
       }),
     ]);
-    const deals = [...pending, ...done];
+    const deals = [...pending, ...drafts, ...done];
 
     const mapped = deals.map((d): CadastroRow => {
-      const reg = d.registration!;
+      const reg = d.registration;
       const credit = d.grossValue ?? d.value;
       const open = d.documentRequests.find((r) => r.status === "OPEN");
       const last = d.documentRequests[0];
-      const since = reg.completedAt ?? d.closedAt;
-      const expiries = reg.documents.map((doc) => Math.max(doc.createdAt.getTime(), since ? since.getTime() : 0) + DOCUMENT_RETENTION_DAYS * 86_400_000);
+      const docs = reg?.documents ?? [];
+      const since = reg?.completedAt ?? d.closedAt;
+      const expiries = docs.map((doc) => Math.max(doc.createdAt.getTime(), since ? since.getTime() : 0) + DOCUMENT_RETENTION_DAYS * 86_400_000);
+      const state: CadastroRow["state"] = reg?.quotaRegisteredAt ? "done" : d.status === "OPEN" ? "filling" : open ? "waiting" : "ready";
+      const latestDocumentAt = docs.reduce<Date | null>((latest, doc) => !latest || doc.createdAt > latest ? doc.createdAt : latest, null);
       return {
         id: d.id,
+        activityAt: state === "done" ? reg?.quotaRegisteredAt?.toISOString() ?? null : state === "filling" ? latestDocumentAt?.toISOString() ?? null : d.closedAt?.toISOString() ?? null,
+        documentDates: docs.map((doc) => doc.createdAt.toISOString()),
         client: d.contact.name,
-        holderName: reg.holderName?.trim() || d.contact.name,
-        quotaLabel: formatQuotaLabel(reg),
+        holderName: reg?.holderName?.trim() || d.contact.name,
+        quotaLabel: reg ? formatQuotaLabel(reg) : "",
         consultant: d.owner.name,
         consultantId: d.ownerId,
         administrator: d.administrator?.name ?? null,
         administratorId: d.administratorId,
         credit: credit != null ? Number(credit) : null,
         closedAt: d.closedAt ? d.closedAt.toISOString() : null,
-        state: reg.quotaRegisteredAt ? "done" : open ? "waiting" : "ready",
-        answered: !reg.quotaRegisteredAt && !open && last?.status === "FULFILLED",
+        state,
+        answered: !reg?.quotaRegisteredAt && !open && last?.status === "FULFILLED",
         waitingFor: open ? summarizeRequestItems(parseRequestItems(open.items), 2) : null,
-        docs: reg.documents.length,
+        docs: docs.length,
         docsExpireAt: expiries.length ? new Date(Math.min(...expiries)).toISOString() : null,
-        docsPurged: Boolean(reg.documentsPurgedAt),
-        waived: Boolean(reg.waivedReason),
-        quotaAt: reg.quotaRegisteredAt ? reg.quotaRegisteredAt.toISOString() : null,
+        docsPurged: Boolean(reg?.documentsPurgedAt),
+        waived: Boolean(reg?.waivedReason),
+        quotaAt: reg?.quotaRegisteredAt ? reg.quotaRegisteredAt.toISOString() : null,
       };
     });
     return {

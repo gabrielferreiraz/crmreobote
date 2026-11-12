@@ -94,6 +94,7 @@ export function ClosedAtDialog({
   const [maxDate, setMaxDate] = useState(brazilDateKey());
   const [ready, setReady] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
   const [administrators, setAdministrators] = useState<{ id: string; name: string }[]>([]);
   const [administratorId, setAdministratorId] = useState(initialAdministratorId ?? "");
   // Enquanto a lista não chegou, não deixa confirmar sem ela — senão um
@@ -188,6 +189,21 @@ export function ClosedAtDialog({
     }
   }
 
+  async function handleFinishLater() {
+    if (savingDraft || loading) return;
+    setSavingDraft(true);
+    setSubmitError(null);
+    try {
+      if (regApi.current && !(await regApi.current.flush())) {
+        setSubmitError("Não foi possível salvar o rascunho. Tente novamente.");
+        return;
+      }
+      onClose();
+    } finally {
+      setSavingDraft(false);
+    }
+  }
+
   const adminName = administrators.find((a) => a.id === administratorId)?.name;
   const submitLabel = (
     <>
@@ -248,9 +264,9 @@ export function ClosedAtDialog({
                 {regStatus.loading ? "Verificando o cadastro…" : regStatus.ready ? "Cadastro completo" : regStatus.summary || "Preencha os itens pendentes para concluir o ganho."}
               </p>
             </div>
-            <div className="flex flex-col-reverse gap-2 px-5 py-3 sm:flex-row sm:justify-end">
-              <button type="button" onClick={onClose} className="btn-secondary w-full sm:w-auto">
-                Fechar
+            <div className="flex flex-col-reverse gap-2 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <button type="button" onClick={handleFinishLater} disabled={savingDraft || loading} className="btn-secondary w-full sm:w-auto">
+                {savingDraft ? <><Loader2 className="h-4 w-4 animate-spin" /> Salvando rascunho</> : "Terminar cadastro depois"}
               </button>
               <button type="submit" disabled={loading || regStatus.loading} className={`${confirmClassName} w-full justify-center sm:w-auto`}>
                 {!loading && regStatus.ready && <Check className="h-4 w-4" strokeWidth={2.5} />}

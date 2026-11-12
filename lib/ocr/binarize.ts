@@ -94,6 +94,44 @@ export function isolateText(gray: Uint8ClampedArray, width: number, height: numb
   return out;
 }
 
+/** Janela (em px, ímpar) do limiar local: maior que a letra, menor que o documento. */
+export function localWindow(width: number, height: number): number {
+  const w = Math.round(Math.max(width, height) / 35);
+  return Math.min(81, Math.max(25, w % 2 === 0 ? w + 1 : w));
+}
+
+/**
+ * Limiar LOCAL: cada ponto é comparado com a média do que está em volta (imagem integral, O(n)).
+ * Mais escuro que `ratio` × a média vizinha vira preto, o resto branco. Pega texto FINO e CLARO
+ * (cinza sobre verde-claro, como nos valores da CNH digital) que o isolamento de traços escuros
+ * apaga — e continua funcionando com sombra e luz desigual, porque a referência é sempre a vizinhança.
+ */
+export function adaptiveThreshold(gray: Uint8ClampedArray, width: number, height: number, ratio = 0.9, window = localWindow(width, height)): Uint8ClampedArray {
+  const stride = width + 1;
+  const sums = new Float64Array(stride * (height + 1));
+  for (let y = 0; y < height; y++) {
+    let row = 0;
+    for (let x = 0; x < width; x++) {
+      row += gray[y * width + x];
+      sums[(y + 1) * stride + x + 1] = sums[y * stride + x + 1] + row;
+    }
+  }
+  const half = window >> 1;
+  const out = new Uint8ClampedArray(gray.length);
+  for (let y = 0; y < height; y++) {
+    const top = Math.max(0, y - half);
+    const bottom = Math.min(height, y + half + 1);
+    for (let x = 0; x < width; x++) {
+      const left = Math.max(0, x - half);
+      const right = Math.min(width, x + half + 1);
+      const total = sums[bottom * stride + right] - sums[top * stride + right] - sums[bottom * stride + left] + sums[top * stride + left];
+      const mean = total / ((right - left) * (bottom - top));
+      out[y * width + x] = gray[y * width + x] < mean * ratio ? 0 : 255;
+    }
+  }
+  return out;
+}
+
 /**
  * Ângulo (em graus, −15…+15) que deixa as linhas de texto na horizontal: o que maximiza a
  * variação entre linhas do perfil de projeção. Trabalha numa versão reduzida para ser rápido.

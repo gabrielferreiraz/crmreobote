@@ -197,6 +197,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if ("response" in guard) return guard.response;
     const { access } = guard;
     if (!access.canBypass) return NextResponse.json({ error: "Só o administrativo marca a cota como cadastrada." }, { status: 403 });
+    if (access.deal.status !== "WON") {
+      return NextResponse.json({ error: "Os dados da cota ficam disponíveis depois que a venda for marcada como ganha." }, { status: 409 });
+    }
 
     const body = (await req.json().catch(() => null)) as { quotaRegistered?: unknown; quota?: unknown } | null;
 
