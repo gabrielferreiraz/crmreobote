@@ -14,7 +14,7 @@ import {
   useSensors,
 } from "@dnd-kit/core";
 import Link from "next/link";
-import { Search, AlertTriangle, Loader2, CheckSquare, Square, MousePointerClick, Archive, ExternalLink, X } from "lucide-react";
+import { Search, AlertTriangle, Loader2, CheckSquare, Square, MousePointerClick, ExternalLink, X } from "lucide-react";
 import { ErrorDialog, type ErrorType } from "@/components/error-dialog";
 import { CompleteRequiredFieldsDialog } from "@/components/complete-required-fields-dialog";
 import { DealBulkActions } from "@/components/deal-bulk-actions";
@@ -217,10 +217,6 @@ export function KanbanBoard({
   // popup") — mesmo padrão de components/error-dialog.tsx já usado em
   // contato/negócio.
   const [moveError, setMoveError] = useState<{ message: string; type?: ErrorType; details?: string } | null>(null);
-  // "Negócio arquivado — Desfazer", logo acima do board por alguns segundos
-  // (ver archiveDeal). O card some sem mais nada na tela, e sem este aviso a
-  // pessoa não teria como saber PRA ONDE ele foi na primeira vez que usa.
-  const [archiveNotice, setArchiveNotice] = useState<{ stageId: string; dealId: string; name: string } | null>(null);
   // Menu do botão direito. Único pro board inteiro (não um por card): com
   // seleção ativa ele mostra as AÇÕES EM MASSA, que dependem do estado e dos
   // diálogos daqui. Posição em coordenadas da janela (position:fixed) — o
@@ -879,64 +875,6 @@ export function KanbanBoard({
     }
   }
 
-  /**
-   * Arquivar pelo clique com o botão direito no card (ver DealCard abaixo).
-   *
-   * Não apaga nada: o negócio sai da coluna aqui e fica guardado em
-   * "Arquivados" (ver pipeline-view.tsx), de onde volta a qualquer momento.
-   * Por isso não usa o Ctrl+Z do sistema (lib/undo) — a volta não depende de
-   * um histórico de sessão, está sempre na lista. O "Desfazer" do aviso aqui
-   * embaixo é só o atalho imediato pro arrependimento na hora.
-   *
-   * useCallback com deps vazias (lê o estado por `dealsByStageRef`): a
-   * identidade precisa ser estável, senão derruba o memo() de StageColumn a
-   * cada tecla digitada num filtro — mesmo motivo de handleLoadMore.
-   */
-  const archiveDeal = useCallback(async (stageId: string, dealId: string, archived: boolean) => {
-    const deal = (dealsByStageRef.current[stageId] ?? []).find((d) => d.id === dealId);
-
-    // Otimista: o card sai na hora. Em caso de falha, o refetch do `finally`
-    // traz a verdade do banco de volta (mesmo caminho de moveSelectionToStage).
-    if (archived && deal) {
-      setDealsByStage((prev) => ({
-        ...prev,
-        [stageId]: (prev[stageId] ?? []).filter((d) => d.id !== dealId),
-      }));
-      setCountByStage((prev) => ({ ...prev, [stageId]: Math.max(0, (prev[stageId] ?? 1) - 1) }));
-    }
-
-    try {
-      const res = await fetch(`/api/deals/${dealId}/archive`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ archived }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setArchiveNotice(null);
-        setMoveError({
-          message: data.error ?? (archived ? "Não foi possível arquivar o negócio" : "Não foi possível desarquivar o negócio"),
-          type: res.status === 404 ? "PERMISSION" : "SERVER",
-        });
-        setBulkReloadToken((t) => t + 1);
-        return;
-      }
-      if (archived) {
-        trackUse("pipeline.card.arquivar");
-        setArchiveNotice({ stageId, dealId, name: deal?.name ?? "Negócio" });
-      } else {
-        setArchiveNotice(null);
-        // Desarquivou: o card precisa voltar pra coluna, e só o banco sabe
-        // onde ele está agora (a etapa pode ter mudado por outra pessoa).
-        setBulkReloadToken((t) => t + 1);
-      }
-    } catch {
-      setArchiveNotice(null);
-      setMoveError({ message: "Falha de conexão ao arquivar o negócio", type: "SERVER" });
-      setBulkReloadToken((t) => t + 1);
-    }
-  }, []);
-
   const openCardMenu = useCallback((e: React.MouseEvent, stageId: string, deal: Deal) => {
     setCardMenu({ x: e.clientX, y: e.clientY, stageId, dealId: deal.id, dealName: deal.name });
   }, []);
@@ -981,19 +919,11 @@ export function KanbanBoard({
   // o DealBulkActions chama (ver onde ele é montado, lá embaixo) — não um
   // efeito observando a seleção esvaziar: setState dentro de efeito dispara
   // renderização em cascata (regra react-hooks/set-state-in-effect).
-  // O aviso de "arquivado" se apaga sozinho — é confirmação, não tarefa
-  // pendente. 8s: tempo de ler e decidir desfazer sem o aviso virar parte
-  // fixa da tela.
-  useEffect(() => {
-    if (!archiveNotice) return;
-    const timer = setTimeout(() => setArchiveNotice(null), 8000);
-    return () => clearTimeout(timer);
-  }, [archiveNotice]);
 
   /**
-   * O menu do botão direito mostra as ações EM MASSA quando o card clicado
-   * faz parte de uma seleção; senão, as ações daquele negócio só. Clicar num
-   * card não marcado nunca pode disparar ação em 50 outros negócios.
+   * As MESMAS ações aparecem nos dois casos; isto decide só em quem elas
+   * caem. Clicar num card NÃO marcado nunca pode disparar ação nos outros
+   * 50 selecionados — ali o menu age só sobre o card de baixo do ponteiro.
    */
   const cardMenuIsBulk = !!cardMenu && selectionMode && selectedIds.size > 0 && selectedIds.has(cardMenu.dealId);
 
@@ -1332,23 +1262,6 @@ export function KanbanBoard({
         />
       )}
 
-      {archiveNotice && (
-        <div className="flex shrink-0 items-center gap-2 rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300">
-          <Archive className="h-3.5 w-3.5 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
-          <span className="min-w-0 truncate">
-            <span className="font-medium text-neutral-900 dark:text-neutral-100">{archiveNotice.name}</span> foi arquivado —
-            está em &quot;Arquivados&quot;, aqui em cima.
-          </span>
-          <button
-            type="button"
-            onClick={() => archiveDeal(archiveNotice.stageId, archiveNotice.dealId, false)}
-            className="ml-auto shrink-0 font-medium text-neutral-900 underline hover:no-underline dark:text-neutral-100"
-          >
-            Desfazer
-          </button>
-        </div>
-      )}
-
       <DndContext
         id="kanban-board"
         sensors={sensors}
@@ -1419,42 +1332,18 @@ export function KanbanBoard({
           role="menu"
           aria-label={cardMenuIsBulk ? "Ações dos negócios selecionados" : `Ações do negócio ${cardMenu.dealName}`}
           // Presa à janela e empurrada pra dentro dela quando o clique é
-          // perto da borda direita/de baixo (altura estimada: o menu em
-          // massa é bem mais alto que o de um negócio só).
+          // perto da borda direita/de baixo (altura estimada do menu cheio —
+          // é o mesmo nos dois casos desde que um card sozinho passou a
+          // oferecer todas as ações).
           style={{
             left: Math.min(cardMenu.x, Math.max(8, window.innerWidth - 248)),
-            top: Math.min(cardMenu.y, Math.max(8, window.innerHeight - (cardMenuIsBulk ? 340 : 104))),
+            top: Math.min(cardMenu.y, Math.max(8, window.innerHeight - 360)),
           }}
           className="animate-pop-in fixed z-50 min-w-[232px] rounded-md border border-neutral-200 bg-white py-1 text-sm shadow-lg dark:border-neutral-700 dark:bg-neutral-900"
         >
-          {cardMenuIsBulk ? (
-            // MESMO componente da barra da Lista, só desenhado na vertical
-            // (ver layout="menu" em components/deal-bulk-actions.tsx) — nada
-            // de uma segunda cópia das regras de ação em massa.
-            <DealBulkActions
-              layout="menu"
-              canArchive
-              selectedIds={Array.from(selectedIds)}
-              pipelineId={pipelineId}
-              pipelines={pipelines}
-              stages={stages}
-              members={members}
-              lossReasons={lossReasons}
-              leadSources={sourceOptions.map((label) => ({ label }))}
-              canBulkMessage={canBulkMessage}
-              onClear={() => {
-                clearSelection();
-                setCardMenu(null);
-              }}
-              onApplied={() => {
-                // Busca completa: uma ação em massa pode ter tirado negócio
-                // da coluna (mudou de etapa/funil) ou do funil inteiro
-                // (ganho/perdido saem do Kanban, que só mostra OPEN) — não
-                // dá pra corrigir isso otimisticamente card a card.
-                setBulkReloadToken((t) => t + 1);
-              }}
-            />
-          ) : (
+          {/* "Abrir negócio" só quando o menu mira UM negócio — com vários
+              marcados não existe "o" negócio pra abrir. */}
+          {!cardMenuIsBulk && (
             <>
               <Link
                 href={`/negocios/${cardMenu.dealId}`}
@@ -1464,20 +1353,43 @@ export function KanbanBoard({
                 <ExternalLink className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
                 Abrir negócio
               </Link>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setCardMenu(null);
-                  archiveDeal(cardMenu.stageId, cardMenu.dealId, true);
-                }}
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-neutral-700 hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-800"
-              >
-                <Archive className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
-                Arquivar negócio
-              </button>
+              <div className="my-1 border-t border-neutral-200 dark:border-neutral-800" />
             </>
           )}
+
+          {/* MESMO componente da barra da Lista, só desenhado na vertical
+              (ver layout="menu" em components/deal-bulk-actions.tsx) — nada
+              de uma segunda cópia das regras de ação em massa.
+              Sem ternário entre "um card" e "vários": as ações são as mesmas,
+              muda só EM QUEM elas caem — nos marcados, se o card clicado faz
+              parte da seleção; senão, só no card clicado (igual ao Windows,
+              onde o botão direito fora da seleção age sobre o item de baixo
+              do ponteiro). */}
+          <DealBulkActions
+            layout="menu"
+            canArchive
+            menuTitle={cardMenuIsBulk ? undefined : cardMenu.dealName}
+            showClear={cardMenuIsBulk}
+            selectedIds={cardMenuIsBulk ? Array.from(selectedIds) : [cardMenu.dealId]}
+            pipelineId={pipelineId}
+            pipelines={pipelines}
+            stages={stages}
+            members={members}
+            lossReasons={lossReasons}
+            leadSources={sourceOptions.map((label) => ({ label }))}
+            canBulkMessage={canBulkMessage}
+            onClear={() => {
+              if (cardMenuIsBulk) clearSelection();
+              setCardMenu(null);
+            }}
+            onApplied={() => {
+              // Busca completa: uma ação pode ter tirado negócio da coluna
+              // (mudou de etapa/funil) ou do funil inteiro (ganho/perdido
+              // saem do Kanban, que só mostra OPEN) — não dá pra corrigir
+              // isso otimisticamente card a card.
+              setBulkReloadToken((t) => t + 1);
+            }}
+          />
         </div>
       )}
     </div>

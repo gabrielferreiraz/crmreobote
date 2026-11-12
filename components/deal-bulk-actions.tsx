@@ -46,6 +46,8 @@ export function DealBulkActions({
   autoOpenSend,
   layout = "bar",
   canArchive = false,
+  menuTitle,
+  showClear = true,
 }: {
   selectedIds: string[];
   pipelineId: string;
@@ -82,6 +84,15 @@ export function DealBulkActions({
    * uma segunda porta de saída sem a porta de volta ao lado.
    */
   canArchive?: boolean;
+  /**
+   * Só no layout "menu": o que escrever no topo. O Kanban usa o NOME do
+   * negócio quando o botão direito caiu num card fora da seleção — ali "1
+   * selecionado" seria mentira, porque nada está marcado. Sem isso, cai no
+   * "N selecionado(s)" de sempre.
+   */
+  menuTitle?: string;
+  /** "Limpar seleção" só faz sentido quando existe seleção — ver acima. */
+  showClear?: boolean;
 }) {
   const pushUndoToast = useUndoToast();
   const [busy, setBusy] = useState(false);
@@ -286,15 +297,19 @@ export function DealBulkActions({
         <div className="min-w-[232px] py-1">
           {/* Quantos vão ser afetados, no topo: num menu que abre em cima de
               um card, sem isso a ação parece valer só pro card clicado. */}
-          <div className="px-3 pt-1 pb-2 text-[11px] font-medium tracking-wide text-neutral-400 uppercase dark:text-neutral-500">
-            {count} selecionado{count === 1 ? "" : "s"}
+          <div className="truncate px-3 pt-1 pb-2 text-[11px] font-medium tracking-wide text-neutral-400 uppercase dark:text-neutral-500">
+            {menuTitle ?? `${count} selecionado${count === 1 ? "" : "s"}`}
           </div>
           {actions}
-          <div className="my-1 border-t border-neutral-200 dark:border-neutral-800" />
-          <button type="button" onClick={onClear} className={itemClass()}>
-            <X className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
-            Limpar seleção
-          </button>
+          {showClear && (
+            <>
+              <div className="my-1 border-t border-neutral-200 dark:border-neutral-800" />
+              <button type="button" onClick={onClear} className={itemClass()}>
+                <X className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+                Limpar seleção
+              </button>
+            </>
+          )}
           {error && <p className="px-3 pt-1 text-xs text-amber-600 dark:text-amber-400">{error}</p>}
         </div>
       ) : (
