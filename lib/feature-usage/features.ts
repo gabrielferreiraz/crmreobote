@@ -32,6 +32,8 @@ export const FEATURE_LABELS = {
   "pipeline.massa.perdido": "Pipeline · massa: marcar perdido",
   "pipeline.massa.mensagem": "Pipeline · massa: enviar mensagem",
   "pipeline.card.arrastar": "Pipeline · arrastar card entre etapas",
+  "pipeline.card.arquivar": "Pipeline · arquivar negócio pelo botão direito",
+  "pipeline.massa.arquivar": "Pipeline · arquivar negócios em massa",
   "pipeline.visao.lista": "Pipeline · trocar pra visão Lista",
   "pipeline.negocio.novo": "Pipeline · criar negócio",
   "pipeline.importar": "Pipeline · importar planilha",

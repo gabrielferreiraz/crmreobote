@@ -233,9 +233,21 @@ export function ProposalsCard({
   // de valer: limpo, o histórico mostra todas; com a Revisão 1 carregada, ela
   // sai do histórico e a 3 entra.
   const pastRevisions = proposals.filter((p) => p.id !== shownProposal?.id);
-  // Com o card limpo, o histórico abre sozinho: é de lá que se traz uma
-  // revisão de volta, e deixá-lo fechado esconderia a única saída.
-  const historyOpen = showHistory || shown.kind === "empty";
+
+  /**
+   * Limpar abre o histórico junto — é de lá que se traz uma revisão de volta,
+   * e deixá-lo fechado esconderia a única saída.
+   *
+   * Isso é um setState de uma vez, de propósito. Já foi um valor derivado
+   * (`showHistory || shown.kind === "empty"`), e aí o botão de recolher
+   * parava de funcionar com o card limpo: o clique virava `showHistory`
+   * pra false, mas a condição derivada continuava verdadeira e o histórico
+   * nunca fechava. Abrindo por ação, o clique do usuário sempre manda.
+   */
+  function clearCard() {
+    setShown({ kind: "empty" });
+    setShowHistory(true);
+  }
 
   return (
     <div
@@ -305,7 +317,7 @@ export function ProposalsCard({
                 onGenerate={() => generateAndOpen(shownProposal)}
                 onDuplicate={() => duplicateFrom(shownProposal)}
                 onConfirm={(kind) => setConfirm({ kind, proposal: shownProposal })}
-                onClear={() => setShown({ kind: "empty" })}
+                onClear={clearCard}
               />
             ) : (
               <div className="border border-dashed border-neutral-300 p-6 text-center dark:border-neutral-700 rounded-lg">
@@ -334,17 +346,17 @@ export function ProposalsCard({
               <div className="pt-2 border-t border-neutral-200/80 dark:border-neutral-800">
                 <button
                   type="button"
-                  onClick={() => setShowHistory(!historyOpen)}
+                  onClick={() => setShowHistory(!showHistory)}
                   className="flex w-full items-center justify-between py-1.5 text-xs font-medium text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200 transition-colors"
                 >
                   <span className="flex items-center gap-1.5">
                     <RotateCcw className="h-3.5 w-3.5 text-neutral-400" />
                     Histórico de revisões anteriores ({pastRevisions.length})
                   </span>
-                  {historyOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                  {showHistory ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                 </button>
 
-                {historyOpen && (
+                {showHistory && (
                   <div className="mt-2 space-y-2">
                     {pastRevisions.map((p) => (
                       <PastRevisionRow

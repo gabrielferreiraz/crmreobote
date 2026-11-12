@@ -87,6 +87,11 @@ export type AuditAction =
   | "DEAL_REGISTRATION_DOCS_PURGED"
   | "DEAL_DOCUMENT_REQUESTED"
   | "DEAL_DOCUMENT_REQUEST_CANCELLED"
+  // Negócio arquivado/desarquivado (ver Deal.archivedAt): não apaga nada, mas
+  // tira o negócio da vista de TODO mundo da organização — quem sumiu com o
+  // negócio de outra pessoa precisa ficar registrado.
+  | "DEAL_ARCHIVED"
+  | "DEAL_UNARCHIVED"
   // Histórico de WhatsApp de um consultor baixado pelo Dono (conversa privada de outra pessoa saindo do CRM).
   | "WHATSAPP_BACKUP_EXPORTED"
   // Campanha sazonal "Lista dos 50" (Novembro Black) ligada/desligada pelo Dono.

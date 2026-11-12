@@ -62,7 +62,7 @@ export const dynamic = "force-dynamic";
 
 const MAX_DEALS_PER_BULK = 10000;
 
-type BulkAction = "move" | "status" | "owner" | "source";
+type BulkAction = "move" | "status" | "owner" | "source" | "archive";
 
 type Body = {
   dealIds?: string[];
@@ -90,6 +90,8 @@ type Body = {
   ownerId?: string;
   /** action "source" — mora em Contact.source, não no negócio (ver abaixo) */
   source?: string;
+  /** action "archive" — true tira da vista, false devolve (ver Deal.archivedAt). */
+  archived?: boolean;
 };
 
 /**
@@ -130,7 +132,7 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   }
-  if (action !== "move" && action !== "status" && action !== "owner" && action !== "source") {
+  if (action !== "move" && action !== "status" && action !== "owner" && action !== "source" && action !== "archive") {
     return NextResponse.json({ error: "Ação inválida" }, { status: 400 });
   }
 
@@ -163,6 +165,18 @@ export async function POST(req: Request) {
         });
       case "source":
         return bulkSource({ body, scopedWhere, organizationId, userId });
+      case "archive":
+        // scopeWhere PURO (não dealScopeWhere do getSharedScope), igual ao
+        // POST /api/deals/[id]/archive individual: arquivar some com o
+        // negócio pra organização inteira, então quem só recebeu acesso
+        // colaborativo por grupo de compartilhamento não decide isso.
+        return bulkArchive({
+          body,
+          scopedWhere: { id: { in: uniqueIds }, organizationId, ...scopeWhere(scope) },
+          organizationId,
+          userId,
+          actorName: access.session?.user?.name ?? "Usuário",
+        });
     }
   });
 }
@@ -629,6 +643,76 @@ async function bulkSource({ body, scopedWhere, organizationId, userId }: Ctx) {
     skippedReason: byContact.size - toChange.length > 0 ? "Já eram dessa origem" : null,
     undo,
   });
+}
+
+/**
+ * Arquivar/desarquivar em massa (ver Deal.archivedAt e o endpoint
+ * individual em /api/deals/[id]/archive).
+ *
+ * Não apaga nada nem mexe em etapa/status: só tira os negócios da vista de
+ * todas as listagens (quem esconde é buildDealsWhere, ver
+ * lib/deals/list-query.ts). Ctrl+Z devolve o lote inteiro de uma vez, e os
+ * arquivados também voltam um a um pela janela "Arquivados" do Pipeline.
+ */
+async function bulkArchive({
+  body,
+  scopedWhere,
+  organizationId,
+  userId,
+  actorName,
+}: Ctx & { actorName: string }) {
+  const archived = body.archived;
+  if (typeof archived !== "boolean") {
+    return NextResponse.json({ error: "Informe archived: true ou false" }, { status: 400 });
+  }
+
+  const deals = await prisma.deal.findMany({ where: scopedWhere, select: { id: true, archivedAt: true } });
+  if (deals.length === 0) return NextResponse.json({ error: "Nenhum negócio encontrado" }, { status: 404 });
+
+  // Quem já está no estado pedido não entra: evita registro de desfazer
+  // "vazio" e, no caso de arquivar, impede que a data de arquivamento de um
+  // negócio antigo seja reescrita pra agora sem motivo.
+  const changed = deals.filter((d) => !!d.archivedAt !== archived);
+  const skipped = deals.length - changed.length;
+  const skippedReason = archived ? "Já estavam arquivados" : "Não estavam arquivados";
+  if (changed.length === 0) return NextResponse.json({ updated: 0, skipped, skippedReason });
+
+  const ids = changed.map((d) => d.id);
+  await prisma.deal.updateMany({
+    where: { id: { in: ids } },
+    data: archived ? { archivedAt: new Date(), archivedById: userId } : { archivedAt: null, archivedById: null },
+  });
+
+  const undo = await recordBulkUndo({
+    organizationId,
+    userId,
+    groups: groupByPreviousValues(
+      "deal",
+      changed.map((d) => ({ id: d.id, previousValues: { archivedAt: d.archivedAt, archivedById: null } })),
+    ),
+    original: archived
+      ? plural(changed.length, "negócio arquivado", "negócios arquivados")
+      : plural(changed.length, "negócio desarquivado", "negócios desarquivados"),
+    afterRevert: archived
+      ? `${plural(changed.length, "negócio voltou", "negócios voltaram")} pro funil`
+      : `${plural(changed.length, "negócio voltou", "negócios voltaram")} pros arquivados`,
+  });
+
+  // Uma entrada por LOTE (não por negócio): o que a auditoria precisa
+  // responder é "quem sumiu com N negócios e quando", não repetir a mesma
+  // linha 5.000 vezes.
+  await logAudit({
+    organizationId,
+    actorUserId: userId,
+    actorName,
+    action: archived ? "DEAL_ARCHIVED" : "DEAL_UNARCHIVED",
+    targetType: "Deal",
+    detail: `${changed.length} em massa`,
+  });
+
+  recordUserChange(organizationId, userId).catch((err) => console.error("[user-activity] falha ao registrar alteração", err));
+
+  return NextResponse.json({ updated: changed.length, skipped, skippedReason: skipped > 0 ? skippedReason : null, undo });
 }
 
 async function recordBulkUndo(params: {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { GitBranch, Layers, User, Send, CheckCircle2, XCircle, Tag, CalendarPlus } from "lucide-react";
+import { GitBranch, Layers, User, Send, CheckCircle2, XCircle, Tag, CalendarPlus, X, Archive } from "lucide-react";
 import { SelectionBar } from "@/components/selection-bar";
 import { BulkActionPopover } from "@/components/bulk-action-popover";
 import { SelectPopoverBody } from "@/components/select-popover-body";
@@ -44,6 +44,8 @@ export function DealBulkActions({
   extraActions,
   onCreateScript,
   autoOpenSend,
+  layout = "bar",
+  canArchive = false,
 }: {
   selectedIds: string[];
   pipelineId: string;
@@ -65,6 +67,21 @@ export function DealBulkActions({
   onCreateScript?: () => void;
   /** Já monta com o envio em massa aberto — usado na volta de "+ Criar script" na Lista, que restaura a seleção salva e precisa reabrir o diálogo exatamente onde parou. */
   autoOpenSend?: boolean;
+  /**
+   * Como desenhar as MESMAS ações:
+   * - "bar" (padrão, usado pela Lista): chip horizontal acima da tabela.
+   * - "menu": uma embaixo da outra, para caber num menu de botão direito
+   *   (ver o Kanban). Muda só a aparência — toda a lógica, os diálogos e a
+   *   rota em lote continuam sendo exatamente os mesmos.
+   */
+  layout?: "bar" | "menu";
+  /**
+   * Mostra "Arquivar negócios" (ver Deal.archivedAt). Só o Kanban liga hoje:
+   * é de lá que vem a ação de arquivar um card, e a janela "Arquivados" que
+   * desfaz isso também vive no Pipeline. A Lista não oferece pra não criar
+   * uma segunda porta de saída sem a porta de volta ao lado.
+   */
+  canArchive?: boolean;
 }) {
   const pushUndoToast = useUndoToast();
   const [busy, setBusy] = useState(false);
@@ -115,12 +132,35 @@ export function DealBulkActions({
   }
 
   const otherPipelines = pipelines.filter((p) => p.id !== pipelineId);
+  const asMenu = layout === "menu";
 
-  return (
+  /**
+   * Classe de cada ação que é um botão simples. Só a aparência muda entre os
+   * dois formatos: no menu a linha ocupa a largura toda e alinha à esquerda;
+   * na barra é um chip compacto.
+   */
+  function itemClass(tone: "neutral" | "won" | "lost" = "neutral") {
+    const shape = asMenu
+      ? "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm font-medium transition-colors disabled:opacity-50"
+      : "inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors disabled:opacity-50";
+    const colors =
+      tone === "won"
+        ? "text-emerald-600 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-500/10"
+        : tone === "lost"
+          ? "text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10"
+          : asMenu
+            ? "text-neutral-700 hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-800"
+            : "text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800";
+    return `${shape} ${colors}`;
+  }
+
+  // As ações em si, idênticas nos dois formatos — só o invólucro muda (ver o
+  // return mais abaixo). Extraídas para cá justamente para não existirem duas
+  // cópias desta lista.
+  const actions = (
     <>
-      <SelectionBar count={count} onClear={onClear}>
         {otherPipelines.length > 0 && (
-          <BulkActionPopover icon={GitBranch} label="Trocar de funil">
+          <BulkActionPopover icon={GitBranch} label="Trocar de funil" variant={layout}>
             {(close) => (
               <SelectPopoverBody
                 busy={busy}
@@ -140,7 +180,7 @@ export function DealBulkActions({
           </BulkActionPopover>
         )}
 
-        <BulkActionPopover icon={Layers} label="Trocar de etapa">
+        <BulkActionPopover icon={Layers} label="Trocar de etapa" variant={layout}>
           {(close) => (
             <SelectPopoverBody
               busy={busy}
@@ -153,7 +193,7 @@ export function DealBulkActions({
           )}
         </BulkActionPopover>
 
-        <BulkActionPopover icon={User} label="Responsável">
+        <BulkActionPopover icon={User} label="Responsável" variant={layout}>
           {(close) => (
             <SelectPopoverBody
               busy={busy}
@@ -167,7 +207,7 @@ export function DealBulkActions({
         </BulkActionPopover>
 
         {leadSources.length > 0 && (
-          <BulkActionPopover icon={Tag} label="Trocar origem">
+          <BulkActionPopover icon={Tag} label="Trocar origem" variant={layout}>
             {(close) => (
               <SelectPopoverBody
                 busy={busy}
@@ -185,9 +225,9 @@ export function DealBulkActions({
           type="button"
           onClick={() => setTasksOpen(true)}
           disabled={busy}
-          className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-neutral-600 transition-colors hover:bg-neutral-100 disabled:opacity-50 dark:text-neutral-300 dark:hover:bg-neutral-800"
+          className={itemClass()}
         >
-          <CalendarPlus className="h-3.5 w-3.5" strokeWidth={2} />
+          <CalendarPlus className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
           Marcar tarefa
         </button>
 
@@ -195,9 +235,9 @@ export function DealBulkActions({
           type="button"
           onClick={() => setWonOpen(true)}
           disabled={busy}
-          className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-emerald-600 transition-colors hover:bg-emerald-50 disabled:opacity-50 dark:text-emerald-400 dark:hover:bg-emerald-500/10"
+          className={itemClass("won")}
         >
-          <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={2} />
+          <CheckCircle2 className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
           Marcar como ganho
         </button>
 
@@ -205,9 +245,9 @@ export function DealBulkActions({
           type="button"
           onClick={() => setLossOpen(true)}
           disabled={busy}
-          className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 disabled:opacity-50 dark:text-red-400 dark:hover:bg-red-500/10"
+          className={itemClass("lost")}
         >
-          <XCircle className="h-3.5 w-3.5" strokeWidth={2} />
+          <XCircle className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
           Marcar como perdido
         </button>
 
@@ -216,17 +256,54 @@ export function DealBulkActions({
             type="button"
             onClick={() => setSendOpen(true)}
             disabled={busy}
-            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-neutral-600 transition-colors hover:bg-neutral-100 disabled:opacity-50 dark:text-neutral-300 dark:hover:bg-neutral-800"
+            className={itemClass()}
           >
-            <Send className="h-3.5 w-3.5" strokeWidth={2} />
+            <Send className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
             Enviar mensagem em massa
           </button>
         )}
 
-        {extraActions}
-      </SelectionBar>
+        {canArchive && (
+          <button
+            type="button"
+            onClick={() => apply({ action: "archive", archived: true }, "pipeline.massa.arquivar")}
+            disabled={busy}
+            className={itemClass()}
+            title="Tira os selecionados do funil sem apagar — voltam pelo botão Arquivados"
+          >
+            <Archive className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+            Arquivar {count === 1 ? "negócio" : "negócios"}
+          </button>
+        )}
 
-      {error && <p className="mt-1 w-full text-xs text-amber-600 dark:text-amber-400">{error}</p>}
+        {extraActions}
+    </>
+  );
+
+  return (
+    <>
+      {asMenu ? (
+        <div className="min-w-[232px] py-1">
+          {/* Quantos vão ser afetados, no topo: num menu que abre em cima de
+              um card, sem isso a ação parece valer só pro card clicado. */}
+          <div className="px-3 pt-1 pb-2 text-[11px] font-medium tracking-wide text-neutral-400 uppercase dark:text-neutral-500">
+            {count} selecionado{count === 1 ? "" : "s"}
+          </div>
+          {actions}
+          <div className="my-1 border-t border-neutral-200 dark:border-neutral-800" />
+          <button type="button" onClick={onClear} className={itemClass()}>
+            <X className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+            Limpar seleção
+          </button>
+          {error && <p className="px-3 pt-1 text-xs text-amber-600 dark:text-amber-400">{error}</p>}
+        </div>
+      ) : (
+        <SelectionBar count={count} onClear={onClear}>
+          {actions}
+        </SelectionBar>
+      )}
+
+      {!asMenu && error && <p className="mt-1 w-full text-xs text-amber-600 dark:text-amber-400">{error}</p>}
 
       {wonOpen && (
         <ClosedAtDialog

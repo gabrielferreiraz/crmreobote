@@ -1967,6 +1967,21 @@ model Deal {
   // mesmo contato+consultor. Por isso a contagem/idempotência usam este
   // campo, nunca `stageId` (que muda com o trabalho normal do consultor).
   lista50           Boolean  @default(false)
+  // "Tira da minha frente" — o negócio some do Kanban e de toda listagem
+  // (Lista, busca, exportação, ações em massa), mas CONTINUA existindo: nada
+  // é apagado e qualquer um que já enxergava o negócio pode trazê-lo de volta
+  // pela lista de arquivados (ver POST /api/deals/[id]/archive).
+  //
+  // Não confundir com Perdido: Perdido é desfecho comercial (tem motivo, entra
+  // em relatório de conversão); arquivar é só arrumação da tela. Por isso
+  // relatórios, metas, comissão e TV NÃO filtram por este campo de propósito —
+  // um negócio ganho arquivado continua valendo como venda. Quem esconde é
+  // buildDealsWhere (lib/deals/list-query.ts), a porta única das listagens.
+  archivedAt        DateTime?
+  // Quem arquivou. String solta (sem relação com User) de propósito: é só pra
+  // mostrar o nome na lista de arquivados, e uma relação nova aqui obrigaria
+  // um campo inverso em User — relação que nada no sistema percorre.
+  archivedById      String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -2029,6 +2044,10 @@ model Deal {
   // "O que essa importação criou" (ver ImportBatch) — usado pra revisar/
   // conferir um lote depois do fato.
   @@index([organizationId, importBatchId])
+  // Lista de arquivados (ver GET /api/deals/archived) — é o único lugar que
+  // busca POR archivedAt; as listagens normais só acrescentam "IS NULL" a um
+  // filtro que já tem índice próprio.
+  @@index([organizationId, archivedAt])
 }
 
 enum DealStatus {
