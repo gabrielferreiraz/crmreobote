@@ -66,6 +66,15 @@ export type DealsFilterParams = {
   taskDueBefore?: Date;
   /** Filtro "Sem valor" do redesign — `value` nulo ou zero. */
   noValue?: boolean;
+  /**
+   * Negócio arquivado (ver Deal.archivedAt) — fora de toda listagem por
+   * PADRÃO, sem o chamador precisar pedir: arquivar só tem sentido se o
+   * negócio some de onde a pessoa estava olhando, e deixar isso a cargo de
+   * cada tela é garantia de que uma delas esquece. `true` inverte (SÓ os
+   * arquivados, usado pela lista de arquivados); `undefined`/`false` =
+   * somente os ativos.
+   */
+  archived?: boolean;
 };
 
 /**
@@ -97,10 +106,14 @@ export function buildDealsWhere(params: DealsFilterParams): Prisma.DealWhereInpu
     hasNoOpenTask,
     taskDueBefore,
     noValue,
+    archived,
   } = params;
 
   const where: Prisma.DealWhereInput = {
     organizationId,
+    // Sempre presente (ver `archived` em DealsFilterParams): ou só os ativos,
+    // ou só os arquivados — nunca os dois misturados.
+    archivedAt: archived ? { not: null } : null,
     ...(pipelineId ? { pipelineId } : {}),
     ...(status ? { status } : {}),
     ...(stageId ? { stageId } : {}),

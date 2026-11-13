@@ -14,7 +14,7 @@ import {
   useSensors,
 } from "@dnd-kit/core";
 import Link from "next/link";
-import { Search, AlertTriangle, Loader2, CheckSquare, Square, MousePointerClick } from "lucide-react";
+import { Search, AlertTriangle, Loader2, CheckSquare, Square, MousePointerClick, ExternalLink, X } from "lucide-react";
 import { ErrorDialog, type ErrorType } from "@/components/error-dialog";
 import { CompleteRequiredFieldsDialog } from "@/components/complete-required-fields-dialog";
 import { DealBulkActions } from "@/components/deal-bulk-actions";
@@ -217,6 +217,12 @@ export function KanbanBoard({
   // popup") — mesmo padrão de components/error-dialog.tsx já usado em
   // contato/negócio.
   const [moveError, setMoveError] = useState<{ message: string; type?: ErrorType; details?: string } | null>(null);
+  // Menu do botão direito. Único pro board inteiro (não um por card): com
+  // seleção ativa ele mostra as AÇÕES EM MASSA, que dependem do estado e dos
+  // diálogos daqui. Posição em coordenadas da janela (position:fixed) — o
+  // card vive numa coluna com scroll e overflow escondido, onde um menu
+  // posicionado por dentro ficaria cortado justamente nas bordas.
+  const [cardMenu, setCardMenu] = useState<{ x: number; y: number; stageId: string; dealId: string; dealName: string } | null>(null);
   const [requiredFieldsPrompt, setRequiredFieldsPrompt] = useState<{
     dealIds: string[];
     targetStageId: string;
@@ -869,6 +875,58 @@ export function KanbanBoard({
     }
   }
 
+  const openCardMenu = useCallback((e: React.MouseEvent, stageId: string, deal: Deal) => {
+    setCardMenu({ x: e.clientX, y: e.clientY, stageId, dealId: deal.id, dealName: deal.name });
+  }, []);
+
+  /**
+   * Fecha o menu ao clicar fora, ao rolar com a roda ou no Esc.
+   *
+   * Um "cobertor" `fixed inset-0` que captura o clique seria mais simples,
+   * mas não serve aqui: as ações em massa abrem popovers e diálogos que o
+   * React monta em PORTAL (fora desta árvore) — o cobertor engoliria o
+   * primeiro clique dentro deles e fecharia o menu, desmontando o diálogo no
+   * meio do caminho. Daí a checagem por `closest`, a mesma ideia que o
+   * BulkActionPopover já usa pro <Select>.
+   */
+  useEffect(() => {
+    if (!cardMenu) return;
+    function onPointerDown(e: MouseEvent) {
+      const target = e.target as HTMLElement;
+      if (target.closest("[data-card-menu]")) return;
+      if (target.closest('[role="listbox"]') || target.closest('[role="dialog"]')) return;
+      setCardMenu(null);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setCardMenu(null);
+    }
+    // O menu é posicionado uma vez, em coordenadas da janela: se a coluna
+    // rolar por baixo dele, ele deixaria de apontar pro card de origem.
+    function onWheel() {
+      setCardMenu(null);
+    }
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("wheel", onWheel, { passive: true });
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("wheel", onWheel);
+    };
+  }, [cardMenu]);
+
+  // Quem fecha o menu depois de uma ação em massa é o próprio `onClear` que
+  // o DealBulkActions chama (ver onde ele é montado, lá embaixo) — não um
+  // efeito observando a seleção esvaziar: setState dentro de efeito dispara
+  // renderização em cascata (regra react-hooks/set-state-in-effect).
+
+  /**
+   * As MESMAS ações aparecem nos dois casos; isto decide só em quem elas
+   * caem. Clicar num card NÃO marcado nunca pode disparar ação nos outros
+   * 50 selecionados — ali o menu age só sobre o card de baixo do ponteiro.
+   */
+  const cardMenuIsBulk = !!cardMenu && selectionMode && selectedIds.size > 0 && selectedIds.has(cardMenu.dealId);
+
   async function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     setActiveDeal(null);
@@ -1103,24 +1161,21 @@ export function KanbanBoard({
       {selectionMode && (
         <div className="flex shrink-0 flex-wrap items-center gap-2">
           {selectedIds.size > 0 ? (
-            <DealBulkActions
-              selectedIds={Array.from(selectedIds)}
-              pipelineId={pipelineId}
-              pipelines={pipelines}
-              stages={stages}
-              members={members}
-              lossReasons={lossReasons}
-              leadSources={sourceOptions.map((label) => ({ label }))}
-              canBulkMessage={canBulkMessage}
-              onClear={clearSelection}
-              onApplied={() => {
-                // Busca completa: uma ação em massa pode ter tirado negócio
-                // da coluna (mudou de etapa/funil) ou do funil inteiro
-                // (ganho/perdido saem do Kanban, que só mostra OPEN) — não
-                // dá pra corrigir isso otimisticamente card a card.
-                setBulkReloadToken((t) => t + 1);
-              }}
-            />
+            // As ações NÃO ficam mais nesta linha: elas vivem no menu do
+            // botão direito (ver cardMenu abaixo), pedido explícito pra
+            // sairem de cima do board e aparecerem uma embaixo da outra.
+            // Aqui sobra só o placar da seleção e o caminho pra chegar nelas.
+            <div className="animate-pop-in flex flex-wrap items-center gap-2 rounded-md border border-neutral-200 bg-neutral-50/80 px-2.5 py-1.5 text-xs dark:border-neutral-800 dark:bg-neutral-800/40">
+              <span className="font-medium text-neutral-700 dark:text-neutral-300">
+                {selectedIds.size} selecionado{selectedIds.size === 1 ? "" : "s"}
+              </span>
+              <span className="text-neutral-500 dark:text-neutral-400">
+                Clique com o <strong className="font-medium">botão direito</strong> num card marcado pra ver as ações.
+              </span>
+              <button type="button" onClick={clearSelection} aria-label="Limpar seleção" className="icon-btn h-6 w-6">
+                <X className="h-3 w-3" strokeWidth={2} />
+              </button>
+            </div>
           ) : (
             <p className="text-xs text-neutral-500 dark:text-neutral-400">
               Marque os negócios pelas caixinhas. Segure <kbd className="rounded border border-neutral-300 px-1 font-sans dark:border-neutral-700">Shift</kbd> pra
@@ -1248,6 +1303,7 @@ export function KanbanBoard({
                 selectedIds={selectedIds}
                 onToggleSelect={toggleSelect}
                 onToggleSelectAll={toggleSelectAllStage}
+                onCardContextMenu={openCardMenu}
                 selectingAll={selectingAllStage === stage.id}
               />
             ))
@@ -1269,6 +1325,73 @@ export function KanbanBoard({
           ) : null}
         </DragOverlay>
       </DndContext>
+
+      {cardMenu && (
+        <div
+          data-card-menu=""
+          role="menu"
+          aria-label={cardMenuIsBulk ? "Ações dos negócios selecionados" : `Ações do negócio ${cardMenu.dealName}`}
+          // Presa à janela e empurrada pra dentro dela quando o clique é
+          // perto da borda direita/de baixo (altura estimada do menu cheio —
+          // é o mesmo nos dois casos desde que um card sozinho passou a
+          // oferecer todas as ações).
+          style={{
+            left: Math.min(cardMenu.x, Math.max(8, window.innerWidth - 248)),
+            top: Math.min(cardMenu.y, Math.max(8, window.innerHeight - 360)),
+          }}
+          className="animate-pop-in fixed z-50 min-w-[232px] rounded-md border border-neutral-200 bg-white py-1 text-sm shadow-lg dark:border-neutral-700 dark:bg-neutral-900"
+        >
+          {/* "Abrir negócio" só quando o menu mira UM negócio — com vários
+              marcados não existe "o" negócio pra abrir. */}
+          {!cardMenuIsBulk && (
+            <>
+              <Link
+                href={`/negocios/${cardMenu.dealId}`}
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-neutral-700 hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-800"
+                onClick={() => setCardMenu(null)}
+              >
+                <ExternalLink className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+                Abrir negócio
+              </Link>
+              <div className="my-1 border-t border-neutral-200 dark:border-neutral-800" />
+            </>
+          )}
+
+          {/* MESMO componente da barra da Lista, só desenhado na vertical
+              (ver layout="menu" em components/deal-bulk-actions.tsx) — nada
+              de uma segunda cópia das regras de ação em massa.
+              Sem ternário entre "um card" e "vários": as ações são as mesmas,
+              muda só EM QUEM elas caem — nos marcados, se o card clicado faz
+              parte da seleção; senão, só no card clicado (igual ao Windows,
+              onde o botão direito fora da seleção age sobre o item de baixo
+              do ponteiro). */}
+          <DealBulkActions
+            layout="menu"
+            canArchive
+            menuTitle={cardMenuIsBulk ? undefined : cardMenu.dealName}
+            showClear={cardMenuIsBulk}
+            selectedIds={cardMenuIsBulk ? Array.from(selectedIds) : [cardMenu.dealId]}
+            pipelineId={pipelineId}
+            pipelines={pipelines}
+            stages={stages}
+            members={members}
+            lossReasons={lossReasons}
+            leadSources={sourceOptions.map((label) => ({ label }))}
+            canBulkMessage={canBulkMessage}
+            onClear={() => {
+              if (cardMenuIsBulk) clearSelection();
+              setCardMenu(null);
+            }}
+            onApplied={() => {
+              // Busca completa: uma ação pode ter tirado negócio da coluna
+              // (mudou de etapa/funil) ou do funil inteiro (ganho/perdido
+              // saem do Kanban, que só mostra OPEN) — não dá pra corrigir
+              // isso otimisticamente card a card.
+              setBulkReloadToken((t) => t + 1);
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -1320,6 +1443,7 @@ const StageColumn = memo(function StageColumn({
   selectedIds,
   onToggleSelect,
   onToggleSelectAll,
+  onCardContextMenu,
   selectingAll,
 }: {
   stage: Stage;
@@ -1338,6 +1462,8 @@ const StageColumn = memo(function StageColumn({
   selectedIds: Set<string>;
   onToggleSelect: (stageId: string, dealId: string, shiftKey: boolean) => void;
   onToggleSelectAll: (stageId: string) => void;
+  /** Botão direito num card (o menu é desenhado pelo KanbanBoard). Identidade estável, senão derruba o memo() desta coluna. */
+  onCardContextMenu: (e: React.MouseEvent, stageId: string, deal: Deal) => void;
   selectingAll: boolean;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage.id, disabled });
@@ -1581,6 +1707,7 @@ const StageColumn = memo(function StageColumn({
                 selectionMode={selectionMode}
                 selected={selectedIds.has(deal.id)}
                 onToggleSelect={onToggleSelect}
+                onContextMenu={onCardContextMenu}
               />
             </div>
           ))}
@@ -1627,6 +1754,7 @@ const DealCard = memo(function DealCard({
   selectionMode = false,
   selected = false,
   onToggleSelect,
+  onContextMenu,
 }: {
   deal: Deal;
   stageId?: string;
@@ -1635,6 +1763,15 @@ const DealCard = memo(function DealCard({
   selectionMode?: boolean;
   selected?: boolean;
   onToggleSelect?: (stageId: string, dealId: string, shiftKey: boolean) => void;
+  /**
+   * Botão direito no card. O menu em si NÃO mora aqui: ele é desenhado uma
+   * vez só, pelo KanbanBoard (ver cardMenu lá). Precisa ser assim porque com
+   * seleção ativa o menu mostra as ações em massa, que dependem de estado e
+   * de diálogos do board inteiro — e porque um menu por card, dentro de uma
+   * coluna com scroll e overflow escondido, seria cortado nas bordas.
+   * Ausente no card do DragOverlay (que é só a cópia que segue o mouse).
+   */
+  onContextMenu?: (e: React.MouseEvent, stageId: string, deal: Deal) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: deal.id,
@@ -1772,6 +1909,15 @@ const DealCard = memo(function DealCard({
 
   if (overlay) return content;
 
+  function openMenu(e: React.MouseEvent) {
+    if (!onContextMenu || !stageId) return;
+    // Substitui o menu do navegador: o de sempre ("abrir em nova aba",
+    // "copiar link") não tem nada a ver com o negócio em si.
+    e.preventDefault();
+    e.stopPropagation();
+    onContextMenu(e, stageId, deal);
+  }
+
   // No modo seleção o cartão INTEIRO vira alvo de marcar/desmarcar — se
   // clicar nele ainda abrisse o negócio, um clique fora da caixinha
   // navegaria pra outra página e jogaria fora uma seleção que pode ter
@@ -1794,6 +1940,7 @@ const DealCard = memo(function DealCard({
         role="button"
         tabIndex={0}
         aria-pressed={selected}
+        onContextMenu={openMenu}
         onClick={(e) => onToggleSelect(stageId, deal.id, e.shiftKey)}
         onKeyDown={(e) => {
           if (e.key === " " || e.key === "Enter") {
@@ -1812,7 +1959,14 @@ const DealCard = memo(function DealCard({
     // touch-manipulation (não touch-none): deixa o navegador rolar
     // normalmente ao arrastar o dedo — o TouchSensor com delay acima é quem
     // decide se virou um drag de verdade (dedo parado ~250ms) ou só um scroll.
-    <div ref={setNodeRef} style={style} {...listeners} {...attributes} className="touch-manipulation">
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...listeners}
+      {...attributes}
+      onContextMenu={openMenu}
+      className="touch-manipulation"
+    >
       <Link href={`/negocios/${deal.id}`} onClick={(e) => isDragging && e.preventDefault()}>
         {content}
       </Link>

@@ -88,6 +88,9 @@ export type AuditAction =
   | "DEAL_REGISTRATION_DOCS_PURGED"
   | "DEAL_DOCUMENT_REQUESTED"
   | "DEAL_DOCUMENT_REQUEST_CANCELLED"
+  // Arquivamento reversível: remove o negócio das listas sem apagá-lo.
+  | "DEAL_ARCHIVED"
+  | "DEAL_UNARCHIVED"
   | "DEAL_DOCUMENT_REQUEST_ANSWERED"
   | "DEAL_DOCUMENT_REQUEST_FULFILLED"
   // Cadastro do cliente e da cota: cada dado editado (antes -> depois), quem enviou documento e quem marcou a cota.

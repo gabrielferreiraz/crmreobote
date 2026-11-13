@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
-import { Kanban, List, Upload, History } from "lucide-react";
+import { Kanban, List, Upload, History, Archive } from "lucide-react";
 import { KanbanBoard, type Deal } from "./kanban-board";
 import { DealsList } from "./deals-list";
 import { popBulkSendDraft, type BulkSendDraft } from "@/lib/pipeline-bulk-send-draft";
@@ -23,6 +23,12 @@ const DealImportDialog = dynamic(
 );
 const ImportHistoryDialog = dynamic(
   () => import("@/components/import-history-dialog").then((mod) => mod.ImportHistoryDialog),
+  { loading: LazyDialogLoading },
+);
+// Só é baixado quando alguém abre os arquivados — é uma tela de exceção
+// (mesmo tratamento dos outros diálogos pesados desta página).
+const ArchivedDealsDialog = dynamic(
+  () => import("./archived-deals-dialog").then((mod) => mod.ArchivedDealsDialog),
   { loading: LazyDialogLoading },
 );
 
@@ -210,6 +216,7 @@ export function PipelineView({
   const [kanbanReloadToken, setKanbanReloadToken] = useState(0);
   const [importOpen, setImportOpen] = useState(false);
   const [importHistoryOpen, setImportHistoryOpen] = useState(false);
+  const [archivedOpen, setArchivedOpen] = useState(false);
   const [restoredDraft, setRestoredDraft] = useState<BulkSendDraft | null>(null);
   // Botão "Mostrar negócios Ganhos" (pedido explícito) — incrementa a cada
   // clique só pra dar um valor NOVO pro efeito de deals-list.tsx reagir
@@ -381,6 +388,13 @@ export function PipelineView({
             <History className="h-4 w-4" strokeWidth={2} />
           </button>
         )}
+        {/* Onde o negócio arquivado pelo botão direito do card foi parar
+            (ver kanban-board.tsx). Ícone só, do lado do histórico: é a
+            mesma natureza de "coisa que quase ninguém abre, mas precisa
+            existir pra ação do card ser reversível e achável". */}
+        <button onClick={() => setArchivedOpen(true)} className="icon-btn" title="Negócios arquivados">
+          <Archive className="h-4 w-4" strokeWidth={2} />
+        </button>
         {/* Discreto de propósito (só texto, sem ícone/borda, no canto depois
             de tudo) — pedido explícito: "algo de canto, que quase ninguém
             vai usar". Vai pra Lista já filtrada em Ganho — escopo (só meus/
@@ -494,6 +508,21 @@ export function PipelineView({
       )}
 
       {importHistoryOpen && <ImportHistoryDialog kind="deals" onClose={() => setImportHistoryOpen(false)} />}
+
+      {archivedOpen && (
+        <ArchivedDealsDialog
+          pipelineId={pipelineId}
+          onClose={() => setArchivedOpen(false)}
+          onRestored={() => {
+            // O negócio voltou pro funil: as duas visões precisam buscar de
+            // novo (só uma está montada, mas o token da outra fica pronto
+            // pra quando ela abrir), e o refresh atualiza a carga do servidor.
+            router.refresh();
+            setKanbanReloadToken((t) => t + 1);
+            setListaReloadToken((t) => t + 1);
+          }}
+        />
+      )}
     </div>
   );
 }
