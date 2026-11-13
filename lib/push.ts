@@ -18,7 +18,16 @@ function ensureConfigured(): boolean {
 
 export async function sendPushToUser(
   userId: string,
-  payload: { title: string; body?: string; url?: string },
+  payload: {
+    title: string;
+    body?: string;
+    url?: string;
+    /** Confirma a leitura exata quando o usuário abre a notificação do sistema. */
+    reminderId?: string;
+    /** Notificações com a mesma tag se substituem em vez de formar uma pilha. */
+    tag?: string;
+    renotify?: boolean;
+  },
 ): Promise<{ sent: number; total: number }> {
   if (!ensureConfigured()) return { sent: 0, total: 0 };
 

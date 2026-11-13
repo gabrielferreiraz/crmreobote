@@ -1,3 +1,4 @@
+import { isValidArea, type AreaValue } from "@/lib/areas";
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
@@ -38,7 +39,7 @@ export async function POST(req: Request) {
     name?: string;
     email?: string;
     role?: "OWNER" | "MANAGER" | "SUPERVISOR" | "MEMBER";
-    area?: "VENDAS" | "ADMINISTRATIVO";
+    area?: AreaValue;
     password?: string;
     academyRequired?: boolean;
   };
@@ -55,7 +56,7 @@ export async function POST(req: Request) {
   if (!["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"].includes(role)) {
     return NextResponse.json({ error: "role inválido" }, { status: 400 });
   }
-  if (area !== undefined && area !== "VENDAS" && area !== "ADMINISTRATIVO") {
+  if (area !== undefined && !isValidArea(area)) {
     return NextResponse.json({ error: "area inválida" }, { status: 400 });
   }
   if (name !== undefined && typeof name !== "string") {
@@ -121,8 +122,9 @@ export async function POST(req: Request) {
         // pedido da diretoria: supervisor soma na meta mas fica fora do pódio
         // da TV principal; no Ranking do mês completo aparece. Dono fica fora
         // dos dois. Mesma regra de "só a criação decide sozinha".
-        showInPodium: role !== "OWNER" && role !== "SUPERVISOR",
-        showInMonthRanking: role !== "OWNER",
+        // Retaguarda (Administrativo, Financeiro, Pós-contemplação) não vende: já nasce fora dos rankings.
+        showInPodium: membershipArea === "VENDAS" && role !== "OWNER" && role !== "SUPERVISOR",
+        showInMonthRanking: membershipArea === "VENDAS" && role !== "OWNER",
       },
       include: { user: { select: { id: true, name: true, email: true, image: true } } },
     });
@@ -134,7 +136,8 @@ export async function POST(req: Request) {
       action: "MEMBER_INVITED",
       targetType: "User",
       targetId: user.id,
-      detail: `${membership.user.name} (${membership.user.email}) · papel ${role}`,
+      targetLabel: membership.user.name,
+      detail: `${membership.user.name} (${membership.user.email}) · papel ${role} · área ${membershipArea}`,
       ip: getClientIp(req),
     });
 

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 import { getCurrentMembership } from "@/lib/current-membership";
 import { prisma } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -30,6 +31,9 @@ export default async function Lista50Page() {
       />
     );
   }
+
+  // Administrativo não participa da campanha (quem vende é que entrega a lista).
+  if (membership.area !== "VENDAS" && membership.role !== "OWNER") redirect("/");
 
   const { organizationId, userId, role } = membership;
   const canManageCampaign = role === "OWNER";

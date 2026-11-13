@@ -69,7 +69,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       include: { requestedBy: { select: { id: true, name: true } } },
     });
 
-    notifyProcessRequestCreated(access.organizationId, {
+    await notifyProcessRequestCreated(access.organizationId, {
       id: request.id,
       processId: id,
       // Processo avulso não tem contato — o nome vem do rótulo digitado

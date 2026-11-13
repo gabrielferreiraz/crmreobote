@@ -14,7 +14,7 @@ function complete(): RegistrationSnapshot {
       addressNumber: "10", neighborhood: "Centro", city: "Campo Grande", state: "MS",
     },
     registration: {
-      personType: "PF", cpf: "529.982.247-25", cnpj: null, profession: "Engenheira", maritalStatus: "Solteiro(a)",
+      personType: "PF", holderName: "Ana Maria de Souza", cpf: "529.982.247-25", cnpj: null, profession: "Engenheira", maritalStatus: "Solteiro(a)",
       monthlyIncome: 8000, groupNumber: "1568", termMonths: 120, paymentMethod: "Boleto",
       bankName: null, bankAgency: null, bankAccount: null, bankAccountType: null,
     },
@@ -22,6 +22,18 @@ function complete(): RegistrationSnapshot {
   };
 }
 const opts = { requiresBankData: false, documentsWaived: false };
+
+test("nome do titular é obrigatório e acompanha o tipo de pessoa", () => {
+  const s = complete();
+  s.registration.holderName = null;
+  assert.deepEqual(findMissingRegistrationItems(s, opts)[0], {
+    key: "holderName",
+    label: "Nome completo do titular",
+    group: "registration",
+  });
+  s.registration.personType = "PJ";
+  assert.equal(findMissingRegistrationItems(s, opts)[0]?.label, "Razão social do titular");
+});
 
 test("cadastro completo não tem pendência", () => {
   assert.deepEqual(findMissingRegistrationItems(complete(), opts), []);

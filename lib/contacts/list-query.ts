@@ -37,6 +37,14 @@ export type ContactsFilterParams = {
   /** Por trecho, sem diferenciar maiúsculas/acentos exatos (ver índice trigram) — cidade é texto livre, não uma lista fechada como estado. */
   city?: string;
   onlyWithDeals?: boolean;
+  /** Valor bruto quando existe; caso contrário, valor líquido. Filtra um negócio da conta nessa faixa. */
+  dealValueMin?: number;
+  dealValueMax?: number;
+  /** Grupo exato informado no cadastro da cota ou no processo ligado ao negócio. */
+  groupNumber?: string;
+  dealStatus?: "OPEN" | "WON" | "LOST";
+  /** Dono do negócio, usado na visão administrativa. É diferente do responsável atual do contato. */
+  dealOwnerId?: string;
   /** Uma tag exata (ver Contact.tags no schema — array livre, sem tabela
    * própria) — contato precisa TER essa tag entre as suas (`has`), pode ter
    * outras também. Lista de tags disponíveis pra filtrar vem de
@@ -58,6 +66,39 @@ export type ContactsFilterParams = {
   updatedFrom?: Date;
   updatedTo?: Date;
 };
+
+/** Mesma regra usada para filtrar a conta e escolher qual negócio aparece na linha. */
+export function buildContactDealWhere(params: ContactsFilterParams): Prisma.DealWhereInput | undefined {
+  const conditions: Prisma.DealWhereInput[] = [];
+  const groupNumber = params.groupNumber?.trim();
+
+  if (params.dealStatus) conditions.push({ status: params.dealStatus });
+  if (params.dealOwnerId) conditions.push({ ownerId: params.dealOwnerId });
+  if (groupNumber) {
+    conditions.push({
+      OR: [
+        { registration: { is: { groupNumber } } },
+        { process: { is: { groupNumber } } },
+      ],
+    });
+  }
+
+  if (params.dealValueMin != null || params.dealValueMax != null) {
+    const range = {
+      ...(params.dealValueMin != null ? { gte: params.dealValueMin } : {}),
+      ...(params.dealValueMax != null ? { lte: params.dealValueMax } : {}),
+    };
+    conditions.push({
+      OR: [
+        { grossValue: range },
+        { AND: [{ grossValue: null }, { value: range }] },
+      ],
+    });
+  }
+
+  if (conditions.length === 0) return undefined;
+  return conditions.length === 1 ? conditions[0] : { AND: conditions };
+}
 
 /**
  * Monta o `where` uma vez só, reaproveitado tanto pela busca da página
@@ -113,7 +154,8 @@ export function buildContactsWhere(params: ContactsFilterParams): Prisma.Contact
   else if (responsavelId && includeUnassigned) where.AND = [{ OR: [{ responsavelId }, { responsavelId: null }] }];
   else if (responsavelId) where.responsavelId = responsavelId;
 
-  if (onlyWithDeals) where.deals = { some: {} };
+  const dealWhere = buildContactDealWhere(params);
+  if (onlyWithDeals || dealWhere) where.deals = { some: dealWhere ?? {} };
 
   // Sempre empilha em where.AND (nunca where.OR direto): a busca por texto
   // (q, acima) já pode ter posto o PRÓPRIO OR de nome/e-mail/telefone no
@@ -228,6 +270,7 @@ async function queryDistinctContactTags(organizationId: string, responsavelId?: 
 
 export async function fetchContactsList(params: ContactsFilterParams & { skip?: number; take: number }): Promise<EnrichedContact[]> {
   const { skip, take } = params;
+  const dealWhere = buildContactDealWhere(params);
   const query = {
     where: buildContactsWhere(params),
     orderBy: { createdAt: "desc" },
@@ -237,6 +280,7 @@ export async function fetchContactsList(params: ContactsFilterParams & { skip?: 
       email: true,
       phone: true,
       whatsapp: true,
+      company: true,
       source: true,
       jobTitle: true,
       tags: true,
@@ -245,14 +289,45 @@ export async function fetchContactsList(params: ContactsFilterParams & { skip?: 
       createdAt: true,
       updatedAt: true,
       _count: { select: { deals: true } },
+      deals: {
+        ...(dealWhere ? { where: dealWhere } : {}),
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        select: {
+          id: true,
+          name: true,
+          status: true,
+          value: true,
+          grossValue: true,
+          registration: { select: { groupNumber: true, quotaNumber: true, quotaDigit: true } },
+          process: { select: { groupNumber: true, quotaNumber: true } },
+        },
+      },
     },
     skip,
     take,
   } satisfies Prisma.ContactFindManyArgs;
 
-  return withSearchDbFallback(
+  const rows = await withSearchDbFallback(
     () => searchDb.contact.findMany(query),
     () => prisma.contact.findMany(query),
     "contacts-search",
   );
+  return rows.map(({ deals, ...contact }) => {
+    const deal = deals[0];
+    return {
+      ...contact,
+      latestDeal: deal
+        ? {
+            id: deal.id,
+            name: deal.name,
+            status: deal.status,
+            value: deal.grossValue != null ? Number(deal.grossValue) : deal.value != null ? Number(deal.value) : null,
+            groupNumber: deal.registration?.groupNumber ?? deal.process?.groupNumber ?? null,
+            quotaNumber: deal.registration?.quotaNumber ?? deal.process?.quotaNumber ?? null,
+            quotaDigit: deal.registration?.quotaDigit ?? null,
+          }
+        : null,
+    };
+  });
 }

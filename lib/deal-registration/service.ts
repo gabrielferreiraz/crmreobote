@@ -5,23 +5,34 @@
  */
 
 import { prisma } from "@/lib/prisma";
+import { logAudit } from "@/lib/audit-log";
+import { getDealAuditLabel } from "@/lib/deal-registration/audit";
 import { sendPushToUser } from "@/lib/push";
+import { createAdministrativePushReminder } from "@/lib/push-reminders/service";
+import { pushReminderEventKey, pushReminderScopeKey } from "@/lib/push-reminders/keys";
 import { formatCurrency } from "@/lib/format";
 import { resolveContactPhones } from "@/lib/phone-normalize";
 import {
   findMissingRegistrationItems,
   summarizeMissing,
   DOCUMENT_RETENTION_DAYS,
+  decideProcessQuotaUpdate,
+  formatQuotaLabel,
   type MissingItem,
   type RegistrationSnapshot,
 } from "./rules";
+import { parseExtraQuotas, type ExtraQuota } from "./extra-quotas";
 
 export type RegistrationContext = {
   deal: { id: string; ownerId: string; contactId: string; status: "OPEN" | "WON" | "LOST"; administratorId: string | null };
   contactName: string;
   snapshot: RegistrationSnapshot;
-  documents: { id: string; kind: "PHOTO_ID" | "SOCIAL_CONTRACT" | "OTHER"; fileName: string; size: number; createdAt: Date }[];
+  documents: { id: string; kind: "PHOTO_ID" | "SOCIAL_CONTRACT" | "OTHER" | "PAYMENT_PROOF"; fileName: string; size: number; createdAt: Date }[];
   administratorId: string | null;
+  /** Nome da administradora escolhida — a tela decide por ele o que mostrar (ver isServopaAdministrator). */
+  administratorName: string | null;
+  /** Cotas além da principal; lista vazia = venda de uma cota só. */
+  extraQuotas: ExtraQuota[];
   requiresBankData: boolean;
   documentsWaived: boolean;
   missing: MissingItem[];
@@ -72,13 +83,18 @@ export async function loadRegistrationContext(
   const administratorId = administratorIdOverride === undefined ? deal.administratorId : administratorIdOverride || null;
   const [administrator, otherWon] = await Promise.all([
     administratorId
-      ? prisma.consortiumAdministrator.findFirst({ where: { id: administratorId, organizationId }, select: { requiresBankData: true } })
+      ? prisma.consortiumAdministrator.findFirst({ where: { id: administratorId, organizationId }, select: { requiresBankData: true, name: true } })
       : Promise.resolve(null),
     // Cliente que já comprou antes: a administradora já tem os documentos dele.
     prisma.deal.count({ where: { organizationId, contactId: deal.contactId, status: "WON", id: { not: deal.id } } }),
   ]);
 
   const r = deal.registration;
+  const personType = r?.personType ?? "PF";
+  const suggestedHolderName =
+    personType === "PJ"
+      ? deal.contact.company?.trim() || deal.contact.name.trim()
+      : deal.contact.name.trim();
   const snapshot: RegistrationSnapshot = {
     contact: {
       email: deal.contact.email,
@@ -93,13 +109,17 @@ export async function loadRegistrationContext(
       company: deal.contact.company,
     },
     registration: {
-      personType: r?.personType ?? "PF",
+      personType,
+      holderName: r?.holderName?.trim() || suggestedHolderName || null,
       cpf: r?.cpf ?? null,
       cnpj: r?.cnpj ?? null,
       profession: r?.profession ?? null,
       maritalStatus: r?.maritalStatus ?? null,
       monthlyIncome: r?.monthlyIncome != null ? Number(r.monthlyIncome) : null,
       groupNumber: r?.groupNumber ?? null,
+      creditValue: r?.creditValue != null ? Number(r.creditValue) : null,
+      quotaNumber: r?.quotaNumber ?? null,
+      quotaDigit: r?.quotaDigit ?? null,
       termMonths: r?.termMonths ?? null,
       paymentMethod: r?.paymentMethod ?? null,
       bankName: r?.bankName ?? null,
@@ -119,6 +139,8 @@ export async function loadRegistrationContext(
     snapshot,
     documents: (r?.documents ?? []).map((d) => ({ id: d.id, kind: d.kind, fileName: d.fileName, size: d.size, createdAt: d.createdAt })),
     administratorId,
+    administratorName: administrator?.name ?? null,
+    extraQuotas: parseExtraQuotas(r?.extraQuotas),
     requiresBankData,
     documentsWaived,
     missing: findMissingRegistrationItems(snapshot, { requiresBankData, documentsWaived }),
@@ -144,14 +166,20 @@ export type RegistrationDraftInput = {
   };
   registration?: {
     personType?: "PF" | "PJ";
+    holderName?: string | null;
     cpf?: string | null;
     cnpj?: string | null;
     profession?: string | null;
     maritalStatus?: string | null;
     monthlyIncome?: number | null;
     groupNumber?: string | null;
+    creditValue?: number | null;
+    quotaNumber?: string | null;
+    quotaDigit?: string | null;
     termMonths?: number | null;
     paymentMethod?: string | null;
+    /** Substitui a lista inteira (a tela sempre manda o estado completo das cotas extras). */
+    extraQuotas?: ExtraQuota[];
     bankName?: string | null;
     bankAgency?: string | null;
     bankAccount?: string | null;
@@ -250,11 +278,29 @@ export async function markRegistrationWon(params: {
     create: { organizationId, dealId, ...data },
     update: data,
   });
+  // Auditoria: o cadastro fechou junto com o Ganho (ou foi dispensado, o que já tem evento próprio com o motivo).
+  if (!waivedReason?.trim()) {
+    const [user, label] = await Promise.all([
+      prisma.user.findUnique({ where: { id: userId }, select: { name: true } }),
+      getDealAuditLabel(organizationId, dealId),
+    ]);
+    await logAudit({
+      organizationId,
+      actorUserId: userId,
+      actorName: user?.name ?? "Usuário",
+      action: "DEAL_REGISTRATION_COMPLETED",
+      targetType: "Deal",
+      targetId: dealId,
+      targetLabel: label,
+      detail: "Cadastro do cliente concluído e Ganho registrado.",
+    });
+  }
 }
 
 /**
  * Avisa o administrativo que há uma cota para cadastrar: uma tarefa para cada
- * pessoa da área (aparece no sino e na Agenda, e some quando ela conclui) +
+ * pessoa da área (aparece no sino e como pendencia sem prazo na Agenda, e
+ * some quando ela conclui) +
  * push. Nunca derruba o Ganho — sempre chamado depois da resposta.
  */
 export async function notifyAdministrativeQuotaRegistration(organizationId: string, dealId: string): Promise<void> {
@@ -298,13 +344,183 @@ export async function notifyAdministrativeQuotaRegistration(organizationId: stri
     const open = await prisma.task.findFirst({ where: { organizationId, dealId, ownerId: userId, title, completedAt: null }, select: { id: true } });
     if (!open) {
       await prisma.task.create({
-        data: { organizationId, dealId, contactId: deal.contactId, ownerId: userId, type: "OTHER", title, description, dueAt: new Date() },
+        data: { organizationId, dealId, contactId: deal.contactId, ownerId: userId, type: "OTHER", title, description, dueAt: null },
       });
     }
-    await sendPushToUser(userId, {
-      title: "Nova cota para cadastrar",
-      body: `${deal.contact.name} · ${deal.administrator?.name ?? "venda ganha"}`,
+    await createAdministrativePushReminder({
+      organizationId,
+      userId,
+      kind: "ADMIN_QUOTA_REGISTRATION",
+      eventKey: pushReminderEventKey.quotaRegistration(dealId),
+      scopeKey: pushReminderScopeKey.deal(dealId),
+      title: "Cota aguardando cadastro",
+      body: `${deal.contact.name} · ${parts.join(" · ")}`,
       url: `/cadastros/${dealId}`,
-    }).catch((err) => console.error("[deal-registration] falha no push", err));
+    }).catch((err) => console.error("[deal-registration] falha no lembrete push da cota", err));
+  }
+}
+
+/**
+ * Leva grupo e cota (com dígito) que o administrativo salvou para o Processo do
+ * negócio (pós-contemplação), para ninguém digitar duas vezes. Só escreve onde o
+ * Processo está vazio ou ainda tem o valor anterior do cadastro: o que a
+ * pós-contemplação ajustou à mão nunca é sobrescrito. Nunca derruba o salvamento.
+ */
+export async function syncQuotaToProcess(params: {
+  organizationId: string;
+  dealId: string;
+  prev: { groupNumber: string | null; quotaNumber: string | null; quotaDigit: string | null };
+  next: { groupNumber: string | null; quotaNumber: string | null; quotaDigit: string | null };
+}): Promise<void> {
+  const { organizationId, dealId, prev, next } = params;
+  try {
+    const process = await prisma.process.findFirst({ where: { organizationId, dealId }, select: { id: true, groupNumber: true, quotaNumber: true } });
+    if (!process) return;
+    const data = decideProcessQuotaUpdate(process, prev, next);
+    if (Object.keys(data).length > 0) await prisma.process.update({ where: { id: process.id }, data });
+  } catch (err) {
+    console.error("[deal-registration] falha ao levar a cota para o processo", err);
+  }
+}
+
+/** Prefixo do título da tarefa-aviso do consultor (para fechá-la se o administrativo desfizer). */
+export const QUOTA_REGISTERED_TASK_PREFIX = "Cota cadastrada:";
+
+/**
+ * Avisa o consultor (e os co-responsáveis) que o administrativo cadastrou a cota
+ * do cliente: uma tarefa no sino/Agenda com grupo e cota, mais um push no celular.
+ * Nunca derruba a ação do administrativo — falhas só vão para o log.
+ */
+export async function notifyConsultantQuotaRegistered(params: {
+  organizationId: string;
+  dealId: string;
+  actor: { userId: string; name: string };
+}): Promise<void> {
+  const { organizationId, dealId, actor } = params;
+  try {
+    const deal = await prisma.deal.findFirst({
+      where: { id: dealId, organizationId },
+      select: {
+        ownerId: true,
+        contactId: true,
+        contact: { select: { name: true } },
+        participants: { select: { userId: true } },
+        registration: { select: { groupNumber: true, quotaNumber: true, quotaDigit: true } },
+      },
+    });
+    if (!deal) return;
+
+    const recipients = Array.from(new Set([deal.ownerId, ...deal.participants.map((p) => p.userId)])).filter((id) => id !== actor.userId);
+    if (recipients.length === 0) return;
+
+    const quota = formatQuotaLabel(deal.registration ?? {});
+    const title = `${QUOTA_REGISTERED_TASK_PREFIX} ${deal.contact.name}`;
+    const description = `${actor.name} cadastrou a cota do cliente na administradora${quota ? `: ${quota}` : ""}.`;
+
+    for (const userId of recipients) {
+      try {
+        // Uma tarefa aberta por pessoa e venda: marcar de novo depois de desfazer não duplica.
+        const open = await prisma.task.findFirst({ where: { organizationId, dealId, ownerId: userId, title, completedAt: null }, select: { id: true } });
+        if (open) {
+          await prisma.task.update({ where: { id: open.id }, data: { description, dueAt: new Date() } });
+        } else {
+          await prisma.task.create({
+            data: { organizationId, dealId, contactId: deal.contactId, ownerId: userId, type: "OTHER", title, description, dueAt: new Date() },
+          });
+        }
+      } catch (err) {
+        console.error("[deal-registration] falha ao criar o aviso da cota cadastrada", err);
+      }
+      await sendPushToUser(userId, {
+        title: "Cota cadastrada",
+        body: `${deal.contact.name}${quota ? ` · ${quota}` : ""}`,
+        url: `/negocios/${dealId}`,
+      }).catch((err) => console.error("[deal-registration] falha no push da cota cadastrada", err));
+    }
+  } catch (err) {
+    console.error("[deal-registration] falha ao avisar o consultor da cota cadastrada", err);
+  }
+}
+
+/** O administrativo desfez: o aviso que o consultor ainda não abriu perde o sentido e some do sino. */
+export async function closeConsultantQuotaRegisteredTasks(organizationId: string, dealId: string): Promise<void> {
+  await prisma.task
+    .updateMany({
+      where: { organizationId, dealId, completedAt: null, title: { startsWith: QUOTA_REGISTERED_TASK_PREFIX } },
+      data: { completedAt: new Date() },
+    })
+    .catch((err) => console.error("[deal-registration] falha ao fechar o aviso da cota cadastrada", err));
+}
+
+/** Prefixo do título da tarefa-aviso do administrativo quando o consultor manda documentos extras. */
+export const EXTRA_DOCS_TASK_PREFIX = "Documentos novos:";
+
+/**
+ * Avisa o administrativo que o consultor anexou documentos a mais numa venda já
+ * ganha: tarefa no sino/Agenda + push persistente (como o aviso da cota).
+ * Quem enviou nunca recebe o próprio aviso. Nunca derruba o envio — falhas só vão para o log.
+ */
+export async function notifyAdministrativeExtraDocuments(params: {
+  organizationId: string;
+  dealId: string;
+  actor: { userId: string; name: string };
+  fileNames: string[];
+}): Promise<{ notified: number }> {
+  const { organizationId, dealId, actor, fileNames } = params;
+  try {
+    const deal = await prisma.deal.findFirst({
+      where: { id: dealId, organizationId },
+      select: { contactId: true, contact: { select: { name: true } }, owner: { select: { name: true } } },
+    });
+    if (!deal) return { notified: 0 };
+
+    let recipients = await prisma.organizationUser.findMany({
+      where: { organizationId, active: true, area: "ADMINISTRATIVO" },
+      select: { userId: true },
+    });
+    if (recipients.length === 0) {
+      recipients = await prisma.organizationUser.findMany({ where: { organizationId, active: true, role: "OWNER" }, select: { userId: true } });
+    }
+    recipients = recipients.filter((r) => r.userId !== actor.userId);
+    if (recipients.length === 0) return { notified: 0 };
+
+    const count = fileNames.length;
+    const what = count === 1 ? "1 documento" : `${count} documentos`;
+    const shown = fileNames.slice(0, 3).join(", ") + (count > 3 ? ` e mais ${count - 3}` : "");
+    const title = `${EXTRA_DOCS_TASK_PREFIX} ${deal.contact.name}`;
+    const description = `${actor.name} enviou ${what} a mais: ${shown}. Abra o cadastro para conferir e baixar.`;
+    const batch = Date.now().toString(36);
+
+    let notified = 0;
+    for (const { userId } of recipients) {
+      try {
+        // Uma tarefa aberta por pessoa e venda: novos envios atualizam o texto em vez de duplicar.
+        const open = await prisma.task.findFirst({ where: { organizationId, dealId, ownerId: userId, title, completedAt: null }, select: { id: true } });
+        if (open) {
+          await prisma.task.update({ where: { id: open.id }, data: { description } });
+        } else {
+          await prisma.task.create({
+            data: { organizationId, dealId, contactId: deal.contactId, ownerId: userId, type: "OTHER", title, description, dueAt: null },
+          });
+        }
+        notified += 1;
+      } catch (err) {
+        console.error("[deal-registration] falha ao criar a tarefa dos documentos extras", err);
+      }
+      await createAdministrativePushReminder({
+        organizationId,
+        userId,
+        kind: "ADMIN_DOCUMENT_RESPONSE",
+        eventKey: pushReminderEventKey.extraDocuments(dealId, batch),
+        scopeKey: pushReminderScopeKey.deal(dealId),
+        title: "Documentos novos do consultor",
+        body: `${deal.contact.name} · ${what} · ${deal.owner.name}`,
+        url: `/cadastros/${dealId}`,
+      }).catch((err) => console.error("[deal-registration] falha no push dos documentos extras", err));
+    }
+    return { notified };
+  } catch (err) {
+    console.error("[deal-registration] falha ao avisar o administrativo dos documentos extras", err);
+    return { notified: 0 };
   }
 }

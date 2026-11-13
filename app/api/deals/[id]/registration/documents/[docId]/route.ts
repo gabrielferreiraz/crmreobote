@@ -5,6 +5,8 @@ import { getCurrentMembership } from "@/lib/current-membership";
 import { requireRegistrationAccess } from "@/lib/deal-registration/access";
 import { deleteRegistrationDoc, getRegistrationDocObject, isRegistrationDocKey } from "@/lib/r2";
 import { logAudit } from "@/lib/audit-log";
+import { getClientIp } from "@/lib/rate-limit";
+import { getDealAuditLabel } from "@/lib/deal-registration/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -33,8 +35,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     const object = await getRegistrationDocObject(doc.storageKey);
     if (!object) return NextResponse.json({ error: "Arquivo indisponível" }, { status: 404 });
 
-    // Só vira rastro quando OUTRA pessoa abre (o consultor conferindo o próprio envio não precisa).
-    if (access.userId !== access.deal.ownerId) {
+    const isDownload = new URL(req.url).searchParams.get("download") === "1";
+    // Miniatura e visualização inline carregam a mesma rota, mas não são
+    // download. Registrar esses GETs poluía o histórico a cada renderização.
+    if (isDownload && access.userId !== access.deal.ownerId) {
       void logAudit({
         organizationId: access.organizationId,
         actorUserId: access.userId,
@@ -42,14 +46,16 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
         action: "DEAL_REGISTRATION_DOC_DOWNLOADED",
         targetType: "Deal",
         targetId: id,
+        targetLabel: await getDealAuditLabel(access.organizationId, id),
         detail: doc.fileName,
+        ip: getClientIp(req),
       });
     }
     const safeName = doc.fileName.replace(/[^\w.\- ]+/g, "_");
     return new NextResponse(Buffer.from(object.body), {
       headers: {
         "Content-Type": doc.contentType,
-        "Content-Disposition": `${new URL(req.url).searchParams.get("download") === "1" ? "attachment" : "inline"}; filename="${safeName}"`,
+        "Content-Disposition": `${isDownload ? "attachment" : "inline"}; filename="${safeName}"`,
         "Cache-Control": "private, no-store",
         "X-Content-Type-Options": "nosniff",
       },
@@ -57,7 +63,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   });
 }
 
-export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string; docId: string }> }) {
+export async function DELETE(req: Request, { params }: { params: Promise<{ id: string; docId: string }> }) {
   const { id, docId } = await params;
   const m = await getCurrentMembership();
   if (!m) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
@@ -83,7 +89,9 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
       action: "DEAL_REGISTRATION_DOC_DELETED",
       targetType: "Deal",
       targetId: id,
+      targetLabel: await getDealAuditLabel(access.organizationId, id),
       detail: doc.fileName,
+      ip: getClientIp(req),
     });
     return NextResponse.json({ ok: true });
   });

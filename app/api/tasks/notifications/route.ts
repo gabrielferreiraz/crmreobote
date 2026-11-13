@@ -3,6 +3,11 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
 import { runWithTenant } from "@/lib/tenant-context";
 import { brazilDateKey, brazilEndOfDayUTC } from "@/lib/timezone";
+import {
+  REQUEST_TASK_TITLE_PREFIX,
+  parseRequestItems,
+  summarizeRequestItems,
+} from "@/lib/deal-registration/request-rules";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +29,18 @@ export async function GET() {
         organizationId,
         ownerId: userId,
         completedAt: null,
-        dueAt: { lte: endOfToday },
+        OR: [
+          // Pedido do administrativo usa dueAt tambem como "lembrar depois".
+          // Diferente da Agenda, ele so volta ao sino quando a hora chegar.
+          { title: { startsWith: REQUEST_TASK_TITLE_PREFIX }, dueAt: { lte: now } },
+          {
+            dueAt: { lte: endOfToday },
+            NOT: { title: { startsWith: REQUEST_TASK_TITLE_PREFIX } },
+          },
+          // Cadastro de cota e uma fila sem prazo de agenda. Continua no
+          // sino ate ser concluido pela area administrativa.
+          { dealId: { not: null }, title: { startsWith: "Cadastrar cota:" } },
+        ],
       },
       orderBy: { dueAt: "asc" },
       // O sino e um resumo rapido; a Agenda mantem a lista completa.
@@ -34,12 +50,66 @@ export async function GET() {
         type: true,
         title: true,
         dueAt: true,
-        deal: { select: { id: true, name: true } },
+        createdAt: true,
+        deal: {
+          select: {
+            id: true,
+            name: true,
+            value: true,
+            grossValue: true,
+            owner: { select: { name: true } },
+            documentRequests: {
+              where: { status: "OPEN" },
+              orderBy: { createdAt: "desc" },
+              take: 1,
+              select: {
+                items: true,
+                message: true,
+                requestedByName: true,
+                createdAt: true,
+              },
+            },
+          },
+        },
         contact: { select: { id: true, name: true } },
       },
     });
 
-    const result = tasks.map((t) => ({ ...t, overdue: !!t.dueAt && t.dueAt < now }));
+    const result = tasks.map((task) => {
+      const isQuotaRegistration = task.title.startsWith("Cadastrar cota:") && task.deal !== null;
+      const isConsultantRequest = task.title.startsWith(REQUEST_TASK_TITLE_PREFIX) && task.deal !== null;
+      const credit = task.deal?.grossValue ?? task.deal?.value ?? null;
+      const openRequest = task.deal?.documentRequests[0];
+      const requestSummary = openRequest
+        ? summarizeRequestItems(parseRequestItems(openRequest.items), 2)
+        : "Pendência solicitada pelo administrativo";
+
+      return {
+        id: task.id,
+        type: task.type,
+        title: task.title,
+        dueAt: task.dueAt,
+        deal: task.deal ? { id: task.deal.id, name: task.deal.name } : null,
+        contact: task.contact,
+        quotaRegistration: isQuotaRegistration
+          ? {
+              consultant: task.deal!.owner.name,
+              value: credit === null ? null : Number(credit),
+              requestedAt: task.createdAt,
+            }
+          : null,
+        consultantRequest: isConsultantRequest
+          ? {
+              requestedBy: openRequest?.requestedByName ?? "Administrativo",
+              text: openRequest?.message || requestSummary,
+              requestedAt: openRequest?.createdAt ?? task.createdAt,
+            }
+          : null,
+        // Cadastro de cota e uma fila administrativa, nao um compromisso
+        // com horario vencido. A data relevante e quando foi solicitado.
+        overdue: !isQuotaRegistration && !isConsultantRequest && !!task.dueAt && task.dueAt < now,
+      };
+    });
     return NextResponse.json(result);
   });
 }

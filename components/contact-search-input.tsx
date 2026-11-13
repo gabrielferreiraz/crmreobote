@@ -7,7 +7,9 @@ import { Search, X, UserPlus, UserCheck, Loader2 } from "lucide-react";
 import { Modal } from "@/components/modal";
 import { ContactConflictNotice, type ContactConflict } from "@/components/contact-conflict-notice";
 import { LoadingDots } from "@/components/loading-dots";
+import { PhoneInput } from "@/components/phone-input";
 import { Select } from "@/components/select";
+import { validatePhoneField } from "@/lib/phone-normalize";
 import { useFloatingDropdown } from "@/lib/use-floating-dropdown";
 import { readQuickContactDraft, writeQuickContactDraft, clearQuickContactDraft } from "@/lib/quick-contact-draft";
 
@@ -311,6 +313,8 @@ function QuickCreateContactModal({
   const [source, setSource] = useState(draftRestored?.source ?? "");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [phoneError, setPhoneError] = useState<string | null>(null);
+  const [whatsappError, setWhatsappError] = useState<string | null>(null);
   const [conflict, setConflict] = useState<ContactConflict | null>(null);
   const [claiming, setClaiming] = useState(false);
   const { data: session } = useSession();
@@ -394,6 +398,11 @@ function QuickCreateContactModal({
 
   async function handleSubmit() {
     if (loading || !name.trim() || !jobTitle) return;
+    const phoneErr = validatePhoneField(phone, "phone");
+    const whatsappErr = validatePhoneField(whatsapp, "whatsapp");
+    setPhoneError(phoneErr);
+    setWhatsappError(whatsappErr);
+    if (phoneErr || whatsappErr) return;
     setLoading(true);
     setError(null);
     setConflict(null);
@@ -408,6 +417,11 @@ function QuickCreateContactModal({
 
   async function handleClaim() {
     if (!conflict) return;
+    const phoneErr = validatePhoneField(phone, "phone");
+    const whatsappErr = validatePhoneField(whatsapp, "whatsapp");
+    setPhoneError(phoneErr);
+    setWhatsappError(whatsappErr);
+    if (phoneErr || whatsappErr) return;
     setClaiming(true);
     setError(null);
     try {
@@ -460,19 +474,25 @@ function QuickCreateContactModal({
             className="field-input"
           />
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1">
-            <label className="field-label">WhatsApp</label>
-            <input
-              value={whatsapp}
-              onChange={(e) => setWhatsapp(e.target.value)}
-              className="field-input"
-            />
-          </div>
-          <div className="space-y-1">
-            <label className="field-label">Celular (nº 2)</label>
-            <input value={phone} onChange={(e) => setPhone(e.target.value)} className="field-input" />
-          </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <PhoneInput
+            label="WhatsApp"
+            value={whatsapp}
+            onChange={(next) => {
+              setWhatsapp(next);
+              setWhatsappError(null);
+            }}
+            error={whatsappError}
+          />
+          <PhoneInput
+            label="Celular (nº 2)"
+            value={phone}
+            onChange={(next) => {
+              setPhone(next);
+              setPhoneError(null);
+            }}
+            error={phoneError}
+          />
         </div>
         <div className="space-y-1">
           <label className="field-label">E-mail</label>

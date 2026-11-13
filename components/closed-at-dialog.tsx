@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { ArrowLeft, Check, CircleAlert, CircleCheck, Loader2 } from "lucide-react";
 import { Modal } from "./modal";
 import { LoadingDots } from "./loading-dots";
 import { DatePicker } from "./date-picker";
@@ -94,6 +94,7 @@ export function ClosedAtDialog({
   const [maxDate, setMaxDate] = useState(brazilDateKey());
   const [ready, setReady] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
   const [administrators, setAdministrators] = useState<{ id: string; name: string }[]>([]);
   const [administratorId, setAdministratorId] = useState(initialAdministratorId ?? "");
   // Enquanto a lista não chegou, não deixa confirmar sem ela — senão um
@@ -188,6 +189,21 @@ export function ClosedAtDialog({
     }
   }
 
+  async function handleFinishLater() {
+    if (savingDraft || loading) return;
+    setSavingDraft(true);
+    setSubmitError(null);
+    try {
+      if (regApi.current && !(await regApi.current.flush())) {
+        setSubmitError("Não foi possível salvar o rascunho. Tente novamente.");
+        return;
+      }
+      onClose();
+    } finally {
+      setSavingDraft(false);
+    }
+  }
+
   const adminName = administrators.find((a) => a.id === administratorId)?.name;
   const submitLabel = (
     <>
@@ -199,6 +215,10 @@ export function ClosedAtDialog({
         </span>
       ) : registrationEnabled && step === "sale" ? (
         "Continuar"
+      ) : registrationEnabled && regStatus.loading ? (
+        "Verificando cadastro"
+      ) : registrationEnabled && !regStatus.ready ? (
+        "Revisar pendências"
       ) : (
         confirmLabel
       )}
@@ -231,16 +251,28 @@ export function ClosedAtDialog({
 
           {submitError && <p className="text-sm text-red-600">{submitError}</p>}
 
-          <div className="sticky bottom-0 -mx-5 -mb-5 flex items-center gap-3 border-t border-neutral-200 bg-white px-5 py-3 dark:border-neutral-800 dark:bg-neutral-900">
-            <p className={`mr-auto min-w-0 text-xs ${regStatus.ready ? "text-emerald-600 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}`}>
-              {regStatus.ready ? "Tudo certo para marcar o ganho." : regStatus.summary}
-            </p>
-            <button type="button" onClick={onClose} className="btn-ghost shrink-0">
-              Fechar
-            </button>
-            <button type="submit" disabled={loading || regStatus.loading} className={`${confirmClassName} shrink-0`}>
-              {submitLabel}
-            </button>
+          <div className="sticky bottom-0 -mx-5 -mb-5 border-t border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
+            <div className="flex min-h-11 items-center gap-2.5 border-b border-neutral-100 px-5 py-2.5 dark:border-neutral-800/80">
+              {regStatus.loading ? (
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin text-neutral-400" strokeWidth={2} />
+              ) : regStatus.ready ? (
+                <CircleCheck className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" strokeWidth={2} />
+              ) : (
+                <CircleAlert className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" strokeWidth={2} />
+              )}
+              <p className={`min-w-0 text-sm font-medium ${regStatus.loading ? "text-neutral-500 dark:text-neutral-400" : regStatus.ready ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}`}>
+                {regStatus.loading ? "Verificando o cadastro…" : regStatus.ready ? "Cadastro completo" : regStatus.summary || "Preencha os itens pendentes para concluir o ganho."}
+              </p>
+            </div>
+            <div className="flex flex-col-reverse gap-2 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <button type="button" onClick={handleFinishLater} disabled={savingDraft || loading} className="btn-secondary w-full sm:w-auto">
+                {savingDraft ? <><Loader2 className="h-4 w-4 animate-spin" /> Salvando rascunho</> : "Terminar cadastro depois"}
+              </button>
+              <button type="submit" disabled={loading || regStatus.loading} className={`${confirmClassName} w-full justify-center sm:w-auto`}>
+                {!loading && regStatus.ready && <Check className="h-4 w-4" strokeWidth={2.5} />}
+                {submitLabel}
+              </button>
+            </div>
           </div>
         </form>
       </Modal>

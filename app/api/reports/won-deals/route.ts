@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/require-role";
 import { runWithTenant } from "@/lib/tenant-context";
 import { getDealScope } from "@/lib/team-scope";
+import type { DealScope } from "@/lib/team-scope";
+import { getCurrentMembership } from "@/lib/current-membership";
+import { seesOrganizationWideCommercialReport } from "@/lib/reports/scope";
 import { fetchWonDeals } from "@/lib/reports/won-deals";
 import { normalizeReportTags } from "@/lib/reports/tags";
 
@@ -38,7 +41,11 @@ export async function GET(req: Request) {
   const take = Number.isFinite(takeParam) && takeParam > 0 ? Math.min(Math.floor(takeParam), MAX_TAKE) : DEFAULT_TAKE;
 
   return runWithTenant(access.organizationId, async () => {
-    const scope = await getDealScope(access.organizationId, access.userId, access.role);
+    // Administrativo lê o comercial da organização inteira (mesma regra da página de Relatórios).
+    const membership = await getCurrentMembership();
+    const scope: DealScope = seesOrganizationWideCommercialReport(membership?.area)
+      ? { type: "all" }
+      : await getDealScope(access.organizationId, access.userId, access.role);
     const result = await fetchWonDeals({
       organizationId: access.organizationId,
       scope,

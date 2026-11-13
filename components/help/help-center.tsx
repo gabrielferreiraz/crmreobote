@@ -639,49 +639,51 @@ export function HelpCenterProvider({
                           </section>
                         )}
 
-                        <section>
-                          <SectionLabel>Ferramentas & Acesso rápido</SectionLabel>
-                          <div className="mt-2 grid grid-cols-2 gap-2">
-                            <a
-                              href="/api/simulador-sso"
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="group flex items-center gap-2 rounded-xl border border-neutral-200/80 bg-neutral-50/70 p-2.5 transition-colors hover:border-neutral-300 hover:bg-neutral-100/80 dark:border-neutral-800 dark:bg-neutral-900/60 dark:hover:bg-neutral-800"
-                            >
-                              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400">
-                                <Calculator className="h-3.5 w-3.5" strokeWidth={2.2} />
-                              </span>
-                              <div className="min-w-0 flex-1">
-                                <span className="block text-xs font-semibold text-neutral-800 dark:text-neutral-200">
-                                  Simulador
-                                </span>
-                                <span className="block text-[10px] text-neutral-500 dark:text-neutral-400 truncate">
-                                  Cotador rápido
-                                </span>
-                              </div>
-                            </a>
-                            {academyHref && (
+                        {!isAdministrativo && (
+                          <section>
+                            <SectionLabel>Ferramentas & Acesso rápido</SectionLabel>
+                            <div className="mt-2 grid grid-cols-2 gap-2">
                               <a
-                                href={academyHref}
+                                href="/api/simulador-sso"
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="group flex items-center gap-2 rounded-xl border border-neutral-200/80 bg-neutral-50/70 p-2.5 transition-colors hover:border-neutral-300 hover:bg-neutral-100/80 dark:border-neutral-800 dark:bg-neutral-900/60 dark:hover:bg-neutral-800"
                               >
-                                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-brand-light text-brand">
-                                  <GraduationCap className="h-3.5 w-3.5" strokeWidth={2.2} />
+                                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400">
+                                  <Calculator className="h-3.5 w-3.5" strokeWidth={2.2} />
                                 </span>
                                 <div className="min-w-0 flex-1">
                                   <span className="block text-xs font-semibold text-neutral-800 dark:text-neutral-200">
-                                    Treinamento
+                                    Simulador
                                   </span>
                                   <span className="block text-[10px] text-neutral-500 dark:text-neutral-400 truncate">
-                                    Reobote Academy
+                                    Cotador rápido
                                   </span>
                                 </div>
                               </a>
-                            )}
-                          </div>
-                        </section>
+                              {academyHref && (
+                                <a
+                                  href={academyHref}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="group flex items-center gap-2 rounded-xl border border-neutral-200/80 bg-neutral-50/70 p-2.5 transition-colors hover:border-neutral-300 hover:bg-neutral-100/80 dark:border-neutral-800 dark:bg-neutral-900/60 dark:hover:bg-neutral-800"
+                                >
+                                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-brand-light text-brand">
+                                    <GraduationCap className="h-3.5 w-3.5" strokeWidth={2.2} />
+                                  </span>
+                                  <div className="min-w-0 flex-1">
+                                    <span className="block text-xs font-semibold text-neutral-800 dark:text-neutral-200">
+                                      Treinamento
+                                    </span>
+                                    <span className="block text-[10px] text-neutral-500 dark:text-neutral-400 truncate">
+                                      Reobote Academy
+                                    </span>
+                                  </div>
+                                </a>
+                              )}
+                            </div>
+                          </section>
+                        )}
 
                         <section>
                           <SectionLabel>Todos os assuntos</SectionLabel>

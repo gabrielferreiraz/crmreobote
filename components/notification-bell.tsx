@@ -2,8 +2,22 @@
 
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Bell, BellOff, Loader2, UserPlus, Check, X as XIcon, Eye } from "lucide-react";
+import {
+  Bell,
+  BellOff,
+  BellRing,
+  Check,
+  CircleCheck,
+  ClipboardCheck,
+  Clock3,
+  Eye,
+  FileWarning,
+  Loader2,
+  UserPlus,
+  X as XIcon,
+} from "lucide-react";
 import { TASK_TYPE_LABELS, TASK_TYPE_ICON } from "@/lib/task-icons";
+import { formatCurrency } from "@/lib/format";
 import { usePushSubscription } from "@/lib/use-push-subscription";
 import { useVisiblePoll } from "@/lib/use-visible-poll";
 import { LeadRequestContactModal } from "@/components/lead-request-contact-modal";
@@ -15,6 +29,16 @@ type NotificationTask = {
   dueAt: string | null;
   deal: { id: string; name: string } | null;
   contact: { id: string; name: string } | null;
+  quotaRegistration: {
+    consultant: string;
+    value: number | null;
+    requestedAt: string;
+  } | null;
+  consultantRequest: {
+    requestedBy: string;
+    text: string;
+    requestedAt: string;
+  } | null;
   /** true = dueAt já passou de verdade; false = ainda dentro de hoje (ver app/api/tasks/notifications/route.ts). */
   overdue: boolean;
 };
@@ -30,11 +54,12 @@ type LeadRequestNotification = {
   assignee: { id: string; name: string } | null;
 };
 
-const POLL_INTERVAL_MS = 60_000;
+const POLL_INTERVAL_MS = 30_000;
 
 type NotificationBellContextValue = {
   tasks: NotificationTask[];
   leadRequests: LeadRequestNotification[];
+  removeTask: (id: string) => void;
   removeLeadRequest: (id: string) => void;
 };
 
@@ -60,8 +85,12 @@ export function NotificationBellProvider({ children }: { children: React.ReactNo
     setLeadRequests((current) => current.filter((request) => request.id !== id));
   }
 
+  function removeTask(id: string) {
+    setTasks((current) => current.filter((task) => task.id !== id));
+  }
+
   return (
-    <NotificationBellContext.Provider value={{ tasks, leadRequests, removeLeadRequest }}>
+    <NotificationBellContext.Provider value={{ tasks, leadRequests, removeTask, removeLeadRequest }}>
       {children}
     </NotificationBellContext.Provider>
   );
@@ -70,8 +99,12 @@ export function NotificationBellProvider({ children }: { children: React.ReactNo
 export function NotificationBell() {
   const notifications = useContext(NotificationBellContext);
   if (!notifications) throw new Error("NotificationBell must be rendered inside NotificationBellProvider");
-  const { tasks, leadRequests, removeLeadRequest } = notifications;
+  const { tasks, leadRequests, removeTask, removeLeadRequest } = notifications;
   const [resolvingId, setResolvingId] = useState<string | null>(null);
+  const [handlingTaskId, setHandlingTaskId] = useState<string | null>(null);
+  const [taskFeedback, setTaskFeedback] = useState<{ id: string; action: "snooze" | "complete" } | null>(null);
+  const [dismissingTaskId, setDismissingTaskId] = useState<string | null>(null);
+  const [taskActionError, setTaskActionError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   // Pedido de lead que está aberto no popup "Ver cliente" (ver
   // LeadRequestContactModal) — guarda o request inteiro, não só o
@@ -80,6 +113,37 @@ export function NotificationBell() {
   const [previewRequest, setPreviewRequest] = useState<LeadRequestNotification | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const { status: pushStatus, loading: pushLoading, subscribe, unsubscribe } = usePushSubscription();
+
+  async function handleConsultantRequestTask(taskId: string, action: "snooze" | "complete") {
+    setHandlingTaskId(taskId);
+    setTaskActionError(null);
+    try {
+      const body = action === "complete"
+        ? { completed: true }
+        : { dueAt: new Date(Date.now() + 60 * 60_000).toISOString() };
+      const res = await fetch(`/api/tasks/${taskId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        setTaskActionError(data.error ?? "Não foi possível atualizar o lembrete.");
+        return;
+      }
+      setTaskFeedback({ id: taskId, action });
+      await new Promise((resolve) => window.setTimeout(resolve, 650));
+      setDismissingTaskId(taskId);
+      await new Promise((resolve) => window.setTimeout(resolve, 180));
+      removeTask(taskId);
+    } catch {
+      setTaskActionError("Sem conexão. Tente novamente.");
+    } finally {
+      setHandlingTaskId(null);
+      setTaskFeedback(null);
+      setDismissingTaskId(null);
+    }
+  }
 
   // Aprovar/recusar direto do sino — sem sair da tela nem abrir mais nada
   // (pedido explícito: "mostra um modal pequeno logo abaixo do sino"; este
@@ -115,11 +179,16 @@ export function NotificationBell() {
 
   const showPushToggle = pushStatus !== "unsupported";
   const isSubscribed = pushStatus === "subscribed";
+  // Cadastro de cota e uma fila administrativa, nao uma tarefa atrasada.
+  // As tarefas de agenda continuam divididas pela urgencia real.
+  const quotaRegistrationTasks = tasks.filter((task) => task.quotaRegistration !== null);
+  const consultantRequestTasks = tasks.filter((task) => task.consultantRequest !== null);
+  const scheduleTasks = tasks.filter((task) => task.quotaRegistration === null && task.consultantRequest === null);
   // Atrasadas primeiro (mais urgente), depois as de hoje ainda não vencidas
   // — os dois grupos já vêm ordenados por dueAt crescente (ver a query),
   // então só filtrar preserva a ordem cronológica dentro de cada um.
-  const overdueTasks = tasks.filter((t) => t.overdue);
-  const todayTasks = tasks.filter((t) => !t.overdue);
+  const overdueTasks = scheduleTasks.filter((task) => task.overdue);
+  const todayTasks = scheduleTasks.filter((task) => !task.overdue);
   const totalCount = tasks.length + leadRequests.length;
 
   return (
@@ -129,9 +198,13 @@ export function NotificationBell() {
         aria-label="Notificações"
         // Âncora do tour guiado da Central de ajuda (ver lib/help/tours.ts).
         data-help="notifications"
-        className="icon-btn relative h-9 w-9"
+        className={`icon-btn relative h-9 w-9 ${
+          consultantRequestTasks.length > 0
+            ? "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300"
+            : ""
+        }`}
       >
-        <Bell className="h-4 w-4" strokeWidth={2} />
+        {consultantRequestTasks.length > 0 ? <BellRing className="notification-bell-attention h-4 w-4" strokeWidth={2} /> : <Bell className="h-4 w-4" strokeWidth={2} />}
         {totalCount > 0 && (
           <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand px-1 text-[10px] font-semibold leading-none text-white">
             {totalCount > 9 ? "9+" : totalCount}
@@ -139,11 +212,25 @@ export function NotificationBell() {
         )}
       </button>
 
+      {!open && consultantRequestTasks.length > 0 && (
+        <ConsultantRequestNudge
+          task={consultantRequestTasks[0]}
+          total={consultantRequestTasks.length}
+          busy={handlingTaskId === consultantRequestTasks[0].id}
+          feedback={taskFeedback?.id === consultantRequestTasks[0].id ? taskFeedback.action : null}
+          leaving={dismissingTaskId === consultantRequestTasks[0].id}
+          error={taskActionError}
+          onOpen={() => setOpen(true)}
+          onSnooze={() => void handleConsultantRequestTask(consultantRequestTasks[0].id, "snooze")}
+          onComplete={() => void handleConsultantRequestTask(consultantRequestTasks[0].id, "complete")}
+        />
+      )}
+
       {open && (
         <div className="surface-glass-panel animate-pop-in absolute right-0 z-40 mt-2 w-80 rounded-lg">
           <div className="border-b border-neutral-100 dark:border-neutral-800 px-4 py-2.5">
             <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">
-              Tarefas atrasadas/hoje
+              Pendências
             </p>
           </div>
           {leadRequests.length > 0 && (
@@ -167,6 +254,21 @@ export function NotificationBell() {
               )
             ) : (
               <>
+                {consultantRequestTasks.length > 0 && (
+                  <ConsultantRequestGroup
+                    tasks={consultantRequestTasks}
+                    handlingTaskId={handlingTaskId}
+                    feedback={taskFeedback}
+                    dismissingTaskId={dismissingTaskId}
+                    error={taskActionError}
+                    onNavigate={() => setOpen(false)}
+                    onSnooze={(id) => void handleConsultantRequestTask(id, "snooze")}
+                    onComplete={(id) => void handleConsultantRequestTask(id, "complete")}
+                  />
+                )}
+                {quotaRegistrationTasks.length > 0 && (
+                  <QuotaRegistrationGroup tasks={quotaRegistrationTasks} onNavigate={() => setOpen(false)} />
+                )}
                 {overdueTasks.length > 0 && (
                   <NotificationGroup label="Atrasadas" tasks={overdueTasks} tone="red" onNavigate={() => setOpen(false)} />
                 )}
@@ -180,11 +282,11 @@ export function NotificationBell() {
           {/* Footer: link agenda + botão silenciar/ativar push */}
           <div className="flex items-center justify-between border-t border-neutral-100 dark:border-neutral-800 px-4 py-2 gap-3">
             <Link
-              href="/agenda"
+              href={quotaRegistrationTasks.length > 0 && scheduleTasks.length === 0 ? "/cadastros" : "/agenda"}
               onClick={() => setOpen(false)}
               className="text-xs font-medium text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 hover:underline"
             >
-              Ver agenda completa
+              {quotaRegistrationTasks.length > 0 && scheduleTasks.length === 0 ? "Abrir cadastros" : "Ver agenda completa"}
             </Link>
 
             {showPushToggle && (
@@ -225,7 +327,199 @@ export function NotificationBell() {
   );
 }
 
-/** "Fulano pediu Beltrano pra carteira dele" — aprovar reatribui o contato na hora (ver PATCH /api/lead-requests/[id]); recusar só fecha o pedido; "Ver cliente" abre o popup de consulta (ver LeadRequestContactModal) antes de decidir. */
+/** Solicitação crítica do administrativo, persistente até adiar ou concluir o lembrete. */
+function consultantRequestHref(task: NotificationTask) {
+  return task.deal ? `/negocios/${task.deal.id}#pedido-administrativo` : "/agenda";
+}
+
+function consultantRequestContact(task: NotificationTask) {
+  return task.contact?.name ?? task.deal?.name ?? task.title.replace(/^Enviar documento:\s*/i, "");
+}
+
+function requestWhen(value: string) {
+  return new Date(value).toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "America/Campo_Grande",
+  });
+}
+
+function ConsultantRequestNudge({
+  task,
+  total,
+  busy,
+  feedback,
+  leaving,
+  error,
+  onOpen,
+  onSnooze,
+  onComplete,
+}: {
+  task: NotificationTask;
+  total: number;
+  busy: boolean;
+  feedback: "snooze" | "complete" | null;
+  leaving: boolean;
+  error: string | null;
+  onOpen: () => void;
+  onSnooze: () => void;
+  onComplete: () => void;
+}) {
+  const request = task.consultantRequest!;
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className={`surface-glass-panel animate-pop-in absolute top-11 right-0 z-50 w-[calc(100vw-1.5rem)] max-w-[22rem] origin-top-right overflow-hidden rounded-lg border border-neutral-200 shadow-2xl transition duration-200 ease-out dark:border-neutral-700 ${
+        leaving ? "pointer-events-none translate-y-1 scale-[0.98] opacity-0" : "translate-y-0 scale-100 opacity-100"
+      }`}
+    >
+      <div className="h-0.5 bg-amber-500" />
+      <div className="flex items-start gap-3 px-4 pt-3.5 pb-2">
+        <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
+          <FileWarning className="h-4 w-4" strokeWidth={2} />
+          <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-amber-500 ring-2 ring-white motion-safe:animate-pulse dark:ring-neutral-900" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold leading-5 text-neutral-900 dark:text-neutral-100">Cadastro aguardando você</p>
+              <p className="truncate text-sm text-neutral-700 dark:text-neutral-300">{consultantRequestContact(task)}</p>
+            </div>
+            {total > 1 && (
+              <button
+                type="button"
+                onClick={onOpen}
+                className="shrink-0 rounded-md bg-neutral-100 px-2 py-1 text-[11px] font-semibold text-neutral-600 transition-colors hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700"
+                title="Ver todas as solicitações"
+              >
+                +{total - 1}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+      <div className="px-4 pb-3">
+        <p className="text-sm font-medium leading-5 text-neutral-800 dark:text-neutral-200">{request.text}</p>
+        <p className="mt-1.5 text-xs text-neutral-500 dark:text-neutral-400">
+          {request.requestedBy} · {requestWhen(request.requestedAt)}
+        </p>
+      </div>
+      {error && (
+        <p className="border-t border-red-100 bg-red-50 px-4 py-2 text-xs text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300">{error}</p>
+      )}
+      {feedback ? (
+        <div
+          className={`animate-pop-in flex items-center gap-2 border-t px-4 py-3 text-sm font-medium ${
+            feedback === "complete"
+              ? "border-emerald-100 bg-emerald-50 text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-300"
+              : "border-neutral-100 bg-neutral-50 text-neutral-700 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200"
+          }`}
+        >
+          {feedback === "complete" ? <CircleCheck className="h-4 w-4" /> : <Clock3 className="h-4 w-4" />}
+          {feedback === "complete" ? "Marcado como concluído" : "Lembro você novamente em 1 hora"}
+        </div>
+      ) : (
+        <div className="border-t border-neutral-100 px-3 py-3 dark:border-neutral-800">
+          <Link href={consultantRequestHref(task)} className="btn-primary w-full justify-center" title="Abrir a venda e atender a solicitação">
+            <Eye className="h-4 w-4" strokeWidth={2} /> Abrir cadastro
+          </Link>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={onSnooze}
+              disabled={busy}
+              className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-neutral-200 text-xs font-medium text-neutral-600 transition-colors hover:bg-neutral-50 disabled:cursor-wait disabled:opacity-60 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+              title="Lembrar novamente em 1 hora"
+            >
+              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Clock3 className="h-3.5 w-3.5" />}
+              Lembrar em 1h
+            </button>
+            <button
+              type="button"
+              onClick={onComplete}
+              disabled={busy}
+              className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-emerald-200 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60 dark:border-emerald-500/30 dark:text-emerald-400 dark:hover:bg-emerald-500/10"
+              title="Concluir lembrete"
+            >
+              <CircleCheck className="h-3.5 w-3.5" /> Concluir
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ConsultantRequestGroup({
+  tasks,
+  handlingTaskId,
+  feedback,
+  dismissingTaskId,
+  error,
+  onNavigate,
+  onSnooze,
+  onComplete,
+}: {
+  tasks: NotificationTask[];
+  handlingTaskId: string | null;
+  feedback: { id: string; action: "snooze" | "complete" } | null;
+  dismissingTaskId: string | null;
+  error: string | null;
+  onNavigate: () => void;
+  onSnooze: (id: string) => void;
+  onComplete: (id: string) => void;
+}) {
+  return (
+    <div className="border-b border-amber-200/70 bg-amber-50/60 dark:border-amber-500/20 dark:bg-amber-500/[0.06]">
+      <p className="flex items-center gap-1.5 px-4 pt-2.5 pb-1 text-[11px] font-semibold uppercase text-amber-700 dark:text-amber-300">
+        <FileWarning className="h-3.5 w-3.5" /> Ação necessária para o cadastro
+      </p>
+      {error && <p className="px-4 py-1 text-xs text-red-600 dark:text-red-400">{error}</p>}
+      {tasks.map((task) => {
+        const request = task.consultantRequest!;
+        const busy = handlingTaskId === task.id;
+        const taskFeedback = feedback?.id === task.id ? feedback.action : null;
+        return (
+          <div
+            key={task.id}
+            className={`border-t border-amber-200/50 px-4 py-3 transition duration-200 first:border-t-0 dark:border-amber-500/15 ${
+              dismissingTaskId === task.id ? "translate-x-2 opacity-0" : "translate-x-0 opacity-100"
+            }`}
+          >
+            <Link href={consultantRequestHref(task)} onClick={onNavigate} className="block min-w-0 hover:underline">
+              <p className="truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100">{consultantRequestContact(task)}</p>
+              <p className="mt-0.5 line-clamp-2 text-xs leading-4 text-neutral-600 dark:text-neutral-300">{request.text}</p>
+            </Link>
+            <p className="mt-1 text-[11px] text-neutral-500 dark:text-neutral-400">
+              {request.requestedBy} · {requestWhen(request.requestedAt)}
+            </p>
+            {taskFeedback ? (
+              <p className={`mt-2 flex items-center gap-1.5 text-xs font-medium ${taskFeedback === "complete" ? "text-emerald-700 dark:text-emerald-400" : "text-neutral-600 dark:text-neutral-300"}`}>
+                {taskFeedback === "complete" ? <CircleCheck className="h-3.5 w-3.5" /> : <Clock3 className="h-3.5 w-3.5" />}
+                {taskFeedback === "complete" ? "Concluído" : "Lembrar em 1 hora"}
+              </p>
+            ) : (
+              <div className="mt-2 flex items-center gap-2">
+                <button type="button" onClick={() => onSnooze(task.id)} disabled={busy} className="btn-ghost text-xs">
+                  {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Clock3 className="h-3.5 w-3.5" />}
+                  Lembrar em 1h
+                </button>
+                <button type="button" onClick={() => onComplete(task.id)} disabled={busy} className="btn-ghost text-xs text-emerald-700 dark:text-emerald-400">
+                  <CircleCheck className="h-3.5 w-3.5" /> Concluir
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Pedido de lead: aprovar reatribui o contato; recusar apenas encerra o pedido. */
 function LeadRequestsGroup({
   requests,
   resolvingId,
@@ -298,6 +592,62 @@ function LeadRequestsGroup({
               </div>
             </div>
           </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Fila operacional do Administrativo: informa o que entrou, sem tratar a solicitacao como tarefa vencida. */
+function QuotaRegistrationGroup({
+  tasks,
+  onNavigate,
+}: {
+  tasks: NotificationTask[];
+  onNavigate: () => void;
+}) {
+  return (
+    <div>
+      <p className="px-4 pt-2.5 pb-1 text-[11px] font-semibold tracking-wide text-brand uppercase">
+        Cotas para cadastrar
+      </p>
+      {tasks.map((task) => {
+        const registration = task.quotaRegistration!;
+        const contactName = task.title.replace(/^Cadastrar cota:\s*/i, "");
+
+        return (
+          <Link
+            key={task.id}
+            href={task.deal ? `/cadastros/${task.deal.id}` : "/cadastros"}
+            onClick={onNavigate}
+            className="flex items-start gap-2.5 border-b border-neutral-50 px-4 py-2.5 text-sm last:border-0 hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-800"
+          >
+            <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-light dark:bg-[var(--brand-subtle)]">
+              <ClipboardCheck className="h-3 w-3 text-brand" strokeWidth={2} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-medium text-neutral-900 dark:text-neutral-100">{contactName}</p>
+              <p className="mt-0.5 truncate text-xs text-neutral-600 dark:text-neutral-300">
+                Consultor: <span className="font-medium">{registration.consultant}</span>
+              </p>
+              <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-neutral-500 dark:text-neutral-400">
+                <span className="font-medium tabular-nums text-neutral-700 dark:text-neutral-300">
+                  {registration.value === null ? "Valor não informado" : formatCurrency(registration.value)}
+                </span>
+                <span>
+                  Solicitada em{" "}
+                  {new Date(registration.requestedAt).toLocaleString("pt-BR", {
+                    day: "2-digit",
+                    month: "2-digit",
+                    year: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    timeZone: "America/Campo_Grande",
+                  })}
+                </span>
+              </div>
+            </div>
+          </Link>
         );
       })}
     </div>

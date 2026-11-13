@@ -29,7 +29,7 @@ export async function requireProcessAccess(): Promise<ProcessAccess> {
   const membership = await getCurrentMembership();
   if (!membership?.active) return { ok: false };
 
-  const isAdmin = membership.role === "OWNER" || membership.area === "ADMINISTRATIVO" || membership.canManageProcesses;
+  const isAdmin = membership.role === "OWNER" || membership.area === "ADMINISTRATIVO" || membership.area === "POS_CONTEMPLACAO" || membership.canManageProcesses;
   return { ok: true, isAdmin, organizationId: membership.organizationId, userId: membership.userId };
 }
 

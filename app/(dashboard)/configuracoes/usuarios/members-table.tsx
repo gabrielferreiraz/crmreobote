@@ -1,5 +1,6 @@
 "use client";
 
+import { AREA_LABELS, AREA_OPTIONS, type AreaValue } from "@/lib/areas";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -21,7 +22,7 @@ type Member = {
   role: "OWNER" | "MANAGER" | "SUPERVISOR" | "MEMBER";
   active: boolean;
   canManageProcesses: boolean;
-  area: "VENDAS" | "ADMINISTRATIVO";
+  area: AreaValue;
   /** "Conta na meta" — se as vendas ganhas desta pessoa entram na meta mensal
    * e nos números da TV (ver comentário completo em prisma/schema.prisma,
    * campo OrganizationUser.countsTowardGoal). */
@@ -216,7 +217,7 @@ export function MembersTable({
         (filters.teamId === "ALL" || m.team?.id === filters.teamId) &&
         (filters.whatsapp === "ALL" || (filters.whatsapp === "CONNECTED" ? m.whatsappConnected : !m.whatsappConnected)) &&
         (filters.area === "ALL" || m.area === filters.area) &&
-        (filters.processes === "ALL" || (filters.processes === "YES" ? m.canManageProcesses || m.role === "OWNER" || m.area === "ADMINISTRATIVO" : !m.canManageProcesses && m.role !== "OWNER" && m.area !== "ADMINISTRATIVO")) &&
+        (filters.processes === "ALL" || (filters.processes === "YES" ? m.canManageProcesses || m.role === "OWNER" || m.area === "ADMINISTRATIVO" || m.area === "POS_CONTEMPLACAO" : !m.canManageProcesses && m.role !== "OWNER" && m.area !== "ADMINISTRATIVO" && m.area !== "POS_CONTEMPLACAO")) &&
         (filters.ranking === "ALL" || (filters.ranking === "ACTIVE" ? hasRanking : !hasRanking))
       );
     });
@@ -558,6 +559,8 @@ export function MembersTable({
               <FilterOption label="Todas" selected={filters.area === "ALL"} onClick={() => updateFilter("area", "ALL")} />
               <FilterOption label="Vendas" selected={filters.area === "VENDAS"} onClick={() => updateFilter("area", "VENDAS")} />
               <FilterOption label="Administrativo" selected={filters.area === "ADMINISTRATIVO"} onClick={() => updateFilter("area", "ADMINISTRATIVO")} />
+              <FilterOption label="Financeiro" selected={filters.area === "FINANCEIRO"} onClick={() => updateFilter("area", "FINANCEIRO")} />
+              <FilterOption label="Pós-contemplação" selected={filters.area === "POS_CONTEMPLACAO"} onClick={() => updateFilter("area", "POS_CONTEMPLACAO")} />
             </FilterHeader>
             <FilterHeader label="Processos" filterKey="processes" active={filters.processes !== "ALL"} openFilter={openFilter} onToggle={setOpenFilter}>
               <FilterOption label="Todos" selected={filters.processes === "ALL"} onClick={() => updateFilter("processes", "ALL")} />
@@ -575,7 +578,7 @@ export function MembersTable({
             const effectiveLastActiveAt = m.user.id in presence ? presence[m.user.id] : m.lastActiveAt;
             const online = isOnline(effectiveLastActiveAt);
             const seenFull = lastSeenFull(effectiveLastActiveAt);
-            const hasImplicitProcessAccess = m.role === "OWNER" || m.area === "ADMINISTRATIVO";
+            const hasImplicitProcessAccess = m.role === "OWNER" || m.area === "ADMINISTRATIVO" || m.area === "POS_CONTEMPLACAO";
 
             return (
             <div
@@ -690,21 +693,18 @@ export function MembersTable({
                   <span className="text-xs text-neutral-400 dark:text-neutral-500">—</span>
                 ) : isOwner ? (
                   <div
-                    title="Área de atuação — Administrativo troca a tela inicial e os relatórios pra pós-venda, tira o acesso ao CRM de vendas e dá acesso total a Processos (todos os clientes ganhos da organização)"
+                    title="Área de atuação — Administrativo cadastra a cota; Financeiro cuida de parcelas e comissões; Pós-contemplação cuida dos processos. Quem não é de Vendas deixa de usar o CRM de vendas."
                   >
                     <Select
                       value={m.area}
                       onChange={(v) => setArea(m.user.id, v as Member["area"])}
                       className="w-full py-1.5 text-xs"
-                      options={[
-                        { value: "VENDAS", label: "Vendas" },
-                        { value: "ADMINISTRATIVO", label: "Administrativo" },
-                      ]}
+                      options={AREA_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
                     />
                   </div>
                 ) : (
-                  <Badge tone={m.area === "ADMINISTRATIVO" ? "accent" : "neutral"}>
-                    {m.area === "ADMINISTRATIVO" ? "Administrativo" : "Vendas"}
+                  <Badge tone={m.area !== "VENDAS" ? "accent" : "neutral"}>
+                    {AREA_LABELS[m.area]}
                   </Badge>
                 )}
               </div>
@@ -911,10 +911,7 @@ export function MembersTable({
                 <Select
                   value={area}
                   onChange={(v) => setNewMemberArea(v as Member["area"])}
-                  options={[
-                    { value: "VENDAS", label: "Vendas" },
-                    { value: "ADMINISTRATIVO", label: "Administrativo (pós-venda)" },
-                  ]}
+                  options={AREA_OPTIONS.map((o) => ({ value: o.value, label: `${o.label} — ${o.hint}` }))}
                 />
               </div>
             )}

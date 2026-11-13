@@ -10,6 +10,7 @@ import { acquireCronLock } from "@/lib/cron-lock";
 import { recordCronRun, runLockedCron } from "@/lib/cron-run";
 import { scheduleServopaMonthlySync } from "@/lib/servopa-tables/scheduler";
 import { purgeExpiredRegistrationDocuments } from "@/lib/deal-registration/purge";
+import { sendDueAdministrativePushReminders } from "@/lib/push-reminders/service";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +22,7 @@ const CRON_NAME = "automations";
 // caminhos moram no mesmo arquivo) — pegam carona neste mesmo tick — já
 // roda a cada 1-2min via cron-job.org em produção, então não precisa de uma
 // entrada de cron externa nova (config manual, fora do código, que ninguém
-// lembraria de criar). Os quatro jobs são independentes (cada um faz seu
+// lembraria de criar). Os jobs são independentes (cada um faz seu
 // próprio loop por organização com runWithTenant próprio), então Promise.all
 // é seguro.
 //
@@ -43,12 +44,16 @@ const CRON_NAME = "automations";
 // tick de automations (por isso o .catch em cada um, não deixado estourar
 // pro Promise.all inteiro).
 async function runCronTick() {
-  const [automations, scheduledMessages, meetingReminders, selfReminders, academyCleanup, servopaTables, registrationDocs, campaignsBackstop, webhooksBackstop] =
+  const [automations, scheduledMessages, meetingReminders, selfReminders, administrativePushReminders, academyCleanup, servopaTables, registrationDocs, campaignsBackstop, webhooksBackstop] =
     await Promise.all([
       runAutomations(),
       sendDueScheduledTaskMessages(),
       sendDueMeetingReminders(),
       sendDueSelfReminders(),
+      sendDueAdministrativePushReminders().catch((err) => {
+        console.error("[cron:automations] lembretes push administrativos falharam", err);
+        return { checked: 0, claimed: 0, sent: 0, materialized: 0, outsideBusinessHours: 0, failed: true };
+      }),
       cleanupExpiredAcademyCredentials().catch((err) => {
         console.error("[cron:automations] limpeza de credenciais da Academy falhou", err);
         return { skipped: false, deleted: 0, cleanupFailed: true };
@@ -74,7 +79,7 @@ async function runCronTick() {
         return { backstopFailed: true };
       }),
     ]);
-  return { automations, scheduledMessages, meetingReminders, selfReminders, academyCleanup, servopaTables, registrationDocs, campaignsBackstop, webhooksBackstop };
+  return { automations, scheduledMessages, meetingReminders, selfReminders, administrativePushReminders, academyCleanup, servopaTables, registrationDocs, campaignsBackstop, webhooksBackstop };
 }
 
 async function handleCron() {

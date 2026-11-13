@@ -7,6 +7,8 @@
  * filters-url-restore.tsx) — a fonte da verdade continua sendo a URL.
  */
 export const PIPELINE_FILTER_KEY = "crm:filters:relatorios:pipelineId";
+// Lista JSON de equipes/consultores. A URL usa `who` repetido, como o filtro
+// de tags já faz com `tag`.
 export const WHO_FILTER_KEY = "crm:filters:relatorios:who";
 // Lista de tags escolhidas, em JSON (["Lead","Cliente"]) — a URL leva uma
 // `tag` repetida por tag escolhida (ver lib/reports/tags.ts).

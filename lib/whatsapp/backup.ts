@@ -19,7 +19,7 @@ export type BackupMember = {
   email: string;
   image: string | null;
   role: "OWNER" | "MANAGER" | "SUPERVISOR" | "MEMBER";
-  area: "VENDAS" | "ADMINISTRATIVO";
+  area: "VENDAS" | "ADMINISTRATIVO" | "FINANCEIRO" | "POS_CONTEMPLACAO";
   active: boolean;
   threads: number;
   /** Conversas congeladas (a instância foi apagada junto com a desativação). */

@@ -146,6 +146,7 @@ export const HELP_TOPICS: HelpTopic[] = [
     summary: "Simulação de prazos, cotas e parcelas para apresentar ao cliente com login via SSO.",
     category: "produtividade",
     icon: "Calculator",
+    salesOnly: true,
     keywords: ["simulador", "simulação", "simular", "cota", "parcela", "prazo", "consórcio", "crédito", "calculadora"],
     steps: [
       "Clique no ícone de calculadora no topo do CRM para abrir o Simulador.",
@@ -160,6 +161,7 @@ export const HELP_TOPICS: HelpTopic[] = [
     summary: "Aulas em vídeo, tutoriais de vendas e passo a passo completo da plataforma.",
     category: "primeiros-passos",
     icon: "GraduationCap",
+    salesOnly: true,
     keywords: ["treinamento", "academy", "aula", "curso", "vídeo", "aprender", "tutorial", "capacitação", "vendas"],
     steps: [
       "Clique no ícone de capelo no topo do CRM para acessar o Reobote Academy.",
@@ -331,11 +333,13 @@ export const HELP_TOPICS: HelpTopic[] = [
     category: "pipeline",
     icon: "Trophy",
     salesOnly: true,
-    keywords: ["ganho", "ganhar", "vendeu", "fechou", "venda", "comissão", "ranking", "contemplado", "sucesso", "fechar negócio", "assinou", "vendi", "fechei", "ganhei"],
+    keywords: ["ganho", "ganhar", "vendeu", "fechou", "venda", "comissão", "ranking", "contemplado", "sucesso", "fechar negócio", "assinou", "vendi", "fechei", "ganhei", "cadastro do cliente", "documento", "cnh", "rg", "administrativo pediu", "pedido do administrativo"],
     steps: [
       "Abra o negócio e marque como ganho.",
       "Informe a data do fechamento — o relatório e o ranking usam essa data, não a de hoje.",
+      "Escolha a administradora: o CRM abre o cadastro do cliente (documento com foto, CPF, endereço, renda, e a cota vendida: grupo, prazo e forma de pagamento; a cota e o dígito quem preenche é o administrativo). Ele salva sozinho, dá para fechar e voltar depois, e o botão só libera com tudo preenchido.",
       "Se faltar valor ou cargo do cliente, o CRM pede na hora: esses campos são o que faz o relatório fechar certo.",
+      "Depois do ganho, se o administrativo precisar de mais algum documento, aparece na venda o cartão “Pedido do administrativo” (e você recebe um aviso no celular): envie o arquivo ali mesmo.",
     ],
     note: {
       kind: "tip",

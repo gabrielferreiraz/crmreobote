@@ -45,14 +45,15 @@ export default async function DashboardLayout({ children }: { children: React.Re
   if (!membership?.active) redirect("/api/auth/deactivated");
 
   const photoUrlPromise = resolveAvatarUrl(membership.photoKey);
-  const isAdministrativo = membership.area === "ADMINISTRATIVO";
+  // "isAdministrativo" aqui = retaguarda (qualquer área que não vende); cada área tem o menu próprio (ver top-nav-links.tsx).
+  const isAdministrativo = membership.area !== "VENDAS";
   // Painel de Nichos: só pra quem lidera gente (Supervisor/Gerente) ou Dono
   // — consultor comum (MEMBER) não usa esta ferramenta. Checado de novo no
   // servidor (GET /api/painel-nichos-sso) — este só decide se o BOTÃO aparece.
   const canUsePainelNichos = membership.role !== "MEMBER";
   // Mesma regra de lib/sheets/access.ts (a página e as rotas conferem de novo).
   const showSheets = canUseSheets(membership);
-  const showRegistrations = membership.role === "OWNER" || isAdministrativo;
+  const showRegistrations = membership.role === "OWNER" || membership.area === "ADMINISTRATIVO";
   // Comissões: quem cuida delas sempre vê (pra montar o módulo antes de
   // ligar); quem vende, só depois de ligado (Organization.commissionStartDate).
   // Administrativo comum não recebe comissão de venda — não vê.
@@ -162,7 +163,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         </Link>
 
         <AdaptiveHeaderRow
-          nav={<TopNavLinks isAdministrativo={isAdministrativo} showCommissions={commissionsInTopNav} showSheets={showSheets} showRegistrations={showRegistrations} />}
+          nav={<TopNavLinks area={membership.area} isAdministrativo={isAdministrativo} showCommissions={commissionsInTopNav} showSheets={showSheets} showRegistrations={showRegistrations} />}
           fullActions={
             <>
               <CommandPalette />
@@ -183,32 +184,36 @@ export default async function DashboardLayout({ children }: { children: React.Re
           }
           fixedActions={
             <>
-              <a
-                href="/api/simulador-sso"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn-secondary btn-sm group overflow-hidden transition-all duration-300"
-                title="Simulador"
-              >
-                <Calculator className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
-                <span className="max-w-0 overflow-hidden opacity-0 whitespace-nowrap transition-all duration-300 ease-in-out group-hover:ml-1 group-hover:max-w-xs group-hover:opacity-100">
-                  Simulador
-                </span>
-              </a>
-              {academyHref && (
-                <a
-                  href={academyHref}
-                  data-help="academy"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="btn-secondary btn-sm group overflow-hidden transition-all duration-300"
-                  title="Treinamento"
-                >
-                  <GraduationCap className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
-                  <span className="max-w-0 overflow-hidden opacity-0 whitespace-nowrap transition-all duration-300 ease-in-out group-hover:ml-1 group-hover:max-w-xs group-hover:opacity-100">
-                    Treinamento
-                  </span>
-                </a>
+              {!isAdministrativo && (
+                <>
+                  <a
+                    href="/api/simulador-sso"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn-secondary btn-sm group overflow-hidden transition-all duration-300"
+                    title="Simulador"
+                  >
+                    <Calculator className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+                    <span className="max-w-0 overflow-hidden opacity-0 whitespace-nowrap transition-all duration-300 ease-in-out group-hover:ml-1 group-hover:max-w-xs group-hover:opacity-100">
+                      Simulador
+                    </span>
+                  </a>
+                  {academyHref && (
+                    <a
+                      href={academyHref}
+                      data-help="academy"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn-secondary btn-sm group overflow-hidden transition-all duration-300"
+                      title="Treinamento"
+                    >
+                      <GraduationCap className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+                      <span className="max-w-0 overflow-hidden opacity-0 whitespace-nowrap transition-all duration-300 ease-in-out group-hover:ml-1 group-hover:max-w-xs group-hover:opacity-100">
+                        Treinamento
+                      </span>
+                    </a>
+                  )}
+                </>
               )}
               <NotificationBell />
               <UserMenu
@@ -226,13 +231,14 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
       <AppMain>{children}</AppMain>
 
-      <MobileNav signOutAction={handleSignOut} isAdministrativo={isAdministrativo} academyHref={academyHref} showCommissions={showCommissions} showSheets={showSheets} showRegistrations={showRegistrations} />
+      <MobileNav signOutAction={handleSignOut} area={membership.area} isAdministrativo={isAdministrativo} academyHref={academyHref} showCommissions={showCommissions} showSheets={showSheets} showRegistrations={showRegistrations} />
       <InstallPwaPrompt />
       <PresenceHeartbeat />
       <PushNotificationsPrompt />
       {/* Aviso de cadastro de CNPJ (nome da empresa no Ranking da TV): só pros
-          consultores — o Dono não precisa ser cobrado por ele. */}
-      {membership.role !== "OWNER" && <CnpjPrompt />}
+          quem vende (área Vendas). Dono e a retaguarda (Administrativo,
+          Financeiro, Pós-contemplação) não aparecem no ranking. */}
+      {membership.role !== "OWNER" && membership.area === "VENDAS" && <CnpjPrompt />}
       <ProductivityTipsHost />
       {membership.academyOnboardingStatus === "CRM_UNLOCKED" && !membership.academyShortcutHintSeenAt && (
         <AcademyShortcutHint />

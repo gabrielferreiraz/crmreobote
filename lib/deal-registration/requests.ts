@@ -6,7 +6,10 @@
 
 import { prisma } from "@/lib/prisma";
 import { sendPushToUser } from "@/lib/push";
+import { createAdministrativePushReminder } from "@/lib/push-reminders/service";
+import { pushReminderEventKey, pushReminderScopeKey } from "@/lib/push-reminders/keys";
 import { logAudit } from "@/lib/audit-log";
+import { getDealAuditLabel } from "@/lib/deal-registration/audit";
 import {
   REQUEST_MAX_ITEMS,
   REQUEST_MESSAGE_MAX,
@@ -33,6 +36,8 @@ export class DocumentRequestError extends Error {
   constructor(
     message: string,
     public status: number,
+    /** Conflito de gravação simultânea: vale tentar de novo com o estado atual. */
+    public retryable = false,
   ) {
     super(message);
   }
@@ -140,18 +145,24 @@ export async function createDocumentRequest(params: {
   const title = `${REQUEST_TASK_TITLE_PREFIX} ${deal.contact.name}`;
   const description = `${actor.name} pediu: ${summary}.${message ? ` “${message}”` : ""} Abra a venda e envie pelo cartão “Pedido do administrativo”.`;
   for (const userId of recipients) {
-    const open = await prisma.task.findFirst({ where: { organizationId, dealId, ownerId: userId, title, completedAt: null }, select: { id: true } });
-    if (open) {
-      await prisma.task.update({ where: { id: open.id }, data: { description } });
-    } else {
-      await prisma.task.create({
-        data: { organizationId, dealId, contactId: deal.contactId, ownerId: userId, type: "OTHER", title, description, dueAt: new Date() },
-      });
+    // O pedido já está salvo: uma falha ao avisar (tarefa ou push) nunca pode derrubar a resposta
+    // (o administrativo refaria o pedido e o consultor receberia duplicado).
+    try {
+      const open = await prisma.task.findFirst({ where: { organizationId, dealId, ownerId: userId, title, completedAt: null }, select: { id: true } });
+      if (open) {
+        await prisma.task.update({ where: { id: open.id }, data: { description } });
+      } else {
+        await prisma.task.create({
+          data: { organizationId, dealId, contactId: deal.contactId, ownerId: userId, type: "OTHER", title, description, dueAt: new Date() },
+        });
+      }
+    } catch (err) {
+      console.error("[deal-registration] falha ao criar a tarefa do pedido", err);
     }
     await sendPushToUser(userId, {
-      title: "Documento pedido pelo administrativo",
-      body: `${deal.contact.name} · ${summary}`,
-      url: `/negocios/${dealId}`,
+      title: "Cadastro bloqueado: ação necessária",
+      body: `${deal.contact.name} · ${message || summary}`,
+      url: `/negocios/${dealId}#pedido-administrativo`,
     }).catch((err) => console.error("[deal-registration] falha no push do pedido", err));
   }
 
@@ -162,12 +173,13 @@ export async function createDocumentRequest(params: {
     action: "DEAL_DOCUMENT_REQUESTED",
     targetType: "Deal",
     targetId: dealId,
-    detail: summary,
+    targetLabel: deal.contact.name,
+    detail: `Pediu: ${summary}${message ? ` — “${message}”` : ""}`,
   });
   return toDTO(created);
 }
 
-export async function completeRequestItem(params: {
+async function completeRequestItemOnce(params: {
   organizationId: string;
   dealId: string;
   requestId: string;
@@ -210,17 +222,51 @@ export async function completeRequestItem(params: {
     where: { id: requestId, organizationId, status: "OPEN", updatedAt: row.updatedAt },
     data: { items: items as unknown as object, ...(fulfilled ? { status: "FULFILLED" as const, resolvedAt: new Date() } : {}) },
   });
-  if (result.count === 0) throw new DocumentRequestError("O pedido mudou agora há pouco. Atualize a página e tente de novo.", 409);
+  if (result.count === 0) throw new DocumentRequestError("O pedido mudou agora há pouco. Atualize a página e tente de novo.", 409, true);
+
+  const auditLabel = await getDealAuditLabel(organizationId, dealId).catch(() => null);
+  await logAudit({
+    organizationId,
+    actorUserId: actor.userId,
+    actorName: actor.name,
+    action: "DEAL_DOCUMENT_REQUEST_ANSWERED",
+    targetType: "Deal",
+    targetId: dealId,
+    targetLabel: auditLabel,
+    detail: `${item.label}${item.needsFile ? ` — ${item.documentIds.length} arquivo(s) enviado(s)` : ""}${note ? `: “${note}”` : ""}`,
+  });
+  if (fulfilled) {
+    await logAudit({
+      organizationId,
+      actorUserId: actor.userId,
+      actorName: actor.name,
+      action: "DEAL_DOCUMENT_REQUEST_FULFILLED",
+      targetType: "Deal",
+      targetId: dealId,
+      targetLabel: auditLabel,
+      detail: `Pedido de ${row.requestedByName} atendido por completo (${items.length} ${items.length === 1 ? "item" : "itens"}).`,
+    });
+  }
 
   if (fulfilled) {
-    await closeConsultantTasksIfDone(organizationId, dealId);
-    const deal = await dealPeople(organizationId, dealId);
-    if (row.requestedById !== actor.userId) {
-      await sendPushToUser(row.requestedById, {
-        title: "Consultor atendeu o pedido",
-        body: `${deal?.contact.name ?? "Cliente"} · ${items.map((i) => i.label).join(", ")}`,
-        url: `/cadastros/${dealId}`,
-      }).catch((err) => console.error("[deal-registration] falha no push da resposta", err));
+    // Já está salvo: tarefa e aviso são acessórios e não derrubam a resposta.
+    try {
+      await closeConsultantTasksIfDone(organizationId, dealId);
+      const deal = await dealPeople(organizationId, dealId);
+      if (row.requestedById !== actor.userId) {
+        await createAdministrativePushReminder({
+          organizationId,
+          userId: row.requestedById,
+          kind: "ADMIN_DOCUMENT_RESPONSE",
+          eventKey: pushReminderEventKey.documentResponse(requestId),
+          scopeKey: pushReminderScopeKey.deal(dealId),
+          title: "Consultor atendeu o pedido",
+          body: `${deal?.contact.name ?? "Cliente"} · ${items.map((i) => i.label).join(", ")}`,
+          url: `/cadastros/${dealId}`,
+        });
+      }
+    } catch (err) {
+      console.error("[deal-registration] falha ao avisar que o pedido foi atendido", err);
     }
   }
 
@@ -244,7 +290,7 @@ export async function cancelDocumentRequest(params: {
     data: { status: "CANCELLED", resolvedAt: new Date() },
   });
   if (result.count === 0) throw new DocumentRequestError("Este pedido já foi encerrado.", 409);
-  await closeConsultantTasksIfDone(organizationId, dealId);
+  await closeConsultantTasksIfDone(organizationId, dealId).catch((err) => console.error("[deal-registration] falha ao fechar a tarefa do pedido", err));
   void logAudit({
     organizationId,
     actorUserId: actor.userId,
@@ -252,8 +298,25 @@ export async function cancelDocumentRequest(params: {
     action: "DEAL_DOCUMENT_REQUEST_CANCELLED",
     targetType: "Deal",
     targetId: dealId,
-    detail: summarizeRequestItems(parseRequestItems(row.items), 3),
+    targetLabel: await getDealAuditLabel(organizationId, dealId).catch(() => null),
+    detail: `Cancelou o pedido de: ${summarizeRequestItems(parseRequestItems(row.items), 3) || "todos os itens já atendidos"}`,
   });
   const updated = await prisma.dealDocumentRequest.findFirst({ where: { id: requestId, organizationId }, select: SELECT });
   return toDTO(updated ?? row);
+}
+
+/**
+ * Atende um item. Dois envios quase juntos (ex.: frente e verso em itens
+ * diferentes) disputam a mesma linha: quem perde a corrida relê o estado atual
+ * e tenta de novo, em vez de devolver erro com o arquivo já enviado.
+ */
+export async function completeRequestItem(params: Parameters<typeof completeRequestItemOnce>[0]): Promise<{ request: DocumentRequestDTO; fulfilled: boolean }> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await completeRequestItemOnce(params);
+    } catch (err) {
+      if (err instanceof DocumentRequestError && err.retryable && attempt < 3) continue;
+      throw err;
+    }
+  }
 }

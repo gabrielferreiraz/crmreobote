@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Download, ExternalLink, Eye, FileText, ImageOff } from "lucide-react";
 import { Modal } from "@/components/modal";
+import { DocumentTextPanel } from "@/components/deal-registration/document-text-panel";
 
 const IMAGE_EXT = /\.(png|jpe?g|webp)$/i;
 
@@ -57,11 +58,27 @@ export function DocumentThumb({
   );
 }
 
-/** Visualizador em tela grande: imagem inteira ou PDF paginado, com baixar e abrir em outra aba. */
-export function DocumentViewer({ src, fileName, onClose }: { src: string; fileName: string; onClose: () => void }) {
+/**
+ * Visualizador em tela grande: imagem inteira ou PDF paginado, com baixar e abrir em outra aba.
+ * Com `showText` (Administrativo), o texto do documento aparece ao lado, pronto para copiar.
+ */
+export function DocumentViewer({
+  src,
+  fileName,
+  onClose,
+  showText = false,
+  onTextCopied,
+}: {
+  src: string;
+  fileName: string;
+  onClose: () => void;
+  showText?: boolean;
+  /** Chamado quando alguém copia texto lido do documento (para a auditoria). */
+  onTextCopied?: () => void;
+}) {
   const image = isImageFile(fileName);
   return (
-    <Modal onClose={onClose} maxWidth="max-w-4xl">
+    <Modal onClose={onClose} maxWidth={showText ? "max-w-6xl" : "max-w-4xl"}>
       <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="min-w-0 flex-1 truncate text-base font-semibold text-neutral-900 dark:text-neutral-100">{fileName}</h2>
@@ -72,12 +89,19 @@ export function DocumentViewer({ src, fileName, onClose }: { src: string; fileNa
             <ExternalLink className="h-3.5 w-3.5" /> Abrir em outra aba
           </a>
         </div>
-        <div className="overflow-hidden rounded-xl bg-neutral-100 dark:bg-neutral-950/60">
-          {image ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={src} alt={fileName} className="mx-auto max-h-[72vh] w-auto max-w-full object-contain" />
-          ) : (
-            <iframe src={src} title={fileName} className="h-[72vh] w-full border-0" />
+        <div className={showText ? "grid gap-3 lg:grid-cols-[minmax(0,1fr)_340px]" : undefined}>
+          <div className="overflow-hidden rounded-xl bg-neutral-100 dark:bg-neutral-950/60">
+            {image ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={src} alt={fileName} className="mx-auto max-h-[72vh] w-auto max-w-full object-contain" />
+            ) : (
+              <iframe src={src} title={fileName} className="h-[72vh] w-full border-0" />
+            )}
+          </div>
+          {showText && (
+            <div className="flex max-h-[72vh] min-h-0 flex-col">
+              <DocumentTextPanel src={src} fileName={fileName} onCopied={onTextCopied} />
+            </div>
           )}
         </div>
         <div className="flex justify-end">

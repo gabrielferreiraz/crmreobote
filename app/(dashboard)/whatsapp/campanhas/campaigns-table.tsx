@@ -85,6 +85,7 @@ type Campaign = {
   followUpEnabled: boolean;
   followUpDelayHours: number;
   createdAt: string;
+  scheduledAt: string | null;
   counts: { pending: number; sent: number; failed: number; skipped: number; replied: number };
   /** false = só enxerga (envio em massa do Pipeline em que só parte dos destinatários saiu do WhatsApp dela) — sem botões de gerenciar. */
   canManage: boolean;
@@ -565,7 +566,10 @@ export function CampaignsTable({
               {visibleCampaigns.map((campaign) => {
                 const total = campaign.counts.pending + campaign.counts.sent + campaign.counts.failed + campaign.counts.skipped;
                 const { sent, pending, failed, skipped, replied } = campaign.counts;
-                const meta = STATUS_META[campaign.status];
+                const waitingForSchedule = campaign.status === "DRAFT" && campaign.scheduledAt !== null;
+                const meta = waitingForSchedule
+                  ? { label: "Programada", tone: "blue" as BadgeTone, icon: Hourglass }
+                  : STATUS_META[campaign.status];
                 const StatusIcon = meta.icon;
                 const expanded = expandedCampaignId === campaign.id;
                 const replyRate = sent > 0 ? fmtPercent(replied, sent) : "0%";
@@ -586,6 +590,12 @@ export function CampaignsTable({
                         <p className="mt-1 truncate text-sm text-neutral-500 dark:text-neutral-400">
                           Para: {audienceDisplay(campaign)}
                         </p>
+                        {waitingForSchedule && (
+                          <p className="mt-1 inline-flex items-center gap-1.5 text-xs font-medium text-indigo-700 dark:text-indigo-300">
+                            <Clock className="h-3 w-3" strokeWidth={2} />
+                            Começa {new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Cuiaba" }).format(new Date(campaign.scheduledAt!))}
+                          </p>
+                        )}
                         {campaign.status === "PAUSED" && campaign.pausedReason && (
                           <p className="mt-1 inline-flex items-center gap-1.5 text-xs font-medium text-amber-700 dark:text-amber-400" title={PAUSE_REASON_BADGE[campaign.pausedReason].hint}>
                             <Unplug className="h-3 w-3" strokeWidth={2.5} />
@@ -619,7 +629,7 @@ export function CampaignsTable({
                       </div>
 
                       <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-                        {campaign.canManage && (campaign.status === "DRAFT" || campaign.status === "PAUSED") && (
+                        {campaign.canManage && (campaign.status === "PAUSED" || (campaign.status === "DRAFT" && !waitingForSchedule)) && (
                           <button
                             type="button"
                             disabled={busyId === campaign.id}
@@ -687,6 +697,14 @@ export function CampaignsTable({
                                 <dt className="text-xs text-neutral-500 dark:text-neutral-400">WhatsApp</dt>
                                 <dd className="mt-0.5 font-medium text-neutral-800 dark:text-neutral-200">{campaign.instanceName}</dd>
                               </div>
+                              {campaign.scheduledAt && (
+                                <div>
+                                  <dt className="text-xs text-neutral-500 dark:text-neutral-400">Início programado</dt>
+                                  <dd className="mt-0.5 font-medium tabular-nums text-neutral-800 dark:text-neutral-200">
+                                    {new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Cuiaba" }).format(new Date(campaign.scheduledAt))}
+                                  </dd>
+                                </div>
+                              )}
                               <div>
                                 <dt className="text-xs text-neutral-500 dark:text-neutral-400">Criada por</dt>
                                 <dd className="mt-0.5 font-medium text-neutral-800 dark:text-neutral-200">{campaign.createdByName}</dd>

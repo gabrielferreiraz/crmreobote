@@ -21,6 +21,8 @@ import { getCurrentMembership } from "@/lib/current-membership";
 import { canWaiveRegistration } from "@/lib/deal-registration/rules";
 import { evaluateWonGate, markRegistrationWon, notifyAdministrativeQuotaRegistration } from "@/lib/deal-registration/service";
 import { logAudit } from "@/lib/audit-log";
+import { getClientIp } from "@/lib/rate-limit";
+import type { AuditChange } from "@/lib/audit-diff";
 
 export const dynamic = "force-dynamic";
 
@@ -421,6 +423,63 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       });
     }
 
+    // Auditoria: o que muda a situação, o responsável ou o dinheiro da venda (quem, quando, antes -> depois).
+    // Nunca impede a edição: qualquer falha aqui só vai para o log de erro.
+    try {
+      const auditBase = {
+        organizationId,
+        actorUserId: userId,
+        actorName: access.session?.user?.name ?? "Usuário",
+        targetType: "Deal",
+        targetId: id,
+        targetLabel: deal.contact.name,
+        ip: getClientIp(req),
+      };
+      const statusLabel = { OPEN: "Em andamento", WON: "Ganho", LOST: "Perdido" } as const;
+      const day = (d: Date | null | undefined) => (d ? d.toLocaleDateString("pt-BR", { timeZone: "America/Campo_Grande" }) : null);
+      if (status && status !== existing.status) {
+        const changes: AuditChange[] = [{ field: "status", label: "Situação", from: statusLabel[existing.status], to: statusLabel[status] }];
+        if (closedAt) changes.push({ field: "closedAt", label: "Data do fechamento", from: day(existing.closedAt), to: day(closedAt) });
+        if (status === "LOST" && lossReasonLabel) changes.push({ field: "lossReason", label: "Motivo da perda", from: null, to: lossReasonLabel });
+        await logAudit({
+          ...auditBase,
+          action: status === "WON" ? "DEAL_WON" : status === "LOST" ? "DEAL_LOST" : "DEAL_REOPENED",
+          detail: `${deal.name}: ${statusLabel[existing.status]} → ${statusLabel[status]}`,
+          changes,
+        });
+      }
+      if (ownerChanged) {
+        const previousOwnerName = (await prisma.user.findUnique({ where: { id: existing.ownerId }, select: { name: true } }))?.name ?? null;
+        await logAudit({
+          ...auditBase,
+          action: "DEAL_OWNER_CHANGED",
+          detail: `${deal.name}: ${previousOwnerName ?? "sem responsável"} → ${deal.owner.name}`,
+          changes: [{ field: "ownerId", label: "Responsável", from: previousOwnerName, to: deal.owner.name }],
+        });
+      }
+      const moneyChanges: AuditChange[] = [];
+      if (valueChanged) moneyChanges.push({ field: "value", label: "Valor líquido", from: currentValue != null ? formatCurrency(currentValue) : null, to: value != null ? formatCurrency(value) : null });
+      if (grossValueChanged) moneyChanges.push({ field: "grossValue", label: "Valor bruto", from: currentGrossValue != null ? formatCurrency(currentGrossValue) : null, to: grossValue != null ? formatCurrency(grossValue) : null });
+      if (creditType !== undefined && (creditType || null) !== (existing.creditType || null)) {
+        moneyChanges.push({ field: "creditType", label: "Categoria", from: existing.creditType || null, to: creditType || null });
+      }
+      if (updateData.administratorId !== undefined) {
+        const ids = [existing.administratorId, updateData.administratorId].filter((x): x is string => !!x);
+        const names = new Map((await prisma.consortiumAdministrator.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } })).map((a) => [a.id, a.name]));
+        moneyChanges.push({
+          field: "administratorId",
+          label: "Administradora",
+          from: existing.administratorId ? (names.get(existing.administratorId) ?? null) : null,
+          to: updateData.administratorId ? (names.get(updateData.administratorId) ?? null) : null,
+        });
+      }
+      if (moneyChanges.length > 0) {
+        await logAudit({ ...auditBase, action: "DEAL_VALUE_CHANGED", detail: `${deal.name}`, changes: moneyChanges });
+      }
+    } catch (err) {
+      console.error("[audit] falha ao registrar a alteração do negócio", err);
+    }
+
     recordUserChange(organizationId, userId).catch((err) =>
       console.error("[user-activity] falha ao registrar alteração", err),
     );
@@ -445,6 +504,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
                   action: "DEAL_REGISTRATION_WAIVED",
                   targetType: "Deal",
                   targetId: id,
+                  targetLabel: deal.contact.name,
                   detail: waivedReason,
                 });
               }
@@ -491,7 +551,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   });
 }
 
-export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
   const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
@@ -541,7 +601,19 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
     // sem Ctrl+Z pra ele.
     const linkedProcess = await prisma.process.findUnique({ where: { dealId: id } });
 
+    const contactForAudit = await prisma.contact.findUnique({ where: { id: existing.contactId }, select: { name: true } });
     await prisma.deal.delete({ where: { id } });
+    await logAudit({
+      organizationId: access.organizationId,
+      actorUserId: access.userId,
+      actorName: access.session?.user?.name ?? "Usuário",
+      action: "DEAL_DELETED",
+      targetType: "Deal",
+      targetId: id,
+      targetLabel: contactForAudit?.name ?? existing.name,
+      detail: `${existing.name} (${existing.status === "WON" ? "ganho" : existing.status === "LOST" ? "perdido" : "em andamento"}${existing.value != null ? `, ${formatCurrency(Number(existing.value))}` : ""}) foi apagado.`,
+      ip: getClientIp(req),
+    });
     recordUserChange(access.organizationId, access.userId).catch((err) =>
       console.error("[user-activity] falha ao registrar alteração", err),
     );

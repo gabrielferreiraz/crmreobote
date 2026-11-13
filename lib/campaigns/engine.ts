@@ -691,6 +691,14 @@ export async function runCampaigns(): Promise<{ checked: number; sent: number; f
   for (const org of organizations) {
     try {
       await runWithTenant(org.id, async () => {
+        // Campanhas criadas a partir de tarefas do Pipeline ficam em DRAFT
+        // até o horário escolhido. A promoção no cron sobrevive a deploys e
+        // reinícios sem depender de timers em memória.
+        await prisma.campaign.updateMany({
+          where: { status: "DRAFT", scheduledAt: { lte: new Date() } },
+          data: { status: "RUNNING" },
+        });
+
         // Retoma as campanhas que pausaram SOZINHAS por queda do WhatsApp e cujo WhatsApp já voltou a
         // ficar conectado (ver lib/campaigns/instance-guard.ts) — ANTES de listar as RUNNING, pra elas
         // já enviarem neste mesmo tick. Isolado: se falhar, as demais campanhas da organização seguem.

@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { ListTodo, Inbox, Clock, MessageSquareWarning, StickyNote } from "lucide-react";
+import { ListTodo, Inbox, Clock, MessageSquareWarning, StickyNote, ClipboardCheck, Hourglass } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireProcessAccess, processScopeWhere } from "@/lib/processes/access";
 import { runWithTenant } from "@/lib/tenant-context";
+import { getCurrentMembership } from "@/lib/current-membership";
 import { STALE_DEAL_DAYS } from "@/lib/stale";
 import { EmptyState } from "@/components/empty-state";
 import { CountUpValue } from "@/components/count-up-value";
@@ -23,12 +24,15 @@ const ADMIN_STAT_COLORS = [
 export async function HomeAdministrativo() {
   const access = await requireProcessAccess();
   if (!access.ok) return null; // layout já garante sessão ativa; defensivo
+  // Fila de cadastro de cota: só a área Administrativo (e o Dono) trabalha nela.
+  const membership = await getCurrentMembership();
+  const showRegistrations = membership?.area === "ADMINISTRATIVO" || membership?.role === "OWNER";
 
   return runWithTenant(access.organizationId, async () => {
   const scopeWhere = processScopeWhere(access);
 
   const staleBefore = new Date(Date.now() - STALE_DEAL_DAYS * 24 * 60 * 60 * 1000);
-  const [pendingTasks, notes, staleCount, openRequestCount] = await Promise.all([
+  const [pendingTasks, notes, staleCount, openRequestCount, quotasToRegister, quotasWaiting] = await Promise.all([
     prisma.task.findMany({
       where: { organizationId: access.organizationId, ownerId: access.userId, completedAt: null },
       orderBy: { dueAt: "asc" },
@@ -37,8 +41,10 @@ export async function HomeAdministrativo() {
         id: true,
         title: true,
         dueAt: true,
+        createdAt: true,
+        dealId: true,
         contact: { select: { id: true, name: true } },
-        deal: { select: { name: true } },
+        deal: { select: { name: true, owner: { select: { name: true } } } },
       },
     }),
     prisma.activity.findMany({
@@ -63,16 +69,44 @@ export async function HomeAdministrativo() {
     prisma.processRequest.count({
       where: { organizationId: access.organizationId, resolvedAt: null, process: scopeWhere },
     }),
+    // Vendas ganhas com a cota ainda por cadastrar: sem pedido aberto ao consultor / esperando o consultor.
+    showRegistrations
+      ? prisma.deal.count({
+          where: {
+            organizationId: access.organizationId,
+            status: "WON",
+            registration: { is: { quotaRegisteredAt: null } },
+            documentRequests: { none: { status: "OPEN" } },
+          },
+        })
+      : Promise.resolve(0),
+    showRegistrations
+      ? prisma.deal.count({
+          where: {
+            organizationId: access.organizationId,
+            status: "WON",
+            registration: { is: { quotaRegisteredAt: null } },
+            documentRequests: { some: { status: "OPEN" } },
+          },
+        })
+      : Promise.resolve(0),
   ]);
 
   return (
     <div className="space-y-6 lg:space-y-8">
       <div>
         <h1 className="text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100 lg:text-2xl">
-          Painel administrativo
+          {membership?.area === "POS_CONTEMPLACAO" ? "Painel de pós-contemplação" : "Painel administrativo"}
         </h1>
         <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Suas tarefas e os processos de pós-venda.</p>
       </div>
+
+      {showRegistrations && (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:gap-4">
+          <StatTile icon={ClipboardCheck} label="Cotas para cadastrar" value={quotasToRegister} href="/cadastros" colorSet={ADMIN_STAT_COLORS[0]} />
+          <StatTile icon={Hourglass} label="Aguardando o consultor" value={quotasWaiting} href="/cadastros" colorSet={ADMIN_STAT_COLORS[1]} />
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:gap-4">
         <StatTile icon={ListTodo} label="Tarefas pendentes" value={pendingTasks.length} colorSet={ADMIN_STAT_COLORS[0]} />
@@ -87,29 +121,45 @@ export async function HomeAdministrativo() {
             <p className="py-8 text-center text-sm text-neutral-400 dark:text-neutral-500">Nenhuma tarefa pendente.</p>
           ) : (
             <div className="space-y-4">
-              {pendingTasks.map((task) => (
-                <Link
-                  key={task.id}
-                  href={task.contact ? `/clientes/${task.contact.id}` : "/agenda"}
-                  className="-mx-2 flex gap-3 rounded-md p-2 text-sm transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
-                >
-                  <div className="w-11 shrink-0 text-xs text-neutral-400 dark:text-neutral-500">
-                    {task.dueAt && (
-                      <>
-                        <div>{new Date(task.dueAt).toLocaleDateString("pt-BR", { day: "2-digit", timeZone: "America/Campo_Grande" })}</div>
-                        <div className="uppercase">{new Date(task.dueAt).toLocaleDateString("pt-BR", { month: "short", timeZone: "America/Campo_Grande" })}</div>
-                      </>
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-medium text-neutral-900 dark:text-neutral-100">{task.title}</p>
-                    <p className="truncate text-neutral-500 dark:text-neutral-400">
-                      {task.deal?.name ?? task.contact?.name ?? ""}
-                      {task.dueAt && ` · ${new Date(task.dueAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Campo_Grande" })}`}
-                    </p>
-                  </div>
-                </Link>
-              ))}
+              {pendingTasks.map((task) => {
+                const isQuotaRegistration = Boolean(
+                  showRegistrations && task.dealId && task.title.startsWith("Cadastrar cota:"),
+                );
+                const displayDate = isQuotaRegistration ? task.createdAt : task.dueAt;
+
+                return (
+                  <Link
+                    key={task.id}
+                    href={
+                      isQuotaRegistration
+                        ? `/cadastros/${task.dealId}`
+                        : task.contact
+                          ? `/clientes/${task.contact.id}`
+                          : "/agenda"
+                    }
+                    className="-mx-2 flex gap-3 rounded-md p-2 text-sm transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
+                  >
+                    <div className="w-11 shrink-0 text-xs text-neutral-400 dark:text-neutral-500">
+                      {displayDate && (
+                        <>
+                          <div>{new Date(displayDate).toLocaleDateString("pt-BR", { day: "2-digit", timeZone: "America/Campo_Grande" })}</div>
+                          <div className="uppercase">{new Date(displayDate).toLocaleDateString("pt-BR", { month: "short", timeZone: "America/Campo_Grande" })}</div>
+                        </>
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-medium text-neutral-900 dark:text-neutral-100">{task.title}</p>
+                      <p className="truncate text-neutral-500 dark:text-neutral-400">
+                        {isQuotaRegistration && task.deal?.owner.name
+                          ? `Consultor: ${task.deal.owner.name} · `
+                          : ""}
+                        {task.deal?.name ?? task.contact?.name ?? ""}
+                        {displayDate && ` · ${new Date(displayDate).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Campo_Grande" })}`}
+                      </p>
+                    </div>
+                  </Link>
+                );
+              })}
             </div>
           )}
         </div>

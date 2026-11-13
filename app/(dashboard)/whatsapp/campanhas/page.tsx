@@ -36,7 +36,10 @@ export default async function CampanhasPage() {
     // Só checa quando existe alguma campanha rodando de verdade — sem isso a
     // consulta ao CronRun (barata, mas desnecessária) rodaria em toda visita
     // à tela, mesmo sem nenhum envio automático em jogo pra avisar sobre.
-    const hasRunningCampaign = campaigns.some((c) => c.status === "RUNNING");
+    const now = new Date();
+    const hasRunningCampaign = campaigns.some(
+      (campaign) => campaign.status === "RUNNING" || (campaign.scheduledAt !== null && campaign.scheduledAt <= now),
+    );
     const cronStatus = hasRunningCampaign
       ? await getCronStaleness(CAMPAIGNS_CRON_NAME, CAMPAIGNS_CRON_MAX_STALE_MINUTES)
       : null;
@@ -57,7 +60,11 @@ export default async function CampanhasPage() {
           </div>
         )}
         <CampaignsTable
-          initialCampaigns={campaigns.map((c) => ({ ...c, createdAt: c.createdAt.toISOString() }))}
+          initialCampaigns={campaigns.map((c) => ({
+            ...c,
+            createdAt: c.createdAt.toISOString(),
+            scheduledAt: c.scheduledAt?.toISOString() ?? null,
+          }))}
           instances={instancesRaw.flatMap((instance) =>
             instance.personalOwner ? [{ id: instance.id, label: instance.personalOwner.name }] : [],
           )}

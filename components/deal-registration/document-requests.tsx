@@ -4,20 +4,20 @@ import { useEffect, useRef, useState } from "react";
 import {
   AlertCircle,
   BellRing,
-  Check,
   CheckCircle2,
   Circle,
   Eye,
   Loader2,
   MessageSquareText,
   Paperclip,
-  Plus,
   Send,
   X,
 } from "lucide-react";
+import { Select } from "@/components/select";
+import { PAYMENT_METHOD_OPTIONS } from "@/lib/deal-registration/rules";
 import {
   REQUEST_CATALOG,
-  REQUEST_MAX_ITEMS,
+  REQUEST_LABEL_MAX,
   REQUEST_MESSAGE_MAX,
   REQUEST_NOTE_MAX,
   countRequestPending,
@@ -58,46 +58,31 @@ export function RequestComposer({
   initialKeys?: string[];
   onCreated: (request: DocumentRequestDTO) => void;
 }) {
-  const [selected, setSelected] = useState<string[]>(initialKeys);
-  const [customs, setCustoms] = useState<{ key: string; label: string }[]>([]);
-  const [customText, setCustomText] = useState("");
-  const [message, setMessage] = useState("");
+  const initialPresetKeys = initialKeys.filter((key) => REQUEST_CATALOG.some((item) => item.key === key));
+  const initialMessage = initialPresetKeys
+    .map((key) => REQUEST_CATALOG.find((item) => item.key === key)?.label)
+    .filter((label): label is string => Boolean(label))
+    .join("; ");
+  const [presetKeys, setPresetKeys] = useState(initialPresetKeys);
+  const [message, setMessage] = useState(initialMessage);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const total = selected.length + customs.length;
-
-  function toggle(key: string) {
-    setError(null);
-    setSelected((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
-  }
-
-  function addCustom() {
-    const label = customText.trim();
-    if (!label) return;
-    if (total >= REQUEST_MAX_ITEMS) {
-      setError(`No máximo ${REQUEST_MAX_ITEMS} itens por pedido.`);
-      return;
-    }
-    setCustoms((prev) => [...prev, { key: `custom:${Date.now().toString(36)}${prev.length}`, label }]);
-    setCustomText("");
-    setError(null);
-  }
-
   async function send() {
-    if (total === 0 || sending) return;
+    const requestText = message.trim();
+    if (!requestText || sending) return;
     setSending(true);
     setError(null);
     try {
+      const items = presetKeys.length
+        ? presetKeys.map((key) => ({ key }))
+        : [{ key: `custom:${Date.now().toString(36)}`, label: requestText.slice(0, REQUEST_LABEL_MAX) }];
       const res = await fetch(`/api/deals/${dealId}/document-requests`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          items: [
-            ...selected.map((key) => ({ key })),
-            ...customs,
-          ],
-          message: message.trim() || null,
+          items,
+          message: presetKeys.length || requestText.length > REQUEST_LABEL_MAX ? requestText : null,
         }),
       });
       if (!res.ok) {
@@ -105,8 +90,7 @@ export function RequestComposer({
         return;
       }
       const data = (await res.json()) as { request: DocumentRequestDTO };
-      setSelected([]);
-      setCustoms([]);
+      setPresetKeys([]);
       setMessage("");
       onCreated(data.request);
     } catch {
@@ -118,87 +102,20 @@ export function RequestComposer({
 
   return (
     <div className="space-y-3">
-      <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
-        {REQUEST_CATALOG.map((item) => {
-          const on = selected.includes(item.key);
-          return (
-            <li key={item.key}>
-              <button
-                type="button"
-                onClick={() => toggle(item.key)}
-                aria-pressed={on}
-                className={`flex w-full items-start gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-colors ${
-                  on
-                    ? "border-brand bg-brand-light/60 dark:bg-brand-light"
-                    : "border-neutral-200 bg-white hover:border-neutral-300 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:border-neutral-600"
-                }`}
-              >
-                <span
-                  className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
-                    on ? "border-brand bg-brand text-white" : "border-neutral-300 dark:border-neutral-600"
-                  }`}
-                  aria-hidden="true"
-                >
-                  {on && <Check className="h-3 w-3" strokeWidth={3} />}
-                </span>
-                <span className="min-w-0">
-                  <span className="block text-sm font-medium text-neutral-900 dark:text-neutral-100">{item.label}</span>
-                  <span className="block text-xs text-neutral-500 dark:text-neutral-400">{item.hint}</span>
-                </span>
-              </button>
-            </li>
-          );
-        })}
-        {customs.map((c) => (
-          <li key={c.key}>
-            <div className="flex items-center gap-2.5 rounded-xl border border-brand bg-brand-light/60 px-3 py-2.5 dark:bg-brand-light">
-              <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded border border-brand bg-brand text-white" aria-hidden="true">
-                <Check className="h-3 w-3" strokeWidth={3} />
-              </span>
-              <span className="min-w-0 flex-1 truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">{c.label}</span>
-              <button
-                type="button"
-                onClick={() => setCustoms((prev) => prev.filter((x) => x.key !== c.key))}
-                className="rounded p-0.5 text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100"
-                aria-label={`Tirar ${c.label}`}
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          </li>
-        ))}
-      </ul>
-
-      <div className="flex gap-2">
-        <input
-          className="field-input min-w-0 flex-1"
-          value={customText}
-          maxLength={80}
-          placeholder="Outro item (ex.: Extrato bancário)"
-          onChange={(e) => setCustomText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              addCustom();
-            }
-          }}
-        />
-        <button type="button" onClick={addCustom} disabled={!customText.trim()} className="btn-secondary shrink-0" aria-label="Adicionar item">
-          <Plus className="h-4 w-4" /> Adicionar
-        </button>
-      </div>
-
-      <div className="space-y-1">
+      <div className="space-y-1.5">
         <label className="field-label" htmlFor={`req-msg-${dealId}`}>
-          Recado para o consultor <span className="font-normal text-neutral-400">(opcional)</span>
+          O que precisa ser enviado ou corrigido?
         </label>
         <textarea
           id={`req-msg-${dealId}`}
-          className="field-input min-h-[72px] resize-y"
+          className="field-input min-h-28 resize-y"
           value={message}
           maxLength={REQUEST_MESSAGE_MAX}
-          placeholder="Ex.: a foto da CNH veio cortada, precisa pegar frente e verso."
-          onChange={(e) => setMessage(e.target.value)}
+          placeholder="Ex.: envie a CNH completa, frente e verso."
+          onChange={(e) => {
+            setMessage(e.target.value);
+            setError(null);
+          }}
         />
       </div>
 
@@ -208,11 +125,11 @@ export function RequestComposer({
         </p>
       )}
 
-      <button type="button" onClick={() => void send()} disabled={total === 0 || sending} className="btn-primary w-full justify-center">
+      <button type="button" onClick={() => void send()} disabled={!message.trim() || sending} className="btn-primary w-full justify-center">
         {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-        {total === 0 ? "Escolha o que precisa" : `Pedir ${total} ${total === 1 ? "item" : "itens"} a ${consultantName.split(" ")[0]}`}
+        Enviar para {consultantName.split(" ")[0]}
       </button>
-      <p className="text-xs text-neutral-500 dark:text-neutral-400">O consultor recebe uma tarefa e um aviso no celular, e envia por aqui mesmo.</p>
+      <p className="text-xs leading-5 text-neutral-500 dark:text-neutral-400">O consultor recebe a solicitação no celular e responde pelo próprio cadastro.</p>
     </div>
   );
 }
@@ -351,6 +268,8 @@ function RequestItemAction({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState("");
+  // Pedido "informar grupo, prazo e forma de pagamento": os três campos vão direto para o cadastro.
+  const [quota, setQuota] = useState({ groupNumber: "", termMonths: "", paymentMethod: "" });
 
   async function complete(documentIds: string[] | undefined, text: string | null) {
     const res = await fetch(`/api/deals/${dealId}/document-requests/${requestId}`, {
@@ -386,6 +305,26 @@ function RequestItemAction({
     }
   }
 
+  async function saveQuotaInfo() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/deals/${dealId}/registration`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          registration: { groupNumber: quota.groupNumber.trim(), termMonths: Number(quota.termMonths), paymentMethod: quota.paymentMethod },
+        }),
+      });
+      if (!res.ok) throw new Error(await readError(res, "Não foi possível salvar."));
+      await complete(undefined, `Grupo ${quota.groupNumber.trim()} · ${quota.termMonths} meses · ${quota.paymentMethod}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Não foi possível salvar.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function reply() {
     setBusy(true);
     setError(null);
@@ -404,6 +343,37 @@ function RequestItemAction({
         <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
         <span className="min-w-0 flex-1 text-neutral-700 dark:text-neutral-200">{item.label}</span>
         <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400">Enviado</span>
+      </li>
+    );
+  }
+
+  if (item.key === "quota_info") {
+    const ready = quota.groupNumber.trim() && Number(quota.termMonths) > 0 && quota.paymentMethod;
+    return (
+      <li className="rounded-xl border border-neutral-200 bg-white p-3 dark:border-neutral-700 dark:bg-neutral-900">
+        <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{item.label}</p>
+        <div className="mt-2 grid gap-3 sm:grid-cols-3">
+          <div className="space-y-1">
+            <label className="field-label">Grupo</label>
+            <input className="field-input" inputMode="numeric" value={quota.groupNumber} onChange={(e) => setQuota((q) => ({ ...q, groupNumber: e.target.value.replace(/\D/g, "").slice(0, 8) }))} />
+          </div>
+          <div className="space-y-1">
+            <label className="field-label">Prazo (meses)</label>
+            <input className="field-input" inputMode="numeric" value={quota.termMonths} onChange={(e) => setQuota((q) => ({ ...q, termMonths: e.target.value.replace(/\D/g, "").slice(0, 3) }))} />
+          </div>
+          <div className="space-y-1">
+            <label className="field-label">Forma de pagamento</label>
+            <Select value={quota.paymentMethod} onChange={(v) => setQuota((q) => ({ ...q, paymentMethod: v }))} options={PAYMENT_METHOD_OPTIONS.map((o) => ({ value: o, label: o }))} placeholder="Escolha" ariaLabel="Forma de pagamento" />
+          </div>
+        </div>
+        <button type="button" onClick={() => void saveQuotaInfo()} disabled={busy || !ready} className="btn-primary btn-sm mt-3">
+          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />} Salvar e responder
+        </button>
+        {error && (
+          <p className="mt-2 flex items-start gap-1.5 text-xs text-red-600 dark:text-red-400" role="alert">
+            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {error}
+          </p>
+        )}
       </li>
     );
   }
@@ -498,7 +468,7 @@ export function ConsultantRequests({ dealId }: { dealId: string }) {
   if (open.length === 0) return null;
 
   return (
-    <section className="card mt-3 space-y-3 border-amber-300/70 p-4 dark:border-amber-500/30" aria-label="Pedido do administrativo">
+    <section id="pedido-administrativo" className="card mt-3 scroll-mt-20 space-y-3 border-amber-300/70 p-4 dark:border-amber-500/30" aria-label="Pedido do administrativo">
       <div className="flex items-center gap-2">
         <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400">
           <BellRing className="h-4 w-4" strokeWidth={2} />

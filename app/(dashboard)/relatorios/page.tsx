@@ -21,6 +21,7 @@ import { FiltersUrlRestore } from "./filters-url-restore";
 import { TagsFilter } from "./tags-filter";
 import { ClearReportFilters } from "./clear-filters";
 import { normalizeReportTags } from "@/lib/reports/tags";
+import { normalizeReportPeople } from "@/lib/reports/people-filter";
 import { GoalCard } from "./goal-card";
 import { getCurrentUserArea } from "@/lib/user-area";
 import { getCurrentMembership } from "@/lib/current-membership";
@@ -28,6 +29,7 @@ import { resolveAvatarUrl } from "@/lib/r2";
 import { AdminReportsView } from "./admin-reports-view";
 import { MetaAdsReportView } from "./meta-ads-view";
 import { ReportTabs } from "./report-tabs";
+import { seesOrganizationWideCommercialReport } from "@/lib/reports/scope";
 import { getCommercialReportData } from "@/lib/reports/commercial-data";
 import { getExecutiveReportData } from "@/lib/reports/executive-data";
 import { AutoInsights, DeltaBadge } from "./auto-insights";
@@ -57,6 +59,7 @@ export default async function RelatoriosPage({
     to?: ReportSearchParam;
     /** "all" = Tudo escolhido explicitamente no filtro (ver date-range-filter.tsx) — precisa ser distinguível de "nunca escolheu nada", ver lib/reports/commercial-data.ts. */
     range?: ReportSearchParam;
+    /** Repetido (?who=team:<id>&who=owner:<id>) — equipes e consultores são unidos no filtro comercial. */
     who?: ReportSearchParam;
     /** Repetido (?tag=A&tag=B) — o negócio entra se o contato tem QUALQUER uma (ver lib/reports/tags.ts). */
     tag?: ReportSearchParam;
@@ -83,7 +86,10 @@ export default async function RelatoriosPage({
   const rangeParam = firstSearchParam(rawParams.range) === "all" ? "all" : undefined;
   const fromParam = rangeParam === "all" ? undefined : selectedRange?.from;
   const toParam = rangeParam === "all" ? undefined : selectedRange?.to;
-  const whoParam = firstSearchParam(rawParams.who);
+  const whoParams = normalizeReportPeople(rawParams.who);
+  // Processos/Administrativo continuam com um responsável por vez. O filtro
+  // comercial, abaixo, recebe a lista completa.
+  const whoParam = whoParams[0];
   const tagParams = normalizeReportTags(rawParams.tag);
   const viewParam = firstSearchParam(rawParams.view);
   const processPipelineIdParam = firstSearchParam(rawParams.processPipelineId);
@@ -98,8 +104,20 @@ export default async function RelatoriosPage({
   // admin-reports-view.tsx) — não tem relação com o filtro do comercial,
   // só reaproveita os mesmos nomes de parâmetro de URL.
   const area = await getCurrentUserArea();
-  if (area === "ADMINISTRATIVO")
-    return <AdminReportsView from={fromParam} to={toParam} who={whoParam} pipelineId={processPipelineIdParam} />;
+  // Administrativo tem DUAS abas: o relatório dele (padrão) e o Comercial completo (?view=comercial),
+  // este último lendo a organização inteira, só para leitura (ver lib/reports/scope.ts).
+  const orgWideAdmin = seesOrganizationWideCommercialReport(area);
+  if (area && area !== "VENDAS" && !(orgWideAdmin && viewParam === "comercial")) {
+    const adminView = <AdminReportsView from={fromParam} to={toParam} who={whoParam} pipelineId={processPipelineIdParam} />;
+    return orgWideAdmin ? (
+      <div className="space-y-6">
+        <ReportTabs variant="administrativo" active="administrativo" />
+        {adminView}
+      </div>
+    ) : (
+      adminView
+    );
+  }
 
   const session = await auth();
   const organizationId = session!.user.organizationId!;
@@ -115,9 +133,9 @@ export default async function RelatoriosPage({
   // "Processos" ficaria esperando o relatório de vendas inteiro carregar à
   // toa antes de mostrar algo completamente diferente.
   const isOwner = session!.user.role === "OWNER";
-  const isManager = ["OWNER", "MANAGER"].includes(session!.user.role ?? "");
-  const isSupervisor = session!.user.role === "SUPERVISOR";
-  const isMember = session!.user.role === "MEMBER";
+  const isManager = ["OWNER", "MANAGER"].includes(session!.user.role ?? "") || orgWideAdmin;
+  const isSupervisor = session!.user.role === "SUPERVISOR" && !orgWideAdmin;
+  const isMember = session!.user.role === "MEMBER" && !orgWideAdmin;
   // Consultor e supervisor têm uma visão pessoal (hero de "Meu desempenho")
   // em vez do "Panorama comercial" genérico — isPersonalView é o flag central.
   const isPersonalView = isMember || isSupervisor;
@@ -184,11 +202,12 @@ export default async function RelatoriosPage({
     fromParam,
     toParam,
     rangeParam,
-    whoParam,
+    whoParams,
     tagParams,
     compareParam,
     compareFromParam,
     compareToParam,
+    orgWide: orgWideAdmin,
   });
   const [currentUserPhotoUrl, commercialData] = await Promise.all([
     currentUserPhotoUrlPromise,
@@ -471,6 +490,7 @@ export default async function RelatoriosPage({
     <div className="space-y-10 pb-8 sm:space-y-16">
       <div className="space-y-4">
         {isOwner && <ReportTabs active="comercial" />}
+        {orgWideAdmin && <ReportTabs variant="administrativo" active="comercial" />}
         {/* Título em cima e a barra de filtros embaixo, em largura inteira: com
             funil + equipe + tags + período + comparação, os filtros não cabem
             mais ao lado do título (era o que fazia a fileira pular de lado
@@ -519,7 +539,9 @@ export default async function RelatoriosPage({
             </FilterGroup>
             <FilterGroup label="Filtrar por">
               <PipelineFilter pipelines={pipelines.map((p) => ({ id: p.id, name: p.name }))} />
-              {!isPersonalView && <TeamOwnerFilter teams={teamFilterOptions} members={memberFilterOptions} currentUserId={userId} />}
+              {!isPersonalView && (
+                <TeamOwnerFilter teams={teamFilterOptions} members={memberFilterOptions} currentUserId={userId} multiple />
+              )}
               <TagsFilter />
               <ClearReportFilters />
             </FilterGroup>

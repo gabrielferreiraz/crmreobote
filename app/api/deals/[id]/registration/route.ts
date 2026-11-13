@@ -4,8 +4,21 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { prisma } from "@/lib/prisma";
 import { getCurrentMembership } from "@/lib/current-membership";
 import { requireRegistrationAccess } from "@/lib/deal-registration/access";
-import { DOCUMENT_RETENTION_DAYS, canWaiveRegistration } from "@/lib/deal-registration/rules";
-import { loadRegistrationContext, saveRegistrationDraft } from "@/lib/deal-registration/service";
+import { DOCUMENT_RETENTION_DAYS, QUOTA_DIGIT_RE, QUOTA_NUMBER_RE, canWaiveRegistration } from "@/lib/deal-registration/rules";
+import {
+  closeConsultantQuotaRegisteredTasks,
+  loadRegistrationContext,
+  notifyConsultantQuotaRegistered,
+  saveRegistrationDraft,
+  syncQuotaToProcess,
+} from "@/lib/deal-registration/service";
+import { cleanExtraQuotas, MAX_EXTRA_QUOTAS, parseExtraQuotas } from "@/lib/deal-registration/extra-quotas";
+import { diffQuotaSnapshots, diffRegistrationSnapshots, getDealAuditLabel, loadRegistrationAuditSnapshot } from "@/lib/deal-registration/audit";
+import { logAudit } from "@/lib/audit-log";
+import { formatDateTimeBR, formatElapsed } from "@/lib/format-datetime";
+import { getClientIp } from "@/lib/rate-limit";
+import { resolvePushReminderEvent } from "@/lib/push-reminders/service";
+import { pushReminderEventKey } from "@/lib/push-reminders/keys";
 import { BANK_ACCOUNT_TYPE_OPTIONS, MARITAL_STATUS_OPTIONS, PAYMENT_METHOD_OPTIONS, normalizeRegistrationCnpj, normalizeRegistrationCpf } from "@/lib/deal-registration/rules";
 
 export const dynamic = "force-dynamic";
@@ -32,11 +45,43 @@ const bodySchema = z
     registration: z
       .object({
         personType: z.enum(["PF", "PJ"]).optional(),
+        holderName: text(180),
         cpf: text(20),
         cnpj: text(24),
         profession: text(120),
         maritalStatus: z.enum(MARITAL_STATUS_OPTIONS).nullable().optional(),
         monthlyIncome: z.number().min(0).max(100_000_000).nullable().optional(),
+        // Da cota vendida: quem preenche é o consultor (ver lib/deal-registration/rules.ts).
+        groupNumber: z
+          .string()
+          .trim()
+          .refine((v) => v === "" || /^\d{1,8}$/.test(v), "Grupo: use só números.")
+          .nullable()
+          .optional(),
+        termMonths: z.number().int().min(1).max(600).nullable().optional(),
+        paymentMethod: z.enum(PAYMENT_METHOD_OPTIONS).nullable().optional(),
+        creditValue: z.number().min(0).max(100_000_000).nullable().optional(),
+        // Cotas extras: a tela manda a lista INTEIRA (não é um acréscimo
+        // incremental), por isso ela pode chegar vazia para apagar todas.
+        // Mesmos limites do grupo e do prazo acima — nada entra aqui que não
+        // entraria na cota principal.
+        extraQuotas: z
+          .array(
+            z
+              .object({
+                groupNumber: z
+                  .string()
+                  .trim()
+                  .refine((v) => v === "" || /^\d{1,8}$/.test(v), "Grupo da cota extra: use só números.")
+                  .nullable()
+                  .optional(),
+                termMonths: z.number().int().min(1).max(600).nullable().optional(),
+                value: z.number().min(0).max(100_000_000).nullable().optional(),
+              })
+              .strict(),
+          )
+          .max(MAX_EXTRA_QUOTAS, `No máximo ${MAX_EXTRA_QUOTAS} cotas extras.`)
+          .optional(),
         bankName: text(100),
         bankAgency: text(20),
         bankAccount: text(30),
@@ -66,6 +111,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       contactName: ctx.contactName,
       contact: ctx.snapshot.contact,
       registration: ctx.snapshot.registration,
+      administratorName: ctx.administratorName,
+      extraQuotas: ctx.extraQuotas,
       documents: ctx.documents,
       requiresBankData: ctx.requiresBankData,
       documentsWaived: ctx.documentsWaived,
@@ -97,18 +144,55 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Dados inválidos" }, { status: 400 });
     }
     const input = parsed.data;
+    // extraQuotas sai do resto porque é o único campo que não vai para o banco
+    // como veio: passa pelo mesmo leitor que lê a coluna (campo faltando vira
+    // null, número fora da faixa some, linha em branco é descartada), então o
+    // que é gravado tem exatamente o formato que `parseExtraQuotas` devolve.
+    const { extraQuotas: rawExtraQuotas, ...registrationRest } = input.registration ?? {};
     const registration = input.registration
       ? {
-          ...input.registration,
+          ...registrationRest,
           ...(input.registration.cpf !== undefined ? { cpf: normalizeRegistrationCpf(input.registration.cpf) } : {}),
           ...(input.registration.cnpj !== undefined ? { cnpj: normalizeRegistrationCnpj(input.registration.cnpj) } : {}),
+          ...(rawExtraQuotas !== undefined ? { extraQuotas: cleanExtraQuotas(parseExtraQuotas(rawExtraQuotas)) } : {}),
         }
       : undefined;
     const contact = input.contact
       ? { ...input.contact, email: input.contact.email === "" ? null : input.contact.email, state: input.contact.state?.toUpperCase() }
       : undefined;
 
+    // Auditoria: o que mudou de verdade (antes -> depois), por quem. Falha ao auditar nunca impede salvar.
+    const auditBefore = await loadRegistrationAuditSnapshot(access.organizationId, id).catch(() => null);
     await saveRegistrationDraft(access.organizationId, id, access.deal.contactId, { contact, registration });
+    if (auditBefore) {
+      try {
+        const auditAfter = await loadRegistrationAuditSnapshot(access.organizationId, id);
+        const changes = diffRegistrationSnapshots(auditBefore, auditAfter);
+        const pick = (snap: Record<string, unknown>) => ({
+          groupNumber: (snap.groupNumber as string | null) ?? null,
+          quotaNumber: (snap.quotaNumber as string | null) ?? null,
+          quotaDigit: (snap.quotaDigit as string | null) ?? null,
+        });
+        if (changes.some((c) => c.field === "groupNumber")) {
+          await syncQuotaToProcess({ organizationId: access.organizationId, dealId: id, prev: pick(auditBefore), next: pick(auditAfter) });
+        }
+        if (changes.length > 0) {
+          await logAudit({
+            organizationId: access.organizationId,
+            actorUserId: access.userId,
+            actorName: access.actorName,
+            action: "DEAL_REGISTRATION_EDITED",
+            targetType: "Deal",
+            targetId: id,
+            targetLabel: await getDealAuditLabel(access.organizationId, id),
+            changes,
+            ip: getClientIp(req),
+          });
+        }
+      } catch (err) {
+        console.error("[audit] falha ao registrar a edição do cadastro", err);
+      }
+    }
     return NextResponse.json({ ok: true });
   });
 }
@@ -116,6 +200,18 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 const quotaSchema = z
   .object({
     groupNumber: text(20),
+    quotaNumber: z
+      .string()
+      .trim()
+      .refine((v) => v === "" || QUOTA_NUMBER_RE.test(v), "Cota: use só números (até 6 dígitos).")
+      .nullable()
+      .optional(),
+    quotaDigit: z
+      .string()
+      .trim()
+      .refine((v) => v === "" || QUOTA_DIGIT_RE.test(v), "Dígito: use só números (até 2).")
+      .nullable()
+      .optional(),
     termMonths: z.number().int().min(1).max(600).nullable().optional(),
     paymentMethod: z.enum(PAYMENT_METHOD_OPTIONS).nullable().optional(),
   })
@@ -132,6 +228,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if ("response" in guard) return guard.response;
     const { access } = guard;
     if (!access.canBypass) return NextResponse.json({ error: "Só o administrativo marca a cota como cadastrada." }, { status: 403 });
+    if (access.deal.status !== "WON") {
+      return NextResponse.json({ error: "Os dados da cota ficam disponíveis depois que a venda for marcada como ganha." }, { status: 409 });
+    }
 
     const body = (await req.json().catch(() => null)) as { quotaRegistered?: unknown; quota?: unknown } | null;
 
@@ -140,22 +239,67 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       const parsedQuota = quotaSchema.safeParse(body.quota);
       if (!parsedQuota.success) return NextResponse.json({ error: parsedQuota.error.issues[0]?.message ?? "Dados inválidos" }, { status: 400 });
       const q = parsedQuota.data;
+      const before = await prisma.dealRegistration.findUnique({
+        where: { dealId: id },
+        select: { groupNumber: true, quotaNumber: true, quotaDigit: true, termMonths: true, paymentMethod: true },
+      });
+      // Cota e dígito são do administrativo. Grupo, prazo e forma de pagamento são do consultor: aqui só são
+      // aceitos quando o consultor ainda não informou (venda antiga) — nunca sobrescrevem o que ele preencheu.
       const data = {
-        groupNumber: q.groupNumber?.trim() || null,
-        termMonths: q.termMonths ?? null,
-        paymentMethod: q.paymentMethod ?? null,
+        quotaNumber: q.quotaNumber?.trim() || null,
+        quotaDigit: q.quotaDigit?.trim() || null,
+        groupNumber: before?.groupNumber?.trim() ? before.groupNumber : q.groupNumber?.trim() || null,
+        termMonths: before?.termMonths != null ? before.termMonths : (q.termMonths ?? null),
+        paymentMethod: before?.paymentMethod?.trim() ? before.paymentMethod : (q.paymentMethod ?? null),
       };
+      const quotaAuditBefore = await loadRegistrationAuditSnapshot(access.organizationId, id).catch(() => null);
       await prisma.dealRegistration.upsert({
         where: { dealId: id },
         create: { organizationId: access.organizationId, dealId: id, ...data },
         update: data,
       });
+      await syncQuotaToProcess({
+        organizationId: access.organizationId,
+        dealId: id,
+        prev: { groupNumber: before?.groupNumber ?? null, quotaNumber: before?.quotaNumber ?? null, quotaDigit: before?.quotaDigit ?? null },
+        next: { groupNumber: data.groupNumber, quotaNumber: data.quotaNumber, quotaDigit: data.quotaDigit },
+      });
+      if (quotaAuditBefore) {
+        try {
+          const changes = diffQuotaSnapshots(quotaAuditBefore, await loadRegistrationAuditSnapshot(access.organizationId, id));
+          if (changes.length > 0) {
+            await logAudit({
+              organizationId: access.organizationId,
+              actorUserId: access.userId,
+              actorName: access.actorName,
+              action: "DEAL_QUOTA_UPDATED",
+              targetType: "Deal",
+              targetId: id,
+              targetLabel: await getDealAuditLabel(access.organizationId, id),
+              changes,
+              ip: getClientIp(req),
+            });
+          }
+        } catch (err) {
+          console.error("[audit] falha ao registrar a alteração da cota", err);
+        }
+      }
       return NextResponse.json({ ok: true });
     }
 
     if (typeof body?.quotaRegistered !== "boolean") return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
 
     const done = body.quotaRegistered;
+    if (done) {
+      // A cota só vale como cadastrada com grupo (do consultor), cota e dígito (do administrativo) salvos.
+      const saved = await prisma.dealRegistration.findUnique({ where: { dealId: id }, select: { groupNumber: true, quotaNumber: true, quotaDigit: true } });
+      if (!saved?.groupNumber?.trim()) {
+        return NextResponse.json({ error: "Falta o grupo: o consultor informa no cadastro do Ganho. Peça a ele nesta tela." }, { status: 400 });
+      }
+      if (!saved.quotaNumber?.trim() || !saved.quotaDigit?.trim()) {
+        return NextResponse.json({ error: "Preencha a cota e o dígito e salve antes de marcar a cota como cadastrada." }, { status: 400 });
+      }
+    }
     const stamp = { quotaRegisteredAt: done ? new Date() : null, quotaRegisteredById: done ? access.userId : null };
     await prisma.dealRegistration.upsert({
       where: { dealId: id },
@@ -168,7 +312,58 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         where: { organizationId: access.organizationId, dealId: id, completedAt: null, title: { startsWith: "Cadastrar cota:" } },
         data: { completedAt: new Date() },
       });
+      await resolvePushReminderEvent(
+        access.organizationId,
+        pushReminderEventKey.quotaRegistration(id),
+      ).catch((err) => console.error("[deal-registration] falha ao encerrar lembretes da cota", err));
     }
+    // Registro completo da marcação: situação antes -> depois, os dados da cota no momento e quanto o administrativo levou.
+    let markDetail = done ? "Cota marcada como cadastrada na administradora." : "A cota voltou a ficar pendente.";
+    let markChanges: { field: string; label: string; from: string | null; to: string | null }[] = [];
+    try {
+      const snap = await prisma.dealRegistration.findUnique({
+        where: { dealId: id },
+        select: { completedAt: true, groupNumber: true, quotaNumber: true, quotaDigit: true, termMonths: true, paymentMethod: true, deal: { select: { closedAt: true } } },
+      });
+      const when = stamp.quotaRegisteredAt;
+      const requestedAt = snap?.completedAt ?? snap?.deal.closedAt ?? null;
+      const dataParts = [
+        snap?.groupNumber ? `Grupo ${snap.groupNumber}` : null,
+        snap?.quotaNumber ? `Cota ${snap.quotaNumber}${snap.quotaDigit ? `-${snap.quotaDigit}` : ""}` : null,
+        snap?.termMonths ? `Prazo ${snap.termMonths} meses` : null,
+        snap?.paymentMethod ? `Pagamento ${snap.paymentMethod}` : null,
+      ].filter(Boolean);
+      if (done && when) {
+        markChanges = [{ field: "quotaRegisteredAt", label: "Situação da cota", from: "Pendente", to: `Cadastrada em ${formatDateTimeBR(when)}` }];
+        markDetail = [
+          "Cota marcada como cadastrada na administradora.",
+          dataParts.length ? `${dataParts.join(" · ")}.` : null,
+          requestedAt ? `Pedido do consultor em ${formatDateTimeBR(requestedAt)}; cadastrada ${formatElapsed(when.getTime() - requestedAt.getTime())} depois.` : null,
+        ]
+          .filter(Boolean)
+          .join(" ");
+      } else if (!done) {
+        markChanges = [{ field: "quotaRegisteredAt", label: "Situação da cota", from: "Cadastrada", to: "Pendente" }];
+        markDetail = ["A cota voltou a ficar pendente.", dataParts.length ? `Dados no momento: ${dataParts.join(" · ")}.` : null].filter(Boolean).join(" ");
+      }
+    } catch (err) {
+      console.error("[audit] falha ao montar o detalhe da marcação da cota", err);
+    }
+    await logAudit({
+      organizationId: access.organizationId,
+      actorUserId: access.userId,
+      actorName: access.actorName,
+      action: done ? "DEAL_QUOTA_REGISTERED" : "DEAL_QUOTA_REGISTRATION_UNDONE",
+      targetType: "Deal",
+      targetId: id,
+      targetLabel: await getDealAuditLabel(access.organizationId, id),
+      detail: markDetail,
+      changes: markChanges,
+      ip: getClientIp(req),
+    });
+    // O consultor é avisado (sino + celular); se o administrativo desfez, o aviso antigo some.
+    if (done) await notifyConsultantQuotaRegistered({ organizationId: access.organizationId, dealId: id, actor: { userId: access.userId, name: access.actorName } });
+    else await closeConsultantQuotaRegisteredTasks(access.organizationId, id);
     return NextResponse.json({ ok: true });
   });
 }

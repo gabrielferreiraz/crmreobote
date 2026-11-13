@@ -12,12 +12,15 @@ import {
   prepareRegistrationDoc,
   uploadRegistrationDoc,
 } from "@/lib/r2";
-import { rateLimitOrResponse } from "@/lib/rate-limit";
+import { rateLimitOrResponse, getClientIp } from "@/lib/rate-limit";
+import { logAudit } from "@/lib/audit-log";
+import { getDealAuditLabel } from "@/lib/deal-registration/audit";
+import { DOCUMENT_KIND_LABELS } from "@/lib/deal-registration/rules";
 
 export const dynamic = "force-dynamic";
 
 const EXT_TYPES: Record<string, string> = { pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp" };
-const KINDS = new Set(["PHOTO_ID", "SOCIAL_CONTRACT", "OTHER"]);
+const KINDS = new Set(["PHOTO_ID", "SOCIAL_CONTRACT", "OTHER", "PAYMENT_PROOF"]);
 
 /** Envia um documento do cliente (foto ou PDF) para o cadastro do negócio. */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -77,6 +80,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           uploadedById: access.userId,
         },
         select: { id: true, kind: true, fileName: true, size: true, createdAt: true },
+      });
+      await logAudit({
+        organizationId: access.organizationId,
+        actorUserId: access.userId,
+        actorName: access.actorName,
+        action: "DEAL_REGISTRATION_DOC_UPLOADED",
+        targetType: "Deal",
+        targetId: id,
+        targetLabel: await getDealAuditLabel(access.organizationId, id),
+        detail: `${DOCUMENT_KIND_LABELS[doc.kind]}: ${doc.fileName} (${Math.max(1, Math.round(doc.size / 1024))} KB)`,
+        ip: getClientIp(req),
       });
       return NextResponse.json({ document: doc }, { status: 201 });
     } catch (err) {

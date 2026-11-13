@@ -38,6 +38,12 @@ function asPresenceFilter(value: string | null): "yes" | "no" | undefined {
   return value === "yes" || value === "no" ? value : undefined;
 }
 
+function parseNonNegativeNumber(value: string | null): number | undefined {
+  if (!value) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
+}
+
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const q = searchParams.get("q") ?? undefined;
@@ -59,6 +65,12 @@ export async function GET(req: Request) {
   const city = searchParams.get("city") ?? undefined;
   const tag = searchParams.get("tag") ?? undefined;
   const onlyWithDeals = searchParams.get("onlyWithDeals") === "1";
+  // "Só com negócios ganhos": o filtro de Clientes manda dealStatus=WON (mesma regra da visão administrativa).
+  const dealStatusParam = searchParams.get("dealStatus");
+  const dealStatus: "OPEN" | "WON" | "LOST" | undefined = dealStatusParam === "WON" ? "WON" : dealStatusParam === "OPEN" ? "OPEN" : dealStatusParam === "LOST" ? "LOST" : undefined;
+  const dealValueMin = parseNonNegativeNumber(searchParams.get("dealValueMin"));
+  const dealValueMax = parseNonNegativeNumber(searchParams.get("dealValueMax"));
+  const groupNumber = searchParams.get("groupNumber")?.trim() || undefined;
   const hasEmail = asPresenceFilter(searchParams.get("hasEmail"));
   const hasWhatsapp = asPresenceFilter(searchParams.get("hasWhatsapp"));
   const registeredFrom = parseDate(searchParams.get("registeredFrom"));
@@ -93,6 +105,10 @@ export async function GET(req: Request) {
       city,
       tag,
       onlyWithDeals,
+      dealStatus,
+      dealValueMin,
+      dealValueMax,
+      groupNumber,
       hasEmail,
       hasWhatsapp,
       registeredFrom,

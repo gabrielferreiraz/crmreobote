@@ -11,6 +11,7 @@
 
 import { prisma, prismaRaw } from "@/lib/prisma";
 import { setTenantOnTx } from "@/lib/tenant-context";
+import { quotaWithDigit } from "@/lib/deal-registration/rules";
 
 export async function createProcessForDeal(
   organizationId: string,
@@ -29,6 +30,11 @@ export async function createProcessForDeal(
   const firstStage = pipeline.stages[0];
   if (!firstStage) return { ok: false, error: "Esta subcategoria ainda não tem nenhuma etapa configurada" };
 
+  // Grupo (do consultor) e cota com dígito (do administrativo) já vêm do cadastro: ninguém digita duas vezes.
+  const registration = await prisma.dealRegistration.findUnique({
+    where: { dealId: deal.id },
+    select: { groupNumber: true, quotaNumber: true, quotaDigit: true },
+  });
   const process = await prisma.process.create({
     data: {
       organizationId,
@@ -37,6 +43,8 @@ export async function createProcessForDeal(
       dealId: deal.id,
       contactId: deal.contactId,
       ownerId: deal.ownerId,
+      groupNumber: registration?.groupNumber?.trim() || undefined,
+      quotaNumber: quotaWithDigit(registration?.quotaNumber, registration?.quotaDigit) ?? undefined,
     },
   });
 

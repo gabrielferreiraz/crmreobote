@@ -1,3 +1,5 @@
+import { AREA_LABELS, isValidArea, type AreaValue } from "@/lib/areas";
+import { diffFields, type AuditChange } from "@/lib/audit-diff";
 import { NextResponse } from "next/server";
 import { prisma, prismaRaw } from "@/lib/prisma";
 import { requireRole } from "@/lib/require-role";
@@ -34,7 +36,7 @@ export async function PATCH(
     active?: boolean;
     name?: string;
     canManageProcesses?: boolean;
-    area?: "VENDAS" | "ADMINISTRATIVO";
+    area?: AreaValue;
     /** "YYYY-MM-DD" (dia civil puro, ver User.birthDate no schema) ou null pra limpar. */
     birthDate?: string | null;
     email?: string;
@@ -50,7 +52,7 @@ export async function PATCH(
   if (role !== undefined && !["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"].includes(role)) {
     return NextResponse.json({ error: "role inválido" }, { status: 400 });
   }
-  if (area !== undefined && area !== "VENDAS" && area !== "ADMINISTRATIVO") {
+  if (area !== undefined && !isValidArea(area)) {
     return NextResponse.json({ error: "area inválida" }, { status: 400 });
   }
 
@@ -173,10 +175,18 @@ export async function PATCH(
       }
     }
 
+    // Auditoria: como a pessoa estava ANTES (o depois vem do resultado da gravação).
+    const auditBeforeUser = await prisma.user.findUnique({ where: { id: userId }, select: { name: true, email: true, birthDate: true } });
+    const auditBeforeTeam = membership.teamId
+      ? ((await prisma.team.findFirst({ where: { id: membership.teamId, organizationId: access.organizationId }, select: { name: true } }))?.name ?? null)
+      : null;
+
     const clearsLeadership = (role && role !== "SUPERVISOR") || active === false;
     const clearsManagement = (role && role !== "MANAGER") || active === false;
     const nextRole = role ?? membership.role;
     const nextArea = area ?? membership.area;
+    // Quem deixa Vendas para uma área de retaguarda sai dos rankings (não vende), a não ser que o pedido diga outra coisa.
+    const leavesSales = membership.area === "VENDAS" && nextArea !== "VENDAS";
     const nextActive = active ?? membership.active;
     const manualAcademyState = academyOnboardingAction
       ? stateAfterManualAcademyAction(
@@ -227,8 +237,8 @@ export async function PATCH(
           canManageProcesses,
           area,
           countsTowardGoal,
-          showInPodium,
-          showInMonthRanking,
+          showInPodium: showInPodium ?? (leavesSales ? false : undefined),
+          showInMonthRanking: showInMonthRanking ?? (leavesSales ? false : undefined),
           academyOnboardingStatus:
             nextAcademyOnboardingStatus !== membership.academyOnboardingStatus
               ? nextAcademyOnboardingStatus
@@ -300,6 +310,57 @@ export async function PATCH(
 
     const actorName = access.session.user.name ?? access.session.user.email ?? "?";
     const ip = getClientIp(req);
+    try {
+      const auditBase = {
+        organizationId: access.organizationId,
+        actorUserId: access.userId,
+        actorName,
+        targetType: "User",
+        targetId: userId,
+        targetLabel: updated.user.name,
+        ip,
+      };
+      if (area !== undefined && area !== membership.area) {
+        await logAudit({
+          ...auditBase,
+          action: "MEMBER_AREA_CHANGED",
+          detail: `${updated.user.name}: ${AREA_LABELS[membership.area as AreaValue]} → ${AREA_LABELS[area]}`,
+          changes: [{ field: "area", label: "Área", from: AREA_LABELS[membership.area as AreaValue], to: AREA_LABELS[area] }],
+        });
+      }
+      const permissionSpecs = {
+        canManageProcesses: { label: "Acesso total aos Processos" },
+        countsTowardGoal: { label: "Conta na meta" },
+        showInPodium: { label: "Aparece no pódio da TV" },
+        showInMonthRanking: { label: "Aparece no ranking do mês" },
+      };
+      const permissionChanges = diffFields(membership as unknown as Record<string, unknown>, updated as unknown as Record<string, unknown>, permissionSpecs);
+      if (permissionChanges.length > 0) {
+        await logAudit({ ...auditBase, action: "MEMBER_PERMISSIONS_CHANGED", changes: permissionChanges });
+      }
+      if (teamId !== undefined && (teamId ?? null) !== (membership.teamId ?? null)) {
+        await logAudit({
+          ...auditBase,
+          action: "MEMBER_TEAM_CHANGED",
+          detail: `${updated.user.name}: ${auditBeforeTeam ?? "sem equipe"} → ${updated.team?.name ?? "sem equipe"}`,
+          changes: [{ field: "teamId", label: "Equipe", from: auditBeforeTeam, to: updated.team?.name ?? null }] as AuditChange[],
+        });
+      }
+      if (auditBeforeUser) {
+        const profileChanges = diffFields(
+          { name: auditBeforeUser.name, email: auditBeforeUser.email, birthDate: auditBeforeUser.birthDate?.toISOString().slice(0, 10) ?? null },
+          {
+            ...(name !== undefined ? { name: updated.user.name } : {}),
+            ...(normalizedEmail ? { email: updated.user.email } : {}),
+            ...(birthDate !== undefined ? { birthDate: birthDate ?? null } : {}),
+          },
+          { name: { label: "Nome" }, email: { label: "E-mail (login)" }, birthDate: { label: "Data de nascimento" } },
+        );
+        if (profileChanges.length > 0) await logAudit({ ...auditBase, action: "MEMBER_PROFILE_CHANGED", changes: profileChanges });
+      }
+    } catch (err) {
+      console.error("[audit] falha ao registrar a alteração da pessoa", err);
+    }
     if (role && role !== membership.role) {
       await logAudit({
         organizationId: access.organizationId,

@@ -88,6 +88,6 @@ test("prévia de mensagem: texto ganha; sem texto, rótulo do tipo; senão o fal
 test("prévia de script usa o mesmo contato de exemplo em todas as telas", () => {
   assert.equal(renderSamplePreview("Oi {primeiro_nome}, de {cidade}? Sou {consultor}."), "Oi Maria, de Campo Grande? Sou Ana.");
   assert.equal(renderSamplePreview("{saudacao}! {desconhecida}"), "Boa tarde! Maria");
-  assert.equal(stepDelayLabel(30), "30s depois");
-  assert.equal(stepDelayLabel(120), "2 min depois");
+  assert.equal(stepDelayLabel(30), "24 a 45s depois");
+  assert.equal(stepDelayLabel(120), "cerca de 2 min depois");
 });

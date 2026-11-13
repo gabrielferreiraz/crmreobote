@@ -51,11 +51,10 @@ export const ESTADOS_BR = [
 
 /**
  * Só os campos que a listagem (app/(dashboard)/clientes/contacts-table.tsx)
- * de fato renderiza/filtra — endereço completo, empresa e customFieldValues
- * (JSON livre, ver lib/custom-fields.ts) só existem na página de detalhe do
- * contato (/clientes/[id], que busca o registro completo separadamente),
- * nunca na lista. Trazer isso pra até 500 linhas por página era bytes reais
- * do Postgres à toa.
+ * de fato renderiza/filtra. Endereço completo e customFieldValues (JSON
+ * livre, ver lib/custom-fields.ts) só existem na página de detalhe do contato
+ * (/clientes/[id], que busca o registro completo separadamente). Trazer isso
+ * pra até 500 linhas por página seria byte real do Postgres à toa.
  */
 export type EnrichedContact = {
   id: string;
@@ -63,6 +62,7 @@ export type EnrichedContact = {
   email: string | null;
   phone: string | null;
   whatsapp: string | null;
+  company: string | null;
   source: string | null;
   jobTitle: string | null;
   tags: string[];
@@ -74,4 +74,14 @@ export type EnrichedContact = {
    * conferir de relance o que uma importação acabou de atualizar. */
   updatedAt: Date;
   _count: { deals: number };
+  /** Negócio mais recente que atende aos filtros de valor/grupo, ou o mais recente da conta sem esses filtros. */
+  latestDeal: {
+    id: string;
+    name: string;
+    status: "OPEN" | "WON" | "LOST";
+    value: number | null;
+    groupNumber: string | null;
+    quotaNumber: string | null;
+    quotaDigit: string | null;
+  } | null;
 };

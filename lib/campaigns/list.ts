@@ -27,6 +27,7 @@ export type CampaignSummary = {
   followUpEnabled: boolean;
   followUpDelayHours: number;
   createdAt: Date;
+  scheduledAt: Date | null;
   counts: { pending: number; sent: number; failed: number; skipped: number; replied: number };
   /**
    * Pode pausar/editar/apagar/duplicar (criou a campanha, ou é dono do WhatsApp
@@ -73,6 +74,7 @@ export async function listCampaigns(organizationId: string, scope: DealScope): P
       followUpEnabled: true,
       followUpDelayHours: true,
       createdAt: true,
+      scheduledAt: true,
       createdById: true,
       source: true,
       instance: { select: { personalOwnerId: true, personalOwner: { select: { name: true } } } },
@@ -135,6 +137,7 @@ export async function listCampaigns(organizationId: string, scope: DealScope): P
       followUpEnabled: c.followUpEnabled,
       followUpDelayHours: c.followUpDelayHours,
       createdAt: c.createdAt,
+      scheduledAt: c.scheduledAt,
       counts: countsByCampaign.get(c.id) ?? { pending: 0, sent: 0, failed: 0, skipped: 0, replied: 0 },
       canManage: canManageCampaign(scope, {
         createdById: c.createdById,
@@ -595,6 +598,7 @@ export async function getCampaignDetail(
     followUpEnabled: campaign.followUpEnabled,
     followUpDelayHours: campaign.followUpDelayHours,
     createdAt: campaign.createdAt,
+    scheduledAt: campaign.scheduledAt,
     counts,
     canManage,
     scripts: scriptRows,

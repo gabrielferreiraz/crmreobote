@@ -15,6 +15,8 @@ import { formatCurrency, daysSince } from "@/lib/format";
 import { getStageSlaStatus } from "@/lib/processes/sla";
 import { DOCUMENT_STATUS_LABELS, type DocumentStatus } from "../document-status";
 import { SendTemplateDialog } from "./send-template-dialog";
+import { useAcknowledgePushReminderScope } from "@/lib/push-reminders/client";
+import { pushReminderScopeKey } from "@/lib/push-reminders/keys";
 
 type Stage = { id: string; name: string; color: string | null; isFinal: boolean; slaBusinessDays: number | null };
 
@@ -115,6 +117,7 @@ export function ProcessDetail({
   members: MemberOption[];
 }) {
   const router = useRouter();
+  useAcknowledgePushReminderScope(pushReminderScopeKey.process(initialProcess.id));
   const [process, setProcess] = useState(initialProcess);
   const [quotaInput, setQuotaInput] = useState(initialProcess.quotaNumber ?? "");
   const [groupInput, setGroupInput] = useState(initialProcess.groupNumber ?? "");
