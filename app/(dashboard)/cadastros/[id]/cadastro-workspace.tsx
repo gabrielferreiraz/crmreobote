@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   AlertTriangle,
@@ -37,11 +38,14 @@ import { maskCpf } from "@/lib/cpf";
 import { formatCnpj } from "@/lib/cnpj";
 import { useAcknowledgePushReminderScope } from "@/lib/push-reminders/client";
 import { pushReminderScopeKey } from "@/lib/push-reminders/keys";
+import { useVisiblePoll } from "@/lib/use-visible-poll";
 
 type Doc = { id: string; kind: "PHOTO_ID" | "SOCIAL_CONTRACT" | "OTHER" | "PAYMENT_PROOF"; fileName: string; size: number; createdAt: string };
 
 export type WorkspaceProps = {
   dealId: string;
+  /** Assinatura do estado atual desta venda (ver lib/deal-registration/live.ts): quando muda, a tela recarrega sozinha. */
+  signature: string;
   dealStatus: "OPEN" | "WON" | "LOST";
   clientName: string;
   consultantName: string;
@@ -146,7 +150,42 @@ export function CadastroWorkspace(props: WorkspaceProps) {
   const { dealId, contact: c, registration: r } = props;
   const isWon = props.dealStatus === "WON";
   useAcknowledgePushReminderScope(pushReminderScopeKey.deal(dealId));
+
+  // Documentos e dados mudam fora desta aba (o consultor apaga/envia outro documento, corrige um
+  // dado pedido, ou responde um pedido) — confere sozinho e recarrega para nunca mostrar algo
+  // velho enquanto a página continua aberta aqui.
+  const router = useRouter();
+  const [, startRefresh] = useTransition();
+  const knownSignature = useRef(props.signature);
+  const lastRefreshAt = useRef(0);
+  useEffect(() => {
+    knownSignature.current = props.signature;
+  }, [props.signature]);
+  useVisiblePoll(
+    async () => {
+      const res = await fetch(`/api/cadastros/${dealId}/pulse`, { cache: "no-store" }).catch(() => null);
+      if (!res || !res.ok) return;
+      const body = (await res.json().catch(() => null)) as { signature?: string } | null;
+      if (!body?.signature) return;
+      if (body.signature !== knownSignature.current && Date.now() - lastRefreshAt.current > 6_000) {
+        lastRefreshAt.current = Date.now();
+        startRefresh(() => router.refresh());
+      }
+    },
+    15_000,
+    { immediate: false },
+  );
   const [requests, setRequests] = useState(props.requests);
+  // O servidor (não esta aba) manda a verdade dos pedidos: toda vez que a atualização sozinha (acima)
+  // troca `props.requests` (mesmo sem mudar visualmente), troca a lista — nunca há edição local
+  // pendente aqui que valha a pena preservar (criar/cancelar já confirma no servidor antes de
+  // atualizar a tela). Comparação por referência + setState durante o render, não dentro de um
+  // efeito: é o jeito que o React recomenda para "ajustar estado quando uma prop muda".
+  const [syncedRequests, setSyncedRequests] = useState(props.requests);
+  if (syncedRequests !== props.requests) {
+    setSyncedRequests(props.requests);
+    setRequests(props.requests);
+  }
   const [quotaAt, setQuotaAt] = useState(props.quotaRegisteredAt);
   const initialQuota = {
     groupNumber: String(r.groupNumber ?? ""),
@@ -165,6 +204,19 @@ export function CadastroWorkspace(props: WorkspaceProps) {
   const [savingHolderName, setSavingHolderName] = useState(false);
   const holderNameDirty = holderName.trim() !== savedHolderName;
   const quotaDirty = JSON.stringify(quota) !== JSON.stringify(savedQuota);
+  // Grupo, prazo e forma de pagamento também chegam do CONSULTOR (ele responde um pedido "informar a
+  // cota" direto no cadastro dele, que grava direto no registration) — sem isto, a atualização
+  // sozinha trazia a prop nova mas o painel continuava mostrando os campos vazios até recarregar a
+  // página na mão. Só não troca por cima de uma edição do administrativo ainda não salva aqui
+  // (quotaDirty): nesse caso só marca como "visto" para não tentar de novo a cada render enquanto
+  // o campo continuar dirty, e aplica assim que salvar/descartar.
+  const regQuotaKey = `${r.groupNumber ?? ""}|${r.quotaNumber ?? ""}|${r.quotaDigit ?? ""}|${r.termMonths ?? ""}|${r.paymentMethod ?? ""}`;
+  const [syncedRegQuotaKey, setSyncedRegQuotaKey] = useState(regQuotaKey);
+  if (syncedRegQuotaKey !== regQuotaKey && !quotaDirty) {
+    setSyncedRegQuotaKey(regQuotaKey);
+    setQuota(initialQuota);
+    setSavedQuota(initialQuota);
+  }
   const quotaFilled = Boolean(quota.groupNumber.trim() && quota.quotaNumber.trim() && quota.quotaDigit.trim());
   const [busy, setBusy] = useState(false);
   const [quotaSaved, setQuotaSaved] = useState(false);

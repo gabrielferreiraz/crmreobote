@@ -4,7 +4,11 @@ import {
   canBypassRegistration,
   findMissingRegistrationItems,
   summarizeMissing,
+  isPreviousRegistrationFresh,
+  applyReusablePersonalFields,
+  REGISTRATION_REUSE_MONTHS,
   type RegistrationSnapshot,
+  type ReusablePersonalFields,
 } from "@/lib/deal-registration/rules";
 
 function complete(): RegistrationSnapshot {
@@ -89,4 +93,82 @@ test("ninguém dispensa o cadastro hoje (nem o Dono)", async () => {
   const { canWaiveRegistration } = await import("@/lib/deal-registration/rules");
   assert.equal(canWaiveRegistration({ role: "OWNER", area: "VENDAS" }), false);
   assert.equal(canWaiveRegistration({ role: "MEMBER", area: "ADMINISTRATIVO" }), false);
+});
+
+function addMonths(base: Date, months: number): Date {
+  const d = new Date(base);
+  d.setMonth(d.getMonth() + months);
+  return d;
+}
+
+test("venda ganha dentro de 6 meses ainda serve de padrão; depois disso não", () => {
+  const now = new Date("2026-11-13T12:00:00Z");
+  assert.equal(isPreviousRegistrationFresh(null, now), false);
+  assert.equal(isPreviousRegistrationFresh(addMonths(now, -1), now), true);
+  assert.equal(isPreviousRegistrationFresh(addMonths(now, -REGISTRATION_REUSE_MONTHS), now), true);
+  assert.equal(isPreviousRegistrationFresh(addMonths(now, -(REGISTRATION_REUSE_MONTHS + 1)), now), false);
+});
+
+function previous(): ReusablePersonalFields {
+  return {
+    personType: "PF",
+    holderName: "Ana Maria de Souza",
+    cpf: "529.982.247-25",
+    cnpj: null,
+    profession: "Engenheira",
+    maritalStatus: "Casado(a)",
+    monthlyIncome: 9000,
+    bankName: "Banco do Brasil",
+    bankAgency: "1234",
+    bankAccount: "56789-0",
+    bankAccountType: "Corrente",
+  };
+}
+
+function blankCurrent() {
+  return {
+    personType: "PF" as const,
+    holderName: null,
+    cpf: null,
+    cnpj: null,
+    profession: null,
+    maritalStatus: null,
+    monthlyIncome: null,
+    groupNumber: null,
+    quotaNumber: null,
+    quotaDigit: null,
+    termMonths: null,
+    paymentMethod: null,
+    bankName: null,
+    bankAgency: null,
+    bankAccount: null,
+    bankAccountType: null,
+  };
+}
+
+test("cadastro novo (sem venda própria ainda) herda os dados pessoais da venda anterior, mas não grupo/cota/prazo", () => {
+  const out = applyReusablePersonalFields(blankCurrent(), previous(), false);
+  assert.equal(out.holderName, "Ana Maria de Souza");
+  assert.equal(out.cpf, "529.982.247-25");
+  assert.equal(out.profession, "Engenheira");
+  assert.equal(out.maritalStatus, "Casado(a)");
+  assert.equal(out.monthlyIncome, 9000);
+  assert.equal(out.bankName, "Banco do Brasil");
+  assert.equal(out.groupNumber, null);
+  assert.equal(out.quotaNumber, null);
+  assert.equal(out.termMonths, null);
+});
+
+test("o que o consultor já digitou nesta venda nunca é sobrescrito pela venda anterior", () => {
+  const current = { ...blankCurrent(), profession: "Médica", monthlyIncome: 15000 };
+  const out = applyReusablePersonalFields(current, previous(), true);
+  assert.equal(out.profession, "Médica");
+  assert.equal(out.monthlyIncome, 15000);
+  // O que não foi preenchido nesta venda ainda recebe o valor anterior.
+  assert.equal(out.cpf, "529.982.247-25");
+});
+
+test("sem venda anterior, nada muda", () => {
+  const current = blankCurrent();
+  assert.deepEqual(applyReusablePersonalFields(current, null, false), current);
 });

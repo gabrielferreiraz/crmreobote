@@ -29,3 +29,30 @@ export async function getCadastrosSignature(organizationId: string): Promise<str
     t(requests._max.updatedAt),
   ].join("|");
 }
+
+/**
+ * Mesma ideia da assinatura acima, mas de UMA venda só: para a tela de cadastro
+ * (/cadastros/[id]) perceber sozinha quando o consultor apaga/envia um documento,
+ * edita um dado ou responde um pedido — mesmo com a página já aberta no
+ * administrativo. Conta os documentos (apagar e enviar outro muda a contagem OU
+ * o horário do mais recente, nunca os dois ficam iguais ao estado anterior) e o
+ * horário da última mudança no cadastro e nos pedidos.
+ */
+export async function getDealRegistrationSignature(organizationId: string, dealId: string): Promise<string> {
+  const [deal, registration, documents, requests] = await Promise.all([
+    prisma.deal.findFirst({ where: { id: dealId, organizationId }, select: { status: true, updatedAt: true } }),
+    prisma.dealRegistration.findUnique({ where: { dealId }, select: { updatedAt: true } }),
+    prisma.dealRegistrationDocument.aggregate({ where: { organizationId, registration: { dealId } }, _count: true, _max: { createdAt: true } }),
+    prisma.dealDocumentRequest.aggregate({ where: { organizationId, dealId }, _count: true, _max: { updatedAt: true } }),
+  ]);
+  const t = (d: Date | null | undefined) => (d ? d.getTime() : 0);
+  return [
+    deal?.status ?? "",
+    t(deal?.updatedAt),
+    t(registration?.updatedAt),
+    documents._count,
+    t(documents._max.createdAt),
+    requests._count,
+    t(requests._max.updatedAt),
+  ].join("|");
+}

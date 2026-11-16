@@ -68,6 +68,7 @@ export async function getCommercialReportData(params: {
   compareToParam?: string;
   /** Leitura da organização inteira (área Administrativo, ver lib/reports/scope.ts); sem isto vale o escopo do papel. */
   orgWide?: boolean;
+  topic?: string;
 }) {
   const {
     organizationId,
@@ -83,9 +84,15 @@ export async function getCommercialReportData(params: {
     compareFromParam,
     compareToParam,
     orgWide = false,
+    topic = "resumo",
   } = params;
 
   return runWithTenant(organizationId, async () => {
+  const loadSummary = topic === "resumo";
+  const loadSales = topic === "vendas";
+  const loadFunnel = topic === "funil";
+  const loadTeam = topic === "equipe";
+  const includeWhatsapp = topic === "whatsapp";
   // `pipelines` não depende de `scope`/`visibleMembers` (só de organizationId)
   // — roda em paralelo com a resolução do escopo em vez de esperar ela
   // terminar à toa (getDealScope faz sua própria consulta pra Gerente/
@@ -180,6 +187,15 @@ export async function getCommercialReportData(params: {
     }
     effectiveScope = { type: "owners", ownerIds: Array.from(ids) };
   }
+  const whatsappOwnerIds = effectiveScope.type === "owners"
+    ? effectiveScope.ownerIds.filter((id) => activeOwnerIdSet.has(id))
+    : activeOwnerIds;
+  const hasWhatsappPromise = includeWhatsapp
+    ? Promise.resolve(null)
+    : prisma.whatsAppInstance.findFirst({
+        where: { organizationId, kind: "PERSONAL", personalOwnerId: { in: whatsappOwnerIds } },
+        select: { id: true },
+      });
   const ownerScopeWhere = effectiveScope.type === "owners" ? { userId: { in: effectiveScope.ownerIds } } : {};
   // Activity usa userId; Task usa ownerId. Mantemos filtros separados para
   // que a visão de equipe não misture tarefas de pessoas fora do escopo.
@@ -324,7 +340,7 @@ export async function getCommercialReportData(params: {
     orgCreditTypes,
     proposalsBySenderStatus,
   ] = await Promise.all([
-    activePipeline
+    activePipeline && loadFunnel
       ? prisma.deal.groupBy({
           by: ["stageId"],
           where: {
@@ -359,11 +375,11 @@ export async function getCommercialReportData(params: {
       where: { organizationId, status: "LOST", ...scopeWhere(effectiveScope), ...dateWhere("closedAt"), ...dealFilter },
       _count: true,
     }),
-    prisma.deal.groupBy({
+    (loadSummary || loadFunnel) ? prisma.deal.groupBy({
       by: ["lossReasonId"],
       where: { organizationId, status: "LOST", ...scopeWhere(effectiveScope), ...dateWhere("closedAt"), ...dealFilter },
       _count: true,
-    }),
+    }) : Promise.resolve([]),
     // Ranking de videochamadas + visitas: as duas são "foi falar com o lead direto"
     // (videochamada = online, visita = presencial), então o ranking soma as duas —
     // mas agrupado por type também, pra manter o detalhamento de quantas
@@ -373,7 +389,7 @@ export async function getCommercialReportData(params: {
     // meetingOutcome entra no agrupamento pra alimentar também a taxa de
     // comparecimento (ver meetingVisitByUser abaixo) — mesma consulta,
     // sem custo extra de ida ao banco só pra isso.
-    prisma.activity.groupBy({
+    loadTeam ? prisma.activity.groupBy({
       by: ["userId", "type", "meetingOutcome"],
       // (NOT_PENDING explícito com `null`: `NOT { meetingOutcome: "PENDING" }`
       // vira SQL `NOT (x = 'PENDING')`, que DESCARTA as linhas com x nulo — o
@@ -399,7 +415,7 @@ export async function getCommercialReportData(params: {
           : { OR: [{ task: { isNot: null } }, ...NOT_PENDING] }),
       },
       _count: true,
-    }),
+    }) : Promise.resolve([]),
     // "Quem movimentou mais o funil" (pedido explícito) — ligação, proposta e
     // mensagem de WhatsApp registradas na timeline do negócio/contato, além
     // das videochamadas/visitas que já têm o próprio card acima. Diferente de
@@ -409,16 +425,16 @@ export async function getCommercialReportData(params: {
     // registro de que a ação aconteceu, então conta tudo, sem filtrar por
     // outcome. Mesmo motivo de meetingsAndVisitsByOwner pra não aplicar
     // pipelineFilter: é uma métrica de pessoa, não de funil específico.
-    prisma.activity.groupBy({
+    loadTeam ? prisma.activity.groupBy({
       by: ["userId", "type"],
       where: { organizationId, type: { in: ["CALL", "PROPOSAL", "WHATSAPP"] }, ...ownerScopeWhere, ...dateWhere("createdAt") },
       _count: true,
-    }),
+    }) : Promise.resolve([]),
     // Tarefas e Activities são coisas diferentes: uma Activity representa o
     // registro comercial, enquanto a Task representa o trabalho agendado.
     // Contar Task em um ranking próprio cobre os oito tipos sem duplicar as
     // Activities de ligação, proposta ou WhatsApp deste relatório.
-    prisma.task.groupBy({
+    loadTeam ? prisma.task.groupBy({
       by: ["ownerId", "type"],
       where: {
         organizationId,
@@ -427,20 +443,20 @@ export async function getCommercialReportData(params: {
         ...dateWhere("completedAt"),
       },
       _count: true,
-    }),
-    prisma.deal.findMany({
+    }) : Promise.resolve([]),
+    (loadSummary || loadFunnel) ? prisma.deal.findMany({
       where: { organizationId, status: "WON", closedAt: { gte: trendStart, lte: trendEnd }, ...scopeWhere(effectiveScope), ...dealFilter },
       select: { closedAt: true, value: true },
-    }),
+    }) : Promise.resolve([]),
     // Faturamento por tipo de crédito — imóvel e veículo têm ticket e ciclo
     // de decisão bem diferentes, vale ver separado, não só o total misturado.
-    prisma.deal.groupBy({
+    loadSales ? prisma.deal.groupBy({
       by: ["creditType"],
       where: { organizationId, status: "WON", ...scopeWhere(effectiveScope), ...dateWhere("closedAt"), ...dealFilter },
       _count: true,
       _sum: { value: true },
-    }),
-    showTeamActivity
+    }) : Promise.resolve([]),
+    showTeamActivity && loadTeam
       ? prisma.userDailyActivity.findMany({
           where: { organizationId, date: { gte: activityFrom, lte: activityTo }, ...ownerScopeWhere },
           select: { userId: true, date: true, activeSeconds: true, changeCount: true },
@@ -465,7 +481,7 @@ export async function getCommercialReportData(params: {
     // consulta de wonByCreditType acima, só a janela de data muda. Alimenta
     // o % de diferença por linha da tabela "Faturamento por tipo de
     // crédito" (ver creditTypeBreakdown mais abaixo).
-    comparePeriod
+    comparePeriod && loadSales
       ? prisma.deal.groupBy({
           by: ["creditType"],
           where: { organizationId, status: "WON", closedAt: { gte: comparePeriod.from, lte: comparePeriod.to }, ...scopeWhere(effectiveScope), ...dealFilter },
@@ -476,7 +492,7 @@ export async function getCommercialReportData(params: {
     // Motivo de perda do período de COMPARAÇÃO — mesma consulta de
     // lostByReason acima, só a janela de data muda. Alimenta o % de
     // diferença por barra em "Por que perdemos negócios".
-    comparePeriod
+    comparePeriod && loadFunnel
       ? prisma.deal.groupBy({
           by: ["lossReasonId"],
           where: { organizationId, status: "LOST", closedAt: { gte: comparePeriod.from, lte: comparePeriod.to }, ...scopeWhere(effectiveScope), ...dealFilter },
@@ -491,7 +507,7 @@ export async function getCommercialReportData(params: {
     // configurado aqui, ver schema.prisma) — esta organização configurou
     // "Imóvel" (minúsculo) e "Automóvel" (não "Veículo"), então nenhum negócio
     // batia a comparação exata e tudo caía em "Outros" por engano.
-    prisma.creditType.findMany({ where: { organizationId }, orderBy: { order: "asc" } }),
+    loadSales ? prisma.creditType.findMany({ where: { organizationId }, orderBy: { order: "asc" } }) : Promise.resolve([]),
     // Propostas comerciais (módulo Proposal, ver lib/proposals) — "enviada"
     // é sentAt no período (nunca apagado, nem se a proposta for cancelada
     // depois: cancelar não pode virar jeito de maquiar a conta), agrupado
@@ -502,7 +518,7 @@ export async function getCommercialReportData(params: {
     // resposta: aceitas nunca passam de enviadas, então a taxa fecha em ≤100%.
     // Sem pipelineFilter, mesmo motivo de meetingsAndVisitsByOwner: é métrica
     // de pessoa, não de funil específico.
-    prisma.proposal.groupBy({
+    loadTeam ? prisma.proposal.groupBy({
       by: ["sentById", "status"],
       where: {
         organizationId,
@@ -510,7 +526,7 @@ export async function getCommercialReportData(params: {
         ...(effectiveScope.type === "owners" ? { sentById: { in: effectiveScope.ownerIds } } : {}),
       },
       _count: true,
-    }),
+    }) : Promise.resolve([]),
   ]);
 
   const openCount = openByOwner.reduce((sum, row) => sum + row._count, 0);
@@ -839,7 +855,7 @@ export async function getCommercialReportData(params: {
       name: o.name,
       photoUrl: o.photoUrl,
       primaryValue: formatCurrency(o.wonValue),
-      secondaryValue: `${o.wonCount} negócio${o.wonCount === 1 ? "" : "s"}`,
+      details: [{ label: "Negócios", value: o.wonCount }],
     }));
 
   // Concentração de faturamento no TOP vendedor — risco de dependência de uma
@@ -884,19 +900,13 @@ export async function getCommercialReportData(params: {
     .filter((o) => activeMemberIds.has(o.id) && o.attendedCount > 0)
     .sort((a, b) => b.attendedCount - a.attendedCount)
     .map((o) => {
-      const typeParts: string[] = [];
-      if (o.visitAttendedCount > 0) typeParts.push(`${o.visitAttendedCount} visita${o.visitAttendedCount === 1 ? "" : "s"}`);
-      if (o.meetingAttendedCount > 0) typeParts.push(`${o.meetingAttendedCount} videochamada${o.meetingAttendedCount === 1 ? "" : "s"}`);
-      const typeText = typeParts.join(" · ") || `${o.attendedCount} realizadas`;
-
-      const extraParts: string[] = [];
-      if (o.meetingsAndVisitsCount > o.attendedCount) {
-        extraParts.push(`${o.meetingsAndVisitsCount} agendadas`);
-      }
-      if (o.noShowCount > 0) extraParts.push(`${o.noShowCount} no-show`);
-      if (o.rescheduledCount > 0) extraParts.push(`${o.rescheduledCount} remarcada${o.rescheduledCount === 1 ? "" : "s"}`);
-
-      const extraText = extraParts.length > 0 ? ` (${extraParts.join(", ")})` : "";
+      const details = [
+        { label: "Visitas", value: o.visitAttendedCount },
+        { label: "Videochamadas", value: o.meetingAttendedCount },
+        ...(o.meetingsAndVisitsCount > o.attendedCount ? [{ label: "Agendados", value: o.meetingsAndVisitsCount }] : []),
+        ...(o.noShowCount > 0 ? [{ label: "Não compareceu", value: o.noShowCount }] : []),
+        ...(o.rescheduledCount > 0 ? [{ label: "Remarcados", value: o.rescheduledCount }] : []),
+      ];
 
       return {
         id: o.id,
@@ -906,9 +916,9 @@ export async function getCommercialReportData(params: {
         // valor GRANDE/negrito do card (ver components/leaderboard.tsx), e o nome
         // completo dos dois tipos é comprido demais pra caber num card estreito sem
         // quebrar no meio da palavra (pedido explícito do usuário); a abertura por
-        // tipo já vem logo abaixo, em secondaryValue — nenhuma informação se perde.
-        primaryValue: `${o.attendedCount} ${o.attendedCount === 1 ? "encontro" : "encontros"}`,
-        secondaryValue: `${typeText}${extraText}`,
+        // tipo já vem logo abaixo, em details — nenhuma informação se perde.
+        primaryValue: `${o.attendedCount.toLocaleString("pt-BR")} ${o.attendedCount === 1 ? "encontro" : "encontros"}`,
+        details,
       };
     });
 
@@ -921,16 +931,16 @@ export async function getCommercialReportData(params: {
     .filter((o) => activeMemberIds.has(o.id) && o.funnelActivityCount > 0)
     .sort((a, b) => b.funnelActivityCount - a.funnelActivityCount)
     .map((o) => {
-      const parts: string[] = [];
-      if (o.callCount > 0) parts.push(`${o.callCount} ligaç${o.callCount === 1 ? "ão" : "ões"}`);
-      if (o.proposalCount > 0) parts.push(`${o.proposalCount} proposta${o.proposalCount === 1 ? "" : "s"}`);
-      if (o.whatsappCount > 0) parts.push(`${o.whatsappCount} WhatsApp`);
       return {
         id: o.id,
         name: o.name,
         photoUrl: o.photoUrl,
-        primaryValue: `${o.funnelActivityCount} ${o.funnelActivityCount === 1 ? "ação" : "ações"}`,
-        secondaryValue: parts.join(" · ") || `${o.funnelActivityCount} ações`,
+        primaryValue: `${o.funnelActivityCount.toLocaleString("pt-BR")} ${o.funnelActivityCount === 1 ? "ação" : "ações"}`,
+        details: [
+          ...(o.callCount > 0 ? [{ label: "Ligações", value: o.callCount }] : []),
+          ...(o.proposalCount > 0 ? [{ label: "Propostas", value: o.proposalCount }] : []),
+          ...(o.whatsappCount > 0 ? [{ label: "WhatsApp", value: o.whatsappCount }] : []),
+        ],
       };
     });
 
@@ -953,13 +963,13 @@ export async function getCommercialReportData(params: {
     .map((o) => {
       const types = Array.from(o.completedTasksByType.entries())
         .sort(([, left], [, right]) => right - left)
-        .map(([type, count]) => `${count} ${taskTypeLabels[type] ?? type.toLowerCase()}`);
+        .map(([type, count]) => ({ label: taskTypeLabels[type] ?? type.toLowerCase(), value: count }));
       return {
         id: o.id,
         name: o.name,
         photoUrl: o.photoUrl,
-        primaryValue: `${o.completedTaskCount} tarefa${o.completedTaskCount === 1 ? "" : "s"}`,
-        secondaryValue: types.join(" · "),
+        primaryValue: `${o.completedTaskCount.toLocaleString("pt-BR")} tarefa${o.completedTaskCount === 1 ? "" : "s"}`,
+        details: types,
       };
     });
 
@@ -975,13 +985,16 @@ export async function getCommercialReportData(params: {
     .sort((a, b) => b.attendedCount + b.noShowCount - (a.attendedCount + a.noShowCount))
     .map((o) => {
       const totalEncontros = o.attendedCount + o.noShowCount;
-      const noShowText = o.noShowCount > 0 ? ` (${o.noShowCount} no-show)` : "";
       return {
         id: o.id,
         name: o.name,
         photoUrl: o.photoUrl,
         primaryValue: `${o.attendanceRate}%`,
-        secondaryValue: `${o.attendedCount} de ${totalEncontros} encontros${noShowText}`,
+        details: [
+          { label: "Compareceram", value: o.attendedCount },
+          { label: "Encontros", value: totalEncontros },
+          ...(o.noShowCount > 0 ? [{ label: "Ausências", value: o.noShowCount }] : []),
+        ],
       };
     });
 
@@ -1009,7 +1022,7 @@ export async function getCommercialReportData(params: {
       name: o.name,
       photoUrl: o.photoUrl,
       primaryValue: `${o.conversionRate}%`,
-      secondaryValue: `${o.wonCount} venda${o.wonCount === 1 ? "" : "s"} de ${o.dealsHandled} negócio${o.dealsHandled === 1 ? "" : "s"}`,
+      details: [{ label: "Vendas", value: o.wonCount }, { label: "Negócios", value: o.dealsHandled }],
     }));
 
   // ─── Propostas (módulo Proposal) ───────────────────────────────────────
@@ -1051,16 +1064,6 @@ export async function getCommercialReportData(params: {
   // (1 aceita de 1 enviada = 100% "ganha" de 21 de 30 = 70%), e "pendente"
   // parada pra sempre em SENT é o jeito mais fácil de inflar a taxa
   // marcando só as que deram certo.
-  const proposalDetail = (s: ProposalStats) => {
-    const parts: string[] = [];
-    if (s.accepted > 0) parts.push(`${s.accepted} aceita${s.accepted === 1 ? "" : "s"}`);
-    if (s.declined > 0) parts.push(`${s.declined} recusada${s.declined === 1 ? "" : "s"}`);
-    if (s.superseded > 0) parts.push(`${s.superseded} refeita${s.superseded === 1 ? "" : "s"}`);
-    if (s.cancelled > 0) parts.push(`${s.cancelled} cancelada${s.cancelled === 1 ? "" : "s"}`);
-    if (s.pending > 0) parts.push(`${s.pending} pendente${s.pending === 1 ? "" : "s"}`);
-    return parts.join(" · ");
-  };
-
   // Ordenado por VOLUME enviado, não por taxa — mesmo raciocínio de
   // attendanceRanking acima.
   const proposalsSentRanking: LeaderboardEntry[] = proposalRows
@@ -1070,8 +1073,14 @@ export async function getCommercialReportData(params: {
       id: r.id,
       name: r.name,
       photoUrl: r.photoUrl,
-      primaryValue: `${r.sent} ${r.sent === 1 ? "enviada" : "enviadas"}`,
-      secondaryValue: proposalDetail(r) || undefined,
+      primaryValue: `${r.sent.toLocaleString("pt-BR")} ${r.sent === 1 ? "enviada" : "enviadas"}`,
+      details: [
+        ...(r.accepted > 0 ? [{ label: "Aceitas", value: r.accepted }] : []),
+        ...(r.pending > 0 ? [{ label: "Pendentes", value: r.pending }] : []),
+        ...(r.declined > 0 ? [{ label: "Recusadas", value: r.declined }] : []),
+        ...(r.superseded > 0 ? [{ label: "Refeitas", value: r.superseded }] : []),
+        ...(r.cancelled > 0 ? [{ label: "Canceladas", value: r.cancelled }] : []),
+      ],
     }));
 
   // Conversão: aceitas ÷ enviadas (definição escolhida pelo dono — cada
@@ -1093,9 +1102,12 @@ export async function getCommercialReportData(params: {
       name: r.name,
       photoUrl: r.photoUrl,
       primaryValue: `${r.rate}%`,
-      secondaryValue: `${r.accepted} de ${r.sent} enviada${r.sent === 1 ? "" : "s"}${r.pending > 0 ? ` · ${r.pending} pendente${r.pending === 1 ? "" : "s"}` : ""}${
-        r.sent < MIN_PROPOSALS_FOR_RATE ? " · amostra pequena" : ""
-      }`,
+      details: [
+        { label: "Aceitas", value: r.accepted },
+        { label: "Enviadas", value: r.sent },
+        ...(r.pending > 0 ? [{ label: "Pendentes", value: r.pending }] : []),
+      ],
+      secondaryValue: r.sent < MIN_PROPOSALS_FOR_RATE ? "Amostra pequena" : undefined,
     }));
 
   const proposalsSummary = proposalRows.reduce((acc, r) => {
@@ -1118,6 +1130,7 @@ export async function getCommercialReportData(params: {
       name: o.name,
       photoUrl: o.photoUrl,
       primaryValue: formatDuration(o.activeSeconds * 1000),
+      barValue: o.activeSeconds,
       secondaryValue: `Média ${formatDuration(o.avgSecondsPerActiveDay * 1000)}/dia`,
     }));
 
@@ -1129,6 +1142,7 @@ export async function getCommercialReportData(params: {
       id: o.id,
       name: o.name,
       photoUrl: o.photoUrl,
+      barValue: o.changeCount,
       primaryValue: `${o.changeCount} alteraç${o.changeCount === 1 ? "ão" : "ões"}`,
       secondaryValue: `${o.activeDayCount} dia${o.activeDayCount === 1 ? "" : "s"} ativo${o.activeDayCount === 1 ? "" : "s"}`,
     }));
@@ -1175,8 +1189,8 @@ export async function getCommercialReportData(params: {
     .map((t) => ({
       id: t.id,
       name: t.name,
-      primaryValue: `${t.wonCount} negócio${t.wonCount === 1 ? "" : "s"}`,
-      secondaryValue: formatCurrency(t.wonValue),
+      primaryValue: `${t.wonCount.toLocaleString("pt-BR")} negócio${t.wonCount === 1 ? "" : "s"}`,
+      details: [{ label: "Valor ganho", value: formatCurrency(t.wonValue) }],
     }));
 
   // ─── Evolução: valor ganho ao longo do período escolhido — por dia se o
@@ -1308,11 +1322,11 @@ export async function getCommercialReportData(params: {
   // lib/deals/list-query.ts sobre o preço de cada transação de RLS) — juntar
   // num Promise.all corta esse tempo pro maior dos três, não a soma deles.
   const [reasonsList, jobTitleAgg, dealThreads] = await Promise.all([
-    prisma.lossReason.findMany({
+    (loadSummary || loadFunnel) ? prisma.lossReason.findMany({
       where: { id: { in: reasonIds } },
       select: { id: true, label: true },
-    }),
-    prismaRaw.$transaction(async (tx) => {
+    }) : Promise.resolve([]),
+    loadFunnel ? prismaRaw.$transaction(async (tx) => {
       await setTenantOnTx(tx, organizationId);
       return tx.$queryRaw<{ label: string; won: number; lost: number; wonValue: Prisma.Decimal }[]>`
         SELECT
@@ -1331,8 +1345,8 @@ export async function getCommercialReportData(params: {
           ${rangeTo ? Prisma.sql`AND d."closedAt" <= ${rangeTo}` : Prisma.empty}
         GROUP BY 1
       `;
-    }),
-    prismaRaw.$transaction(async (tx) => {
+    }) : Promise.resolve([] as { label: string; won: number; lost: number; wonValue: Prisma.Decimal }[]),
+    includeWhatsapp ? prismaRaw.$transaction(async (tx) => {
       await setTenantOnTx(tx, organizationId);
       return tx.$queryRaw<{ id: string; instanceId: string | null; contactId: string | null }[]>`
         SELECT t.id, t."instanceId", t."contactId"
@@ -1344,7 +1358,7 @@ export async function getCommercialReportData(params: {
           )
           ${instanceOwnerFilterSql}
       `;
-    }),
+    }) : Promise.resolve([] as { id: string; instanceId: string | null; contactId: string | null }[]),
   ]);
 
   // Contagem do MESMO motivo no período de comparação, por lossReasonId —
@@ -1402,12 +1416,14 @@ export async function getCommercialReportData(params: {
     year: "numeric",
     timeZone: "UTC",
   });
-  const monthlyGoalAndTeamPromise = Promise.all([
-    prisma.monthlyGoal.findUnique({
-      where: { organizationId_year_month: { organizationId, year: nowParts.year, month: nowParts.month + 1 } },
-    }),
-    getGoalTeamSnapshot(organizationId),
-  ]);
+  const monthlyGoalAndTeamPromise = loadSummary
+    ? Promise.all([
+        prisma.monthlyGoal.findUnique({
+          where: { organizationId_year_month: { organizationId, year: nowParts.year, month: nowParts.month + 1 } },
+        }),
+        getGoalTeamSnapshot(organizationId),
+      ])
+    : Promise.resolve([null, { excludedOwnerIds: [] as string[], activeSellerCount: 0 }] as const);
 
   // Prospecção manual: a mensagem de ABERTURA (a 1ª de toda a thread, sem
   // limite de período — precisa saber quem falou primeiro na história toda,
@@ -1438,7 +1454,7 @@ export async function getCommercialReportData(params: {
       ]).then(([messages]) => messages)
     : Promise.resolve([]);
 
-  const [whatsappInstancesRaw, sentByInstance, organicOutboundPairs, campaignRecipients] = await Promise.all([
+  const loadWhatsappData = () => Promise.all([
     prisma.whatsAppInstance.findMany({
       where: {
         organizationId,
@@ -1520,6 +1536,10 @@ export async function getCommercialReportData(params: {
       },
     }),
   ]);
+  const emptyWhatsappData: Awaited<ReturnType<typeof loadWhatsappData>> = [[], [], [], []];
+  const [whatsappInstancesRaw, sentByInstance, organicOutboundPairs, campaignRecipients] = includeWhatsapp
+    ? await loadWhatsappData()
+    : emptyWhatsappData;
   const manualOpenerReplies = await manualOpenerRepliesPromise;
   const manualOpenerRepliedSet = new Set(manualOpenerReplies.map((m) => m.threadId));
   const manualProspectByInstance = new Map<string, { sent: number; replied: number }>();
@@ -1766,10 +1786,12 @@ export async function getCommercialReportData(params: {
   // parte. Thread sem Contact vinculado (aba "Geral") não entra nas métricas
   // de resposta/conversão, só quem é lead de verdade mesmo.
   const allThreadIds = Array.from(new Set([...inboundPairs.map((p) => p.threadId), ...outboundPairs.map((p) => p.threadId)]));
-  const threads = await prisma.whatsAppThread.findMany({
-    where: { id: { in: allThreadIds } },
-    select: { id: true, contactId: true, createdAt: true },
-  });
+  const threads = allThreadIds.length
+    ? await prisma.whatsAppThread.findMany({
+        where: { id: { in: allThreadIds } },
+        select: { id: true, contactId: true, createdAt: true },
+      })
+    : [];
   const contactIdByThread = new Map(threads.map((t) => [t.id, t.contactId]));
 
   // "Comparar período" — junta os números de negócio (ganho/perdido, ver
@@ -1999,6 +2021,7 @@ export async function getCommercialReportData(params: {
       ...w,
       deal: dealWhatsappStatsByUser.get(w.userId) ?? null,
     }));
+  const hasWhatsapp = includeWhatsapp ? sellerWhatsappCards.length > 0 : Boolean(await hasWhatsappPromise);
 
   // ─── Meta mensal ────────────────────────────────────────────────────
   // Sempre o mês corrente (calendário de Brasília), independente do filtro
@@ -2012,7 +2035,7 @@ export async function getCommercialReportData(params: {
   // Sócio (Dono) que fecha negócio da própria Reobote não deve contar como
   // meta do time (ver countsTowardGoal no schema/getGoalExcludedOwnerIds) —
   // igual ao card de meta do Início e ao Churrascômetro da TV.
-  const goalWonAgg = await prisma.deal.aggregate({
+  const goalWonAgg = loadSummary ? await prisma.deal.aggregate({
     where: {
       organizationId,
       status: "WON",
@@ -2020,9 +2043,9 @@ export async function getCommercialReportData(params: {
       ...(goalExcludedOwnerIds.length > 0 ? { ownerId: { notIn: goalExcludedOwnerIds } } : {}),
     },
     _sum: { value: true },
-  });
+  }) : null;
   const goalValue = monthlyGoal ? Number(monthlyGoal.value) : null;
-  const goalAchievedValue = goalWonAgg._sum.value ? Number(goalWonAgg._sum.value) : 0;
+  const goalAchievedValue = goalWonAgg?._sum.value ? Number(goalWonAgg._sum.value) : 0;
   const goalSuggestedValue = suggestedGoalValue(activeSellerCount);
   // Só sugere atualizar quando dá pra comparar com uma base conhecida —
   // meta sem `basedOnSellerCount` (salva antes desse campo existir) nunca
@@ -2097,6 +2120,7 @@ export async function getCommercialReportData(params: {
     scriptBreakdown,
     cargoBreakdown,
     sellerWhatsappCards,
+    hasWhatsapp,
     currentMonthLabel,
     selectedMonthLabel,
     activeSellerCount,

@@ -166,26 +166,26 @@ function WonDealsPanel({
   const hasMore = summary ? items.length < summary.total : false;
 
   return (
-    <SidePanel onClose={onClose} title="Negócios fechados" maxWidth="max-w-lg">
+    <SidePanel onClose={onClose} title="Negócios fechados" maxWidth="max-w-xl">
       <div className="flex items-center gap-3">
         <Avatar name={ownerName} src={photoUrl} size="md" className="shrink-0" />
         <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100">{ownerName}</p>
-          <p className="text-xs text-neutral-500 dark:text-neutral-400">{periodLabel}</p>
+          <p className="truncate text-base font-semibold text-neutral-900 dark:text-neutral-100">{ownerName}</p>
+          <p className="text-sm text-neutral-500 dark:text-neutral-400">{periodLabel}</p>
         </div>
       </div>
 
       {summary && (
-        <div className="mt-4 grid grid-cols-2 gap-3">
-          <div className="min-w-0 rounded-lg bg-neutral-50 px-3 py-2.5 dark:bg-neutral-800/60">
-            <p className="text-[11px] tracking-wide text-neutral-500 uppercase dark:text-neutral-400">Negócios</p>
-            <p className="text-lg font-bold tabular-nums text-neutral-900 dark:text-neutral-100">{summary.total}</p>
+        <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-[0.8fr_1.2fr]">
+          <div className="min-w-0 rounded-lg bg-neutral-50 px-4 py-3 dark:bg-neutral-800/60">
+            <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Negócios</p>
+            <p className="mt-1 text-2xl font-bold tabular-nums text-neutral-900 dark:text-neutral-100">{summary.total}</p>
           </div>
-          <div className="min-w-0 rounded-lg bg-neutral-50 px-3 py-2.5 dark:bg-neutral-800/60">
-            <p className="text-[11px] tracking-wide text-neutral-500 uppercase dark:text-neutral-400">Total ganho</p>
-            <p className="text-base font-bold tabular-nums text-neutral-900 sm:text-lg dark:text-neutral-100">{formatCurrency(summary.sumValue)}</p>
+          <div className="min-w-0 rounded-lg bg-neutral-50 px-4 py-3 dark:bg-neutral-800/60">
+            <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Total ganho</p>
+            <p className="mt-1 break-words text-xl leading-tight font-bold tabular-nums text-neutral-900 dark:text-neutral-100">{formatCurrency(summary.sumValue)}</p>
             {summary.sumGrossValue > 0 && summary.sumGrossValue !== summary.sumValue && (
-              <p className="text-[11px] text-neutral-400 tabular-nums dark:text-neutral-500">bruto: {formatCurrency(summary.sumGrossValue)}</p>
+              <p className="mt-1 text-sm text-neutral-500 tabular-nums dark:text-neutral-400">Bruto {formatCurrency(summary.sumGrossValue)}</p>
             )}
           </div>
         </div>
@@ -218,23 +218,23 @@ function WonDealsPanel({
                   href={`/negocios/${d.id}`}
                   className="-mx-2 block rounded-lg px-2 py-2.5 transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
                 >
-                  <p className="text-sm font-medium break-words text-neutral-900 dark:text-neutral-100">{d.contactName}</p>
-                  <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">
+                  <p className="text-base font-semibold break-words text-neutral-900 dark:text-neutral-100">{d.contactName}</p>
+                  <p className="mt-1 text-sm leading-snug text-neutral-600 dark:text-neutral-400">
                     {d.name !== d.contactName && <>{d.name} · </>}
                     {d.creditType ? `${d.creditType} · ` : ""}
                     {d.pipelineName}
                   </p>
-                  <div className="mt-1.5 flex items-end justify-between gap-3">
-                    <p className="text-[11px] text-neutral-400 dark:text-neutral-500">{formatDay(d.closedAt)}</p>
+                  <div className="mt-2 flex items-end justify-between gap-3">
+                    <p className="text-sm text-neutral-500 dark:text-neutral-400">{formatDay(d.closedAt)}</p>
                     <div className="text-right">
-                      <p className="text-sm font-semibold whitespace-nowrap tabular-nums text-neutral-900 dark:text-neutral-100">
+                      <p className="text-lg leading-tight font-bold whitespace-nowrap tabular-nums text-neutral-900 dark:text-neutral-100">
                         {formatCurrency(d.value)}
                       </p>
                       {/* Bruto só quando difere do líquido — mostrar os dois
                           iguais seria ruído (pedido: bruto visível, mas menor). */}
                       {d.grossValue !== null && d.grossValue !== d.value && (
-                        <p className="text-[10px] whitespace-nowrap text-neutral-400 tabular-nums dark:text-neutral-500">
-                          bruto: {formatCurrency(d.grossValue)}
+                        <p className="mt-0.5 text-sm whitespace-nowrap text-neutral-500 tabular-nums dark:text-neutral-400">
+                          Bruto {formatCurrency(d.grossValue)}
                         </p>
                       )}
                     </div>

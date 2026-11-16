@@ -152,6 +152,16 @@ export function ClosedAtDialog({
   const [tablesOpen, setTablesOpen] = useState(false);
   const [quotas, setQuotas] = useState<AdheredQuota[]>([]);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // Cadastro completo: o primeiro clique "arma" o botão (vira "Marcar como ganho") em vez de já efetivar —
+  // dar o Ganho é a parte que não volta atrás, merece um clique a mais de certeza. Editar algo que muda o
+  // que falta desarma de novo (ex.: apagou um campo obrigatório e corrigiu).
+  const [armed, setArmed] = useState(false);
+  const [armedResetKey, setArmedResetKey] = useState(`${regStatus.done}:${regStatus.total}`);
+  const resetKey = `${regStatus.done}:${regStatus.total}`;
+  if (armedResetKey !== resetKey) {
+    setArmedResetKey(resetKey);
+    if (armed) setArmed(false);
+  }
   const needsCreditType = needsAdministrator && creditTypes.length > 0;
 
   const [preview, setPreview] = useState<CommissionPreview | null>(null);
@@ -202,6 +212,11 @@ export function ClosedAtDialog({
       regApi.current?.focusFirstMissing();
       return;
     }
+    if (registrationEnabled && !armed) {
+      // 1º clique: só avisa que está pronto para enviar. O Ganho em si pede o 2º clique (confirmLabel).
+      setArmed(true);
+      return;
+    }
     setLoading(true);
     setSubmitError(null);
     try {
@@ -250,6 +265,8 @@ export function ClosedAtDialog({
         "Verificando cadastro"
       ) : registrationEnabled && !regStatus.ready ? (
         "Revisar pendências"
+      ) : registrationEnabled && !armed ? (
+        "Enviar para o administrativo"
       ) : (
         confirmLabel
       )}
@@ -288,7 +305,14 @@ export function ClosedAtDialog({
             perdem ao ir e voltar das tabelas. */}
         <form onSubmit={handleSubmit} className={tablesOpen ? "hidden" : "space-y-4"}>
           <div>
-            <button type="button" onClick={() => setStep("sale")} className="mb-1 inline-flex items-center gap-1 text-xs font-medium text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200">
+            <button
+              type="button"
+              onClick={() => {
+                setStep("sale");
+                setArmed(false);
+              }}
+              className="mb-1 inline-flex items-center gap-1 text-xs font-medium text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200"
+            >
               <ArrowLeft className="h-3.5 w-3.5" /> Voltar
             </button>
             <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Cadastro do cliente</h2>
@@ -320,7 +344,13 @@ export function ClosedAtDialog({
                 <CircleAlert className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" strokeWidth={2} />
               )}
               <p className={`min-w-0 text-sm font-medium ${regStatus.loading ? "text-neutral-500 dark:text-neutral-400" : regStatus.ready ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}`}>
-                {regStatus.loading ? "Verificando o cadastro…" : regStatus.ready ? "Cadastro completo" : regStatus.summary || "Preencha os itens pendentes para concluir o ganho."}
+                {regStatus.loading
+                  ? "Verificando o cadastro…"
+                  : !regStatus.ready
+                    ? regStatus.summary || "Preencha os itens pendentes para concluir o ganho."
+                    : armed
+                      ? "Confirme para dar o ganho e avisar o administrativo."
+                      : "Cadastro completo"}
               </p>
             </div>
             <div className="flex flex-col-reverse gap-2 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">

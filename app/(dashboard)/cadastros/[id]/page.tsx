@@ -6,6 +6,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { canBypassRegistration, DOCUMENT_RETENTION_DAYS } from "@/lib/deal-registration/rules";
 import { loadRegistrationContext } from "@/lib/deal-registration/service";
 import { listDealRequests } from "@/lib/deal-registration/requests";
+import { getDealRegistrationSignature } from "@/lib/deal-registration/live";
 import { CadastroWorkspace } from "./cadastro-workspace";
 
 export const dynamic = "force-dynamic";
@@ -30,13 +31,18 @@ export default async function CadastroPage({ params }: { params: Promise<{ id: s
       },
     });
     if (!deal || deal.status === "LOST") notFound();
-    const [ctx, requests] = await Promise.all([loadRegistrationContext(m.organizationId, id), listDealRequests(m.organizationId, id)]);
+    const [ctx, requests, signature] = await Promise.all([
+      loadRegistrationContext(m.organizationId, id),
+      listDealRequests(m.organizationId, id),
+      getDealRegistrationSignature(m.organizationId, id),
+    ]);
     if (!ctx) notFound();
     const credit = deal.grossValue ?? deal.value;
 
     return (
       <CadastroWorkspace
         dealId={id}
+        signature={signature}
         dealStatus={deal.status}
         clientName={ctx.contactName}
         consultantName={deal.owner.name}

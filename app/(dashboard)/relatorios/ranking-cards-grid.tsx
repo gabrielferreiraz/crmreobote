@@ -12,7 +12,7 @@ import {
 } from "@dnd-kit/core";
 import { SortableContext, arrayMove, horizontalListSortingStrategy, sortableKeyboardCoordinates, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical } from "lucide-react";
+import { GripVertical, Maximize2, Minimize2 } from "lucide-react";
 
 export type RankingCardData = {
   id: string;
@@ -44,12 +44,44 @@ function loadOrder(ids: string[]): string[] {
   }
 }
 
-function SortableCard({ card }: { card: RankingCardData }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: card.id });
-  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.6 : 1, zIndex: isDragging ? 1 : undefined };
+function SortableCard({
+  card,
+  expanded,
+  pinned,
+  onHover,
+  onLeave,
+  onToggle,
+  onPin,
+}: {
+  card: RankingCardData;
+  expanded: boolean;
+  pinned: boolean;
+  onHover: (id: string) => void;
+  onLeave: (id: string) => void;
+  onToggle: (id: string) => void;
+  onPin: (id: string) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: card.id,
+    transition: { duration: 320, easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
+  });
+  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.6 : 1, zIndex: isDragging ? 2 : expanded ? 1 : undefined };
 
   return (
-    <div ref={setNodeRef} style={style} className="card group flex min-w-[290px] flex-1 basis-[290px] flex-col p-6">
+    <div
+      ref={setNodeRef}
+      style={style}
+      data-expanded={expanded}
+      onMouseEnter={() => onHover(card.id)}
+      onMouseLeave={() => onLeave(card.id)}
+      onClickCapture={(event) => {
+        const target = event.target as HTMLElement;
+        if (target.closest("[data-ranking-action]") || (!expanded && target.closest("[data-ranking-select]"))) onPin(card.id);
+      }}
+      className={`card group/ranking flex shrink-0 flex-col p-4 transition-[width,border-color,box-shadow] duration-500 ease-smooth motion-reduce:transition-none sm:p-5 ${
+        expanded ? "w-[min(94vw,720px)] border-brand/40 shadow-lg dark:border-brand/50" : "w-[min(82vw,320px)]"
+      }`}
+    >
       {/* items-start (não items-center) + min-h de 2 linhas no bloco do título: um
           título de 1 linha ao lado de outro de 2 desalinhava onde cada card começa
           a listar gente — o rank "1" de um ficava mais alto que o de outro vizinho
@@ -60,22 +92,30 @@ function SortableCard({ card }: { card: RankingCardData }) {
           seção do PDF de proposta (ver components/proposals/proposal-document.tsx),
           reaproveitado aqui pela mesma razão: corta a sensação de tudo grudado. */}
       <div className="mb-3 flex shrink-0 items-start justify-between gap-2 border-b border-neutral-100 pb-3 dark:border-neutral-800">
-        <div className="flex min-h-10 min-w-0 items-start gap-2">
+        <div className="flex min-h-10 min-w-0 items-start gap-2.5">
           {/* mt-0.5: no topo (items-start), o ícone de 16px fica meio alto sem esse
               empurrão — alinha com a altura-x da 1ª linha do título. */}
-          <span className="mt-0.5 shrink-0">{card.icon}</span>
-          <h3 className="line-clamp-2 text-sm font-semibold text-neutral-900 dark:text-neutral-100">{card.title}</h3>
+          <span className="mt-0.5 shrink-0 text-brand">{card.icon}</span>
+          <h3 className="line-clamp-2 text-base font-semibold text-neutral-900 group-data-[expanded=true]/ranking:text-lg dark:text-neutral-100">{card.title}</h3>
         </div>
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="flex shrink-0 items-center gap-0.5">
           {card.headerExtra}
-          {/* Só o ícone arrasta (não o card inteiro) — o corpo tem lista com scroll próprio,
-              e um card inteiro "pegável" ia competir com o gesto de rolar a lista no touch.
-              coarse:opacity-100 mantém visível em touch (onde não existe hover pra revelar). */}
+          <button
+            type="button"
+            onClick={() => onToggle(card.id)}
+            className="icon-btn text-neutral-500 hover:text-brand dark:text-neutral-400 dark:hover:text-brand"
+            title={pinned ? "Recolher ranking" : "Manter ranking expandido"}
+            aria-label={`${pinned ? "Recolher" : "Expandir"} ${card.title}`}
+            aria-pressed={pinned}
+          >
+            {pinned ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+          </button>
+          {/* O arraste fica no ícone para não disputar o gesto de rolagem da lista. */}
           <button
             type="button"
             {...attributes}
             {...listeners}
-            className="icon-btn cursor-grab touch-none opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 coarse:opacity-100"
+            className="icon-btn cursor-grab touch-none text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
             title="Arrastar para reordenar"
             aria-label={`Arrastar "${card.title}" para reordenar entre os rankings`}
           >
@@ -83,7 +123,7 @@ function SortableCard({ card }: { card: RankingCardData }) {
           </button>
         </div>
       </div>
-      {card.subheader}
+      {expanded && card.subheader}
       {card.body}
     </div>
   );
@@ -104,15 +144,16 @@ function SortableCard({ card }: { card: RankingCardData }) {
  * vertical) porque agora é mesmo uma lista de um eixo só, não uma grade que
  * quebra linha.
  *
- * flex-1 + min-w-[260px] por card (ver SortableCard): cresce pra preencher
- * quando sobra espaço (poucos cards, tela larga — mesmo visual de antes) e
- * encolhe até 260px antes de estourar a fileira e ativar o scroll — nunca
- * aperta um card menor que isso.
+ * Os cards têm largura compacta estável e se alargam na própria fileira
+ * quando recebem hover ou são fixados pelo botão de expansão.
  */
 export function RankingCardsGrid({ cards }: { cards: RankingCardData[] }) {
   const ids = cards.map((c) => c.id);
   const idsKey = ids.join("|");
   const [order, setOrder] = useState(ids);
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [pinnedId, setPinnedId] = useState<string | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
 
   // Só no cliente, depois da montagem — o 1º render (inclusive o do servidor)
   // usa a ordem padrão do código, então não há descompasso de hidratação; a
@@ -130,6 +171,8 @@ export function RankingCardsGrid({ cards }: { cards: RankingCardData[] }) {
   );
 
   function handleDragEnd(event: DragEndEvent) {
+    setDraggingId(null);
+    setHoveredId(null);
     const { active, over } = event;
     if (!over || active.id === over.id) return;
     setOrder((prev) => {
@@ -145,15 +188,36 @@ export function RankingCardsGrid({ cards }: { cards: RankingCardData[] }) {
 
   const byId = new Map(cards.map((c) => [c.id, c]));
   const ordered = order.map((id) => byId.get(id)).filter((c): c is RankingCardData => !!c);
+  const expandedId = pinnedId ?? hoveredId;
 
   return (
-    <DndContext id="ranking-cards" sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+    <DndContext
+      id="ranking-cards"
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragStart={(event) => setDraggingId(String(event.active.id))}
+      onDragEnd={handleDragEnd}
+      onDragCancel={() => { setDraggingId(null); setHoveredId(null); }}
+    >
       <SortableContext items={order} strategy={horizontalListSortingStrategy}>
         {/* pb-3 (não pb-0) dá lugar pra barra de rolagem fina sem colar na borda
             de baixo dos cards — mesmo ajuste de app/(dashboard)/pipeline/kanban-board.tsx. */}
-        <div className="scrollbar-thin flex gap-5 overflow-x-auto pb-3">
+        <div className="scrollbar-thin flex gap-3 overflow-x-auto pb-4 sm:gap-4">
           {ordered.map((card) => (
-            <SortableCard key={card.id} card={card} />
+            <SortableCard
+              key={card.id}
+              card={card}
+              expanded={expandedId === card.id}
+              pinned={pinnedId === card.id}
+              onHover={(id) => {
+                if (!draggingId && window.matchMedia("(hover: hover)").matches) setHoveredId(id);
+              }}
+              onLeave={(id) => {
+                if (!draggingId) setHoveredId((current) => current === id ? null : current);
+              }}
+              onToggle={(id) => setPinnedId((current) => current === id ? null : id)}
+              onPin={setPinnedId}
+            />
           ))}
         </div>
       </SortableContext>

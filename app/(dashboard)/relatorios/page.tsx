@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import Link from "next/link";
 import { Trophy, XCircle, CalendarCheck, Percent, UsersRound, Clock, Activity, UserCheck, Wallet, PhoneCall, FileText, FileCheck2, ListTodo } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { formatCurrency, formatDuration } from "@/lib/format";
@@ -8,8 +9,8 @@ import { DonutChart } from "@/components/charts/donut-chart";
 import { TrendAreaChart, DrillableTrendChart } from "@/components/charts/trend-area-chart";
 import { PersonalHero, findRankingPosition } from "./personal-hero";
 import { WonDealsButton } from "./won-deals-button";
-import { FunnelChart, FunnelSkeleton } from "@/components/charts/funnel-chart";
-import { Leaderboard } from "@/components/leaderboard";
+import { FunnelChart } from "@/components/charts/funnel-chart";
+import { RankingLeaderboard } from "@/components/ranking-leaderboard";
 import { RISK_THRESHOLD } from "@/lib/whatsapp/health-check";
 import { TeamActivityList } from "./team-activity-list";
 import { BarRow } from "./bar-row";
@@ -29,6 +30,7 @@ import { resolveAvatarUrl } from "@/lib/r2";
 import { AdminReportsView } from "./admin-reports-view";
 import { MetaAdsReportView } from "./meta-ads-view";
 import { ReportTabs } from "./report-tabs";
+import { CommercialGuide, CommercialGuideSection } from "./commercial-guide";
 import { seesOrganizationWideCommercialReport } from "@/lib/reports/scope";
 import { getCommercialReportData } from "@/lib/reports/commercial-data";
 import { getExecutiveReportData } from "@/lib/reports/executive-data";
@@ -74,6 +76,7 @@ export default async function RelatoriosPage({
     execToYear?: ReportSearchParam;
     execMonth?: ReportSearchParam;
     execExact?: ReportSearchParam;
+    topic?: ReportSearchParam;
   }>;
 }) {
   const rawParams = await searchParams;
@@ -92,6 +95,10 @@ export default async function RelatoriosPage({
   const whoParam = whoParams[0];
   const tagParams = normalizeReportTags(rawParams.tag);
   const viewParam = firstSearchParam(rawParams.view);
+  const requestedTopic = firstSearchParam(rawParams.topic);
+  const activeTopic = requestedTopic && ["resumo", "vendas", "funil", "equipe", "whatsapp"].includes(requestedTopic)
+    ? requestedTopic
+    : "resumo";
   const processPipelineIdParam = firstSearchParam(rawParams.processPipelineId);
   const compareParam = firstSearchParam(rawParams.compare);
   const compareFromParam = comparisonRange?.from;
@@ -191,9 +198,9 @@ export default async function RelatoriosPage({
   // Only the commercial view renders the current user's portrait. The two
   // early-return views above should not wait for a membership query and an
   // R2 signed URL that they will never use.
-  const currentUserPhotoUrlPromise = getCurrentMembership().then((membership) =>
-    resolveAvatarUrl(membership?.photoKey ?? session!.user.image),
-  );
+  const currentUserPhotoUrlPromise = isPersonalView
+    ? getCurrentMembership().then((membership) => resolveAvatarUrl(membership?.photoKey ?? session!.user.image))
+    : Promise.resolve(null);
   const commercialDataPromise = getCommercialReportData({
     organizationId,
     userId,
@@ -208,6 +215,7 @@ export default async function RelatoriosPage({
     compareFromParam,
     compareToParam,
     orgWide: orgWideAdmin,
+    topic: activeTopic,
   });
   const [currentUserPhotoUrl, commercialData] = await Promise.all([
     currentUserPhotoUrlPromise,
@@ -268,6 +276,7 @@ export default async function RelatoriosPage({
     scriptBreakdown,
     cargoBreakdown,
     sellerWhatsappCards,
+    hasWhatsapp,
     currentMonthLabel,
     selectedMonthLabel,
     activeSellerCount,
@@ -324,9 +333,7 @@ export default async function RelatoriosPage({
         // lib/reports/commercial-data.ts) — rola dentro do card em vez de
         // esticar o card (e a fileira inteira, já que os cards dividem altura
         // por serem da mesma fileira) até o tamanho do time.
-        <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
-          <Leaderboard entries={dealsClosedRankingWithAction} emptyLabel="Nenhum negócio ganho ainda" />
-        </div>
+        <RankingLeaderboard entries={dealsClosedRankingWithAction} emptyLabel="Nenhum negócio ganho ainda" />
       ),
     },
     {
@@ -339,9 +346,7 @@ export default async function RelatoriosPage({
         // em lib/reports/commercial-data.ts). O detalhamento por consultor
         // (agendadas/no-show/remarcadas) mostra onde cada um está perdendo
         // videochamada, não só o número final.
-        <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
-          <Leaderboard entries={meetingsRanking} emptyLabel="Nenhuma videochamada ou visita realizada ainda" />
-        </div>
+        <RankingLeaderboard entries={meetingsRanking} emptyLabel="Nenhuma videochamada ou visita realizada ainda" />
       ),
     },
     {
@@ -354,20 +359,14 @@ export default async function RelatoriosPage({
         // videochamadas/visitas, esses 3 tipos não têm "resultado" pra
         // separar: a própria Activity existir já é o registro de que a ação
         // aconteceu.
-        <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
-          <Leaderboard entries={funnelActivityRanking} emptyLabel="Nenhuma ligação, proposta ou WhatsApp registrado ainda" />
-        </div>
+        <RankingLeaderboard entries={funnelActivityRanking} emptyLabel="Nenhuma ligação, proposta ou WhatsApp registrado ainda" />
       ),
     },
     {
       id: "completedTasks",
       icon: <ListTodo className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />,
       title: "Tarefas concluídas",
-      body: (
-        <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
-          <Leaderboard entries={completedTasksRanking} emptyLabel="Nenhuma tarefa concluída ainda" />
-        </div>
-      ),
+      body: <RankingLeaderboard entries={completedTasksRanking} emptyLabel="Nenhuma tarefa concluída ainda" />,
     },
     {
       id: "attendance",
@@ -378,32 +377,28 @@ export default async function RelatoriosPage({
       // só conta quem já teve videochamada/visita com resultado final
       // (compareceu ou no-show), remarcado fica de fora — ver comentário em
       // lib/reports/commercial-data.ts.
-      headerExtra:
-        attendanceRateOverall !== null ? (
-          <span className="shrink-0 text-xs font-medium tabular-nums text-neutral-500 dark:text-neutral-400">{attendanceRateOverall}%</span>
-        ) : null,
       subheader:
         attendanceRateOverall !== null ? (
-          <p className="mb-2 shrink-0 text-xs font-medium text-neutral-500 dark:text-neutral-400">
-            {attendanceSummary.attended} de {attendanceSummary.attended + attendanceSummary.noShow} encontros realizados
-            {attendanceSummary.noShow > 0 ? ` · ${attendanceSummary.noShow} no-show` : ""}
-          </p>
+          <div className="mb-2 flex shrink-0 items-baseline justify-between gap-3 border-b border-neutral-100 pb-3 dark:border-neutral-800">
+            <div>
+              <span className="text-2xl font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">{attendanceRateOverall}%</span>
+              <span className="ml-2 text-xs text-neutral-500 dark:text-neutral-400">do time compareceu</span>
+            </div>
+            <span className="text-right text-xs tabular-nums text-neutral-500 dark:text-neutral-400">
+              {attendanceSummary.attended.toLocaleString("pt-BR")} de {(attendanceSummary.attended + attendanceSummary.noShow).toLocaleString("pt-BR")}
+              {attendanceSummary.noShow > 0 ? ` · ${attendanceSummary.noShow.toLocaleString("pt-BR")} ausências` : ""}
+            </span>
+          </div>
         ) : null,
       body: (
-        <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
-          <Leaderboard entries={attendanceRanking} emptyLabel="Nenhuma videochamada ou visita com resultado registrado ainda" />
-        </div>
+        <RankingLeaderboard entries={attendanceRanking} emptyLabel="Nenhuma videochamada ou visita com resultado registrado ainda" />
       ),
     },
     {
       id: "conversion",
       icon: <Percent className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />,
       title: "Taxa de conversão",
-      body: (
-        <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
-          <Leaderboard entries={conversionRanking} emptyLabel="Nenhum negócio na carteira ainda" />
-        </div>
-      ),
+      body: <RankingLeaderboard entries={conversionRanking} emptyLabel="Nenhum negócio na carteira ainda" />,
     },
     // Propostas comerciais (módulo Proposal, ver lib/proposals). Dois cards
     // com o MESMO resumo no topo — volume enviado e conversão contam a mesma
@@ -416,53 +411,49 @@ export default async function RelatoriosPage({
       id: "proposalsSent",
       icon: <FileText className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />,
       title: "Propostas enviadas",
-      headerExtra:
-        proposalsSummary.sent > 0 ? (
-          <span className="shrink-0 text-xs font-medium tabular-nums text-neutral-500 dark:text-neutral-400">{proposalsSummary.sent}</span>
-        ) : null,
       subheader:
         proposalsSummary.sent > 0 ? (
-          <div className="mb-3 grid grid-cols-2 gap-2 text-xs">
-            <ProposalMetric label="Aceitas" value={proposalsSummary.accepted} tone="success" />
-            <ProposalMetric label="Pendentes" value={proposalsSummary.pending} tone={proposalsSummary.pending > 0 ? "warn" : "neutral"} />
-            <ProposalMetric label="Recusadas" value={proposalsSummary.declined} tone="danger" />
-            <ProposalMetric label="Refeitas" value={proposalsSummary.superseded} tone="info" />
+          <div className="mb-3 border-b border-neutral-100 pb-3 dark:border-neutral-800">
+            <p className="mb-2 text-sm font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">{proposalsSummary.sent.toLocaleString("pt-BR")} enviadas no período</p>
+            <dl className="grid grid-cols-2 gap-x-5 gap-y-1 text-xs">
+              {[
+                { label: "Aceitas", value: proposalsSummary.accepted },
+                { label: "Pendentes", value: proposalsSummary.pending },
+                { label: "Recusadas", value: proposalsSummary.declined },
+                { label: "Refeitas", value: proposalsSummary.superseded },
+                { label: "Canceladas", value: proposalsSummary.cancelled },
+              ].map(({ label, value }) => (
+                <div key={label} className="flex justify-between gap-2">
+                  <dt className="text-neutral-500 dark:text-neutral-400">{label}</dt>
+                  <dd className="font-semibold tabular-nums text-neutral-800 dark:text-neutral-200">{value.toLocaleString("pt-BR")}</dd>
+                </div>
+              ))}
+            </dl>
           </div>
         ) : null,
       body: (
-        <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
-          <Leaderboard entries={proposalsSentRanking} emptyLabel="Nenhuma proposta enviada no período" />
-        </div>
+        <RankingLeaderboard entries={proposalsSentRanking} emptyLabel="Nenhuma proposta enviada no período" />
       ),
     },
     {
       id: "proposalsConversion",
       icon: <FileCheck2 className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />,
       title: "Conversão de propostas",
-      headerExtra:
-        proposalsConversionRate !== null ? (
-          <span className="shrink-0 text-xs font-medium tabular-nums text-neutral-500 dark:text-neutral-400">{proposalsConversionRate}%</span>
-        ) : null,
       subheader:
         proposalsConversionRate !== null ? (
-          <div className="mb-3 rounded-lg border border-neutral-200 bg-neutral-50 p-3 dark:border-neutral-800 dark:bg-neutral-900/60">
-            <p className="text-xs font-medium text-neutral-700 dark:text-neutral-300">
-              {proposalsSummary.accepted} de {proposalsSummary.sent} enviadas foram aceitas
+          <div className="mb-3 border-b border-neutral-100 pb-3 dark:border-neutral-800">
+            <p className="flex items-baseline justify-between gap-3">
+              <span className="text-2xl font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">{proposalsConversionRate}%</span>
+              <span className="text-right text-xs tabular-nums text-neutral-500 dark:text-neutral-400">{proposalsSummary.accepted.toLocaleString("pt-BR")} de {proposalsSummary.sent.toLocaleString("pt-BR")} aceitas</span>
             </p>
-            <div className="mt-2 h-2 overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-800">
+            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-800">
               <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, proposalsConversionRate)}%` }} />
             </div>
-            <p className="mt-2 text-[11px] text-neutral-500 dark:text-neutral-400">
-              {proposalsSummary.pending > 0
-                ? `${proposalsSummary.pending} ainda sem resposta. Pendências não contam como aceita nem como recusa.`
-                : "Sem pendências no período."}
-            </p>
+            {proposalsSummary.pending > 0 && <p className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">{proposalsSummary.pending.toLocaleString("pt-BR")} sem resposta; não entram na taxa.</p>}
           </div>
         ) : null,
       body: (
-        <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
-          <Leaderboard entries={proposalsConversionRanking} emptyLabel="Nenhuma proposta enviada no período" />
-        </div>
+        <RankingLeaderboard entries={proposalsConversionRanking} emptyLabel="Nenhuma proposta enviada no período" />
       ),
     },
     // Ranking de equipes (só quando existe mais de uma configurada, ver
@@ -477,17 +468,17 @@ export default async function RelatoriosPage({
             icon: <UsersRound className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />,
             title: "Ranking de equipes",
             body: (
-              <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
-                <Leaderboard entries={teamRanking} emptyLabel="Nenhuma equipe configurada ainda" />
-              </div>
+              <RankingLeaderboard entries={teamRanking} emptyLabel="Nenhuma equipe configurada ainda" />
             ),
           } satisfies RankingCardData,
         ]
       : []),
   ];
+  const openInActivePipeline = stageData.reduce((total, stage) => total + stage.count, 0);
+  const hasWonTrend = revenueTrendDaily.some((day) => day.value > 0);
 
   return (
-    <div className="space-y-10 pb-8 sm:space-y-16">
+    <div className="space-y-6 pb-8 sm:space-y-8">
       <div className="space-y-4">
         {isOwner && <ReportTabs active="comercial" />}
         {orgWideAdmin && <ReportTabs variant="administrativo" active="comercial" />}
@@ -496,12 +487,9 @@ export default async function RelatoriosPage({
             mais ao lado do título (era o que fazia a fileira pular de lado
             conforme se escolhia filtro). Agrupados por assunto — "Período" e
             "Filtrar por" — em vez de uma fileira só de caixas iguais. */}
-        <div className="flex flex-col gap-5">
+        <div className="flex flex-col gap-4">
           {!isPersonalView && (
             <div className="min-w-0">
-              <p className="text-[11px] font-semibold tracking-[0.14em] text-neutral-400 uppercase dark:text-neutral-500">
-                Relatórios
-              </p>
               {/* Nome do mês em destaque ao lado do título quando o período
                   selecionado bate com um mês civil inteiro (ver
                   selectedMonthLabel em lib/reports/commercial-data.ts) —
@@ -509,9 +497,9 @@ export default async function RelatoriosPage({
                   não diz QUAL mês é. flex-wrap: no celular (título grande +
                   selo já não cabem lado a lado) o selo desce pra própria
                   linha em vez de espremer o título. */}
-              <div className="mt-1 flex flex-wrap items-center gap-2.5">
+              <div className="flex flex-wrap items-center gap-2.5">
                 <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 sm:text-3xl dark:text-neutral-100">
-                  {isManager ? "Panorama da operação" : "Panorama comercial"}
+                  Resultados comerciais
                 </h1>
                 {selectedMonthLabel && (
                   <span className="inline-flex shrink-0 items-center rounded-full bg-brand/10 px-2.5 py-0.5 text-xs font-semibold text-brand sm:px-3 sm:py-1 sm:text-sm dark:bg-brand/20">
@@ -519,10 +507,6 @@ export default async function RelatoriosPage({
                   </span>
                 )}
               </div>
-              {/* Some no celular: o título + filtros já dizem o que é a tela, e o parágrafo empurrava o conteúdo pra fora da primeira tela. */}
-              <p className="mt-2 hidden max-w-lg text-sm text-neutral-500 sm:block dark:text-neutral-400">
-                Como o funil, o time e as conversas de WhatsApp estão performando no período selecionado.
-              </p>
             </div>
           )}
           {isPersonalView && (
@@ -565,6 +549,8 @@ export default async function RelatoriosPage({
         )}
       </div>
 
+      <CommercialGuide showWhatsapp={hasWhatsapp || activeTopic === "whatsapp"}>
+      <CommercialGuideSection topic="resumo">
       {(isOwner || goalValue !== null) && (
         <GoalCard
           monthLabel={currentMonthLabel}
@@ -697,21 +683,45 @@ export default async function RelatoriosPage({
           ele mesmo, então cada card traz apenas os PRÓPRIOS números (nunca os
           de colegas): pedido explícito, "cada consultor deve ver quantas
           tarefas e tudo o que ele fez". */}
+      </CommercialGuideSection>
+
+      <CommercialGuideSection topic="equipe">
       <section className="space-y-6">
         <SectionHeading
           eyebrow={isMember ? "Meu desempenho" : isSupervisor ? "Minha equipe" : "Time"}
           title={isMember ? "O que eu fiz no período" : isSupervisor ? "Ranking da equipe" : "Ranking do time"}
           description={isMember
-            ? "Suas tarefas concluídas, negócios fechados, videochamadas e visitas, ligações, propostas e WhatsApp, comparecimento e conversão no período selecionado."
+            ? "Seus resultados no período selecionado."
             : isSupervisor
-            ? "Desempenho de cada membro da sua equipe no período."
-            : "Quem mais fechou negócio, concluiu tarefas, foi atrás do lead (videochamada ou visita), movimentou o funil, teve comparecimento e converteu melhor."
+            ? "Resultados da sua equipe no período."
+            : "Vendas, atividade e conversão do time no período."
           }
         />
         <RankingCardsGrid cards={rankingCards} />
       </section>
 
       {/* ─── Faturamento por tipo de crédito ───────────────────────────── */}
+      </CommercialGuideSection>
+
+      <CommercialGuideSection topic="vendas">
+      <section className="space-y-4">
+        <SectionHeading eyebrow="Vendas" title="Resultado no período" />
+        <dl className="grid border-y border-neutral-200 sm:grid-cols-3 sm:divide-x sm:divide-neutral-200 dark:border-neutral-800 dark:sm:divide-neutral-800">
+          <div className="min-w-0 px-1 py-4 sm:px-5">
+            <dt className="text-sm text-neutral-500 dark:text-neutral-400">Vendas líquidas</dt>
+            <dd className="mt-1 break-words text-xl font-semibold tabular-nums text-emerald-700 sm:text-2xl dark:text-emerald-400">{formatCurrency(wonTotalValue)}</dd>
+          </div>
+          <div className="min-w-0 border-t border-neutral-200 px-1 py-4 sm:border-t-0 sm:px-5 dark:border-neutral-800">
+            <dt className="text-sm text-neutral-500 dark:text-neutral-400">Vendas brutas</dt>
+            <dd className="mt-1 break-words text-xl font-semibold tabular-nums text-neutral-900 sm:text-2xl dark:text-neutral-100">{formatCurrency(wonGrossTotalValue)}</dd>
+          </div>
+          <div className="min-w-0 border-t border-neutral-200 px-1 py-4 sm:border-t-0 sm:px-5 dark:border-neutral-800">
+            <dt className="text-sm text-neutral-500 dark:text-neutral-400">Ticket médio</dt>
+            <dd className="mt-1 break-words text-xl font-semibold tabular-nums text-neutral-900 sm:text-2xl dark:text-neutral-100">{wonCount > 0 ? formatCurrency(avgWonValue) : "—"}</dd>
+          </div>
+        </dl>
+        <p className="text-sm text-neutral-500 dark:text-neutral-400">{wonCount} {wonCount === 1 ? "negócio ganho" : "negócios ganhos"}</p>
+      </section>
       {creditTypeBreakdown.length > 0 && (
         <section className="space-y-6">
           <SectionHeading
@@ -773,35 +783,51 @@ export default async function RelatoriosPage({
       )}
 
       {/* ─── Funil e evolução ───────────────────────────────────────── */}
+      </CommercialGuideSection>
+
+      <CommercialGuideSection topic="funil">
       <section className="space-y-6">
-        <SectionHeading eyebrow="Funil" title="Onde o valor está parado e como evoluiu" />
+        <SectionHeading eyebrow="Funil" title="Onde estão os negócios" />
         <div className="grid grid-cols-12 gap-5">
-          <div className="card col-span-12 p-6 lg:col-span-7">
-            <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Funil por etapa</h3>
-            <p className="text-xs text-neutral-400 dark:text-neutral-500">
-              Negócios abertos agora, de etapa em etapa — veja onde mais se perde volume.
-              {!pipelineFilter.pipelineId && activePipeline && (
-                <> Mostrando <strong className="font-medium text-neutral-500 dark:text-neutral-400">{activePipeline.name}</strong> — etapas de funis diferentes não têm como somar num funil só; escolha um funil específico no filtro pra ver outro.</>
-              )}
-            </p>
-            {stageData.length === 0 ? (
-              <div className="mt-6">
-                <FunnelSkeleton message="Nenhum negócio em aberto nesse período" />
+          <div className="card col-span-12 p-5 sm:p-6 lg:col-span-7">
+            <div className="flex flex-wrap items-start justify-between gap-3 border-b border-neutral-100 pb-4 dark:border-neutral-800">
+              <div>
+                <h3 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">Em aberto agora</h3>
+                <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">{activePipeline?.name ?? "Funil de vendas"}</p>
+              </div>
+              <span className="text-sm font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">
+                {openInActivePipeline.toLocaleString("pt-BR")} {openInActivePipeline === 1 ? "negócio" : "negócios"}
+              </span>
+            </div>
+            {openInActivePipeline === 0 ? (
+              <div className="flex min-h-52 flex-col items-start justify-center gap-2 py-6">
+                <p className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Nenhum negócio aberto neste funil</p>
+                <p className="max-w-md text-sm text-neutral-500 dark:text-neutral-400">Esta é a situação atual; o período selecionado não muda os negócios em aberto.</p>
+                <Link href="/pipeline" className="mt-2 text-sm font-semibold text-brand hover:underline">Abrir pipeline</Link>
               </div>
             ) : (
-              <div className="mt-6">
+              <div className="mt-5">
                 <FunnelChart
                   stages={stageData.map((s) => ({ id: s.id, label: s.name, count: s.count, value: s.value, color: s.color }))}
+                  variant="snapshot"
                 />
               </div>
             )}
           </div>
-          <div className="card col-span-12 p-6 lg:col-span-5">
-            <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Evolução do valor ganho</h3>
-            <div className="mt-6">
-              <DrillableTrendChart dailyData={revenueTrendDaily} />
+          <div className="card col-span-12 p-5 sm:p-6 lg:col-span-5">
+            <div className="border-b border-neutral-100 pb-4 dark:border-neutral-800">
+              <h3 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">Valor ganho</h3>
+              <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Evolução no período selecionado</p>
             </div>
-            {revenueTrendDaily.some((d) => d.value > 0) && (
+            {hasWonTrend ? (
+              <div className="mt-5"><DrillableTrendChart dailyData={revenueTrendDaily} /></div>
+            ) : (
+              <div className="flex min-h-52 flex-col items-start justify-center gap-2 py-6">
+                <p className="text-2xl font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">R$ 0,00</p>
+                <p className="text-sm text-neutral-500 dark:text-neutral-400">Nenhum valor ganho com os filtros atuais.</p>
+              </div>
+            )}
+            {hasWonTrend && (
               <div className="mt-6 border-t border-neutral-100 pt-5 dark:border-neutral-800">
                 <h4 className="mb-3 text-xs font-semibold tracking-wide text-neutral-400 uppercase dark:text-neutral-500">
                   Por dia da semana
@@ -814,6 +840,9 @@ export default async function RelatoriosPage({
       </section>
 
       {/* ─── Atividade da equipe (só Dono/Gerente) ─────────────────────── */}
+      </CommercialGuideSection>
+
+      <CommercialGuideSection topic="equipe">
       {isManager && showTeamActivity && (
         <section className="space-y-6">
           <SectionHeading
@@ -823,18 +852,78 @@ export default async function RelatoriosPage({
           />
           <div className="grid grid-cols-12 gap-5">
             <div className="card col-span-12 p-6 md:col-span-6">
-              <div className="mb-1 flex items-center gap-2">
+              <div className="mb-5 flex items-center gap-2">
                 <Clock className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
                 <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Tempo com o CRM aberto</h3>
               </div>
-              <Leaderboard entries={crmTimeRanking} emptyLabel="Sem uso registrado nesse período" />
+              {crmTimeRanking.length === 0 ? (
+                <p className="py-8 text-center text-sm text-neutral-500 dark:text-neutral-400">Sem uso registrado nesse período.</p>
+              ) : (
+                <div role="list" aria-label="Tempo ativo por pessoa" className="space-y-4">
+                  {crmTimeRanking.map((entry, index) => {
+                    const percent = Math.max(3, Math.round(((entry.barValue ?? 0) / (crmTimeRanking[0]?.barValue || 1)) * 100));
+                    return (
+                      <div key={entry.id} role="listitem" className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <span className="w-5 shrink-0 text-right text-sm tabular-nums text-neutral-500 dark:text-neutral-400">{index + 1}</span>
+                          <Avatar name={entry.name} src={entry.photoUrl} size="sm" />
+                          <span className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">{entry.name}</span>
+                        </div>
+                        <span className="text-base font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">{entry.primaryValue}</span>
+                        <div className="col-span-2 ml-8 h-2 overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
+                          <div
+                            role="progressbar"
+                            aria-label={`Tempo de ${entry.name} comparado ao maior tempo do período`}
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            aria-valuenow={percent}
+                            className="h-full rounded-full bg-brand transition-[width] duration-500 ease-smooth"
+                            style={{ width: `${percent}%` }}
+                          />
+                        </div>
+                        <span className="col-span-2 ml-8 text-sm text-neutral-500 dark:text-neutral-400">{entry.secondaryValue}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
             <div className="card col-span-12 p-6 md:col-span-6">
-              <div className="mb-1 flex items-center gap-2">
+              <div className="mb-5 flex items-center gap-2">
                 <Activity className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
                 <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Mais alterações</h3>
               </div>
-              <Leaderboard entries={crmChangesRanking} emptyLabel="Nenhuma alteração registrada nesse período" />
+              {crmChangesRanking.length === 0 ? (
+                <p className="py-8 text-center text-sm text-neutral-500 dark:text-neutral-400">Nenhuma alteração registrada nesse período.</p>
+              ) : (
+                <div role="list" aria-label="Alterações por pessoa" className="space-y-4">
+                  {crmChangesRanking.map((entry, index) => {
+                    const percent = Math.max(3, Math.round(((entry.barValue ?? 0) / (crmChangesRanking[0]?.barValue || 1)) * 100));
+                    return (
+                      <div key={entry.id} role="listitem" className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <span className="w-5 shrink-0 text-right text-sm tabular-nums text-neutral-500 dark:text-neutral-400">{index + 1}</span>
+                          <Avatar name={entry.name} src={entry.photoUrl} size="sm" />
+                          <span className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">{entry.name}</span>
+                        </div>
+                        <span className="text-base font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">{entry.barValue?.toLocaleString("pt-BR")}</span>
+                        <div className="col-span-2 ml-8 h-2 overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
+                          <div
+                            role="progressbar"
+                            aria-label={`${entry.barValue?.toLocaleString("pt-BR")} alterações de ${entry.name}`}
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            aria-valuenow={percent}
+                            className="h-full rounded-full bg-brand transition-[width] duration-500 ease-smooth"
+                            style={{ width: `${percent}%` }}
+                          />
+                        </div>
+                        <span className="col-span-2 ml-8 text-sm text-neutral-500 dark:text-neutral-400">{entry.secondaryValue}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
             <div className="card col-span-12 p-6">
               <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Tempo ativo da equipe por dia</h3>
@@ -852,6 +941,9 @@ export default async function RelatoriosPage({
       )}
 
       {/* ─── Cargo do lead ──────────────────────────────────────────── */}
+      </CommercialGuideSection>
+
+      <CommercialGuideSection topic="funil">
       {jobTitleBreakdown.length > 0 && (
         <section className="space-y-6">
           <SectionHeading
@@ -924,6 +1016,12 @@ export default async function RelatoriosPage({
       )}
 
       {/* ─── WhatsApp — consultor vê só o próprio card; gerente/dono veem todos ── */}
+      </CommercialGuideSection>
+
+      <CommercialGuideSection topic="whatsapp">
+      {sellerWhatsappCards.length === 0 && (
+        <p className="py-10 text-center text-sm text-neutral-500 dark:text-neutral-400">Nenhum WhatsApp pessoal neste filtro.</p>
+      )}
       {sellerWhatsappCards.length > 0 && (
         <section className="space-y-6">
           <SectionHeading
@@ -1130,6 +1228,8 @@ export default async function RelatoriosPage({
           </p>
         </section>
       )}
+      </CommercialGuideSection>
+      </CommercialGuide>
     </div>
   );
 }
@@ -1199,34 +1299,6 @@ function ConversionBadge({ rate }: { rate: number }) {
       <Percent className="h-3 w-3" strokeWidth={2.5} />
       {rate}% conversão
     </span>
-  );
-}
-
-function ProposalMetric({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: number;
-  tone: "success" | "warn" | "danger" | "info" | "neutral";
-}) {
-  const toneClass =
-    tone === "success"
-      ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-400"
-      : tone === "warn"
-        ? "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-400"
-        : tone === "danger"
-          ? "border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-400"
-          : tone === "info"
-            ? "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-400"
-            : "border-neutral-200 bg-neutral-50 text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900/60 dark:text-neutral-400";
-
-  return (
-    <div className={`rounded-md border px-2.5 py-2 ${toneClass}`}>
-      <p className="text-[11px] font-medium opacity-80">{label}</p>
-      <p className="text-lg font-semibold tabular-nums">{value}</p>
-    </div>
   );
 }
 

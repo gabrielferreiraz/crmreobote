@@ -18,6 +18,8 @@ import {
   DOCUMENT_RETENTION_DAYS,
   decideProcessQuotaUpdate,
   formatQuotaLabel,
+  isPreviousRegistrationFresh,
+  applyReusablePersonalFields,
   type MissingItem,
   type RegistrationSnapshot,
 } from "./rules";
@@ -41,6 +43,8 @@ export type RegistrationContext = {
   waivedReason: string | null;
   quotaRegisteredAt: Date | null;
   documentsPurgedAt: Date | null;
+  /** Quando a venda anterior usada como padrão dos dados pessoais foi ganha (null = nada reaproveitado). */
+  reusedFromPreviousAt: Date | null;
 };
 
 /** A organização usa administradoras (módulo de Comissões)? Sem elas, o Ganho não pede cadastro. */
@@ -82,12 +86,34 @@ export async function loadRegistrationContext(
   if (!deal) return null;
 
   const administratorId = administratorIdOverride === undefined ? deal.administratorId : administratorIdOverride || null;
-  const [administrator, otherWon] = await Promise.all([
+  const [administrator, previousWon] = await Promise.all([
     administratorId
       ? prisma.consortiumAdministrator.findFirst({ where: { id: administratorId, organizationId }, select: { requiresBankData: true, name: true } })
       : Promise.resolve(null),
-    // Cliente que já comprou antes: a administradora já tem os documentos dele.
-    prisma.deal.count({ where: { organizationId, contactId: deal.contactId, status: "WON", id: { not: deal.id } } }),
+    // Última venda ganha do mesmo cliente: a administradora já tem os documentos dele e, se for
+    // recente, os dados pessoais entram como padrão desta venda (ver REGISTRATION_REUSE_MONTHS).
+    prisma.deal.findFirst({
+      where: { organizationId, contactId: deal.contactId, status: "WON", id: { not: deal.id } },
+      orderBy: { closedAt: "desc" },
+      select: {
+        closedAt: true,
+        registration: {
+          select: {
+            personType: true,
+            holderName: true,
+            cpf: true,
+            cnpj: true,
+            profession: true,
+            maritalStatus: true,
+            monthlyIncome: true,
+            bankName: true,
+            bankAgency: true,
+            bankAccount: true,
+            bankAccountType: true,
+          },
+        },
+      },
+    }),
   ]);
 
   const r = deal.registration;
@@ -96,6 +122,50 @@ export async function loadRegistrationContext(
     personType === "PJ"
       ? deal.contact.company?.trim() || deal.contact.name.trim()
       : deal.contact.name.trim();
+
+  let registrationFields: RegistrationSnapshot["registration"] = {
+    personType,
+    holderName: r?.holderName?.trim() || null,
+    cpf: r?.cpf ?? null,
+    cnpj: r?.cnpj ?? null,
+    profession: r?.profession ?? null,
+    maritalStatus: r?.maritalStatus ?? null,
+    monthlyIncome: r?.monthlyIncome != null ? Number(r.monthlyIncome) : null,
+    groupNumber: r?.groupNumber ?? null,
+    creditValue: r?.creditValue != null ? Number(r.creditValue) : null,
+    quotaNumber: r?.quotaNumber ?? null,
+    quotaDigit: r?.quotaDigit ?? null,
+    termMonths: r?.termMonths ?? null,
+    paymentMethod: r?.paymentMethod ?? null,
+    bankName: r?.bankName ?? null,
+    bankAgency: r?.bankAgency ?? null,
+    bankAccount: r?.bankAccount ?? null,
+    bankAccountType: r?.bankAccountType ?? null,
+  };
+
+  const reuse = previousWon?.registration && isPreviousRegistrationFresh(previousWon.closedAt);
+  if (reuse) {
+    registrationFields = applyReusablePersonalFields(
+      registrationFields,
+      {
+        personType: previousWon.registration!.personType,
+        holderName: previousWon.registration!.holderName,
+        cpf: previousWon.registration!.cpf,
+        cnpj: previousWon.registration!.cnpj,
+        profession: previousWon.registration!.profession,
+        maritalStatus: previousWon.registration!.maritalStatus,
+        monthlyIncome: previousWon.registration!.monthlyIncome != null ? Number(previousWon.registration!.monthlyIncome) : null,
+        bankName: previousWon.registration!.bankName,
+        bankAgency: previousWon.registration!.bankAgency,
+        bankAccount: previousWon.registration!.bankAccount,
+        bankAccountType: previousWon.registration!.bankAccountType,
+      },
+      !!r,
+    );
+  }
+  // O nome do CRM só entra se nem o próprio cadastro nem a venda anterior deram um nome melhor.
+  registrationFields.holderName = registrationFields.holderName || suggestedHolderName || null;
+
   const snapshot: RegistrationSnapshot = {
     contact: {
       email: deal.contact.email,
@@ -109,31 +179,13 @@ export async function loadRegistrationContext(
       state: deal.contact.state,
       company: deal.contact.company,
     },
-    registration: {
-      personType,
-      holderName: r?.holderName?.trim() || suggestedHolderName || null,
-      cpf: r?.cpf ?? null,
-      cnpj: r?.cnpj ?? null,
-      profession: r?.profession ?? null,
-      maritalStatus: r?.maritalStatus ?? null,
-      monthlyIncome: r?.monthlyIncome != null ? Number(r.monthlyIncome) : null,
-      groupNumber: r?.groupNumber ?? null,
-      creditValue: r?.creditValue != null ? Number(r.creditValue) : null,
-      quotaNumber: r?.quotaNumber ?? null,
-      quotaDigit: r?.quotaDigit ?? null,
-      termMonths: r?.termMonths ?? null,
-      paymentMethod: r?.paymentMethod ?? null,
-      bankName: r?.bankName ?? null,
-      bankAgency: r?.bankAgency ?? null,
-      bankAccount: r?.bankAccount ?? null,
-      bankAccountType: r?.bankAccountType ?? null,
-    },
+    registration: registrationFields,
     documents: (r?.documents ?? []).map((d) => ({ kind: d.kind })),
   };
 
   const requiresBankData = administrator?.requiresBankData ?? false;
-  // Cliente que já comprou, ou documentos já apagados pela retenção (o administrativo os baixou): não pede de novo.
-  const documentsWaived = otherWon > 0 || r?.documentsPurgedAt != null;
+  // Cliente que já comprou (mesmo há mais de 6 meses), ou documentos já apagados pela retenção: não pede de novo.
+  const documentsWaived = !!previousWon || r?.documentsPurgedAt != null;
   return {
     deal: { id: deal.id, ownerId: deal.ownerId, contactId: deal.contactId, status: deal.status, administratorId: deal.administratorId },
     contactName: deal.contact.name,
@@ -150,6 +202,7 @@ export async function loadRegistrationContext(
     waivedReason: r?.waivedReason ?? null,
     quotaRegisteredAt: r?.quotaRegisteredAt ?? null,
     documentsPurgedAt: r?.documentsPurgedAt ?? null,
+    reusedFromPreviousAt: reuse ? previousWon!.closedAt : null,
   };
 }
 

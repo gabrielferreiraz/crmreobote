@@ -154,6 +154,65 @@ export function normalizeRegistrationCnpj(raw: string | null | undefined): strin
 }
 
 /**
+ * Cliente que já teve negócio ganho: os dados PESSOAIS (não os da cota desta venda) entram
+ * como padrão de novo cadastro, enquanto a última compra não passar deste prazo — depois
+ * disso o consultor preenche tudo de novo (pessoa pode ter mudado de profissão, renda etc.).
+ * Os documentos continuam dispensados mesmo depois do prazo (a administradora já os tem).
+ */
+export const REGISTRATION_REUSE_MONTHS = 6;
+
+/** A última venda ganha deste cliente ainda está dentro do prazo de reaproveitar os dados pessoais? */
+export function isPreviousRegistrationFresh(lastWonAt: Date | null | undefined, now: Date = new Date()): boolean {
+  if (!lastWonAt) return false;
+  const cutoff = new Date(now);
+  cutoff.setMonth(cutoff.getMonth() - REGISTRATION_REUSE_MONTHS);
+  return lastWonAt.getTime() >= cutoff.getTime();
+}
+
+export type ReusablePersonalFields = {
+  personType: "PF" | "PJ";
+  holderName: string | null;
+  cpf: string | null;
+  cnpj: string | null;
+  profession: string | null;
+  maritalStatus: string | null;
+  monthlyIncome: number | null;
+  bankName: string | null;
+  bankAgency: string | null;
+  bankAccount: string | null;
+  bankAccountType: string | null;
+};
+
+/**
+ * Completa os campos PESSOAIS do cadastro desta venda com o que veio da última compra do
+ * mesmo cliente — só onde esta venda ainda está vazia; nunca sobrescreve o que o consultor
+ * já digitou aqui. Grupo, cota, prazo e forma de pagamento são da venda e não entram aqui.
+ */
+export function applyReusablePersonalFields<T extends ReusablePersonalFields>(
+  current: T,
+  previous: ReusablePersonalFields | null,
+  hasOwnRegistration: boolean,
+): T {
+  if (!previous) return current;
+  const keep = <V,>(curr: V | null, prev: V | null): V | null => (curr == null || curr === "" ? prev : curr);
+  return {
+    ...current,
+    // O tipo de pessoa só vem da venda anterior quando esta venda ainda não tem cadastro próprio.
+    personType: hasOwnRegistration ? current.personType : previous.personType,
+    holderName: keep(current.holderName, previous.holderName),
+    cpf: keep(current.cpf, previous.cpf),
+    cnpj: keep(current.cnpj, previous.cnpj),
+    profession: keep(current.profession, previous.profession),
+    maritalStatus: keep(current.maritalStatus, previous.maritalStatus),
+    monthlyIncome: current.monthlyIncome == null ? previous.monthlyIncome : current.monthlyIncome,
+    bankName: keep(current.bankName, previous.bankName),
+    bankAgency: keep(current.bankAgency, previous.bankAgency),
+    bankAccount: keep(current.bankAccount, previous.bankAccount),
+    bankAccountType: keep(current.bankAccountType, previous.bankAccountType),
+  };
+}
+
+/**
  * Quem pode marcar Ganho SEM o cadastro (com motivo registrado). Desligado para
  * todos a pedido do dono (08/11) — ele também precisa preencher, inclusive para
  * testar o fluxo. Para reabrir a exceção, devolva canBypassRegistration(m).

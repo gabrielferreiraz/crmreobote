@@ -124,6 +124,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       waivedReason: ctx.waivedReason,
       quotaRegisteredAt: ctx.quotaRegisteredAt,
       documentsPurgedAt: ctx.documentsPurgedAt,
+      reusedFromPreviousAt: ctx.reusedFromPreviousAt,
       retentionDays: DOCUMENT_RETENTION_DAYS,
       canBypass: access.canBypass,
       canWaive: canWaiveRegistration(m),

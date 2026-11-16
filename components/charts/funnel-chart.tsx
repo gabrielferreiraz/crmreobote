@@ -9,28 +9,6 @@ import { formatCurrency } from "@/lib/format";
  * existente, que sempre é negócio do pipeline). */
 type FunnelStage = { id: string; label: string; count: number; value?: number; unit?: string; color?: string | null };
 
-/** Barras cinza semitransparentes na forma de um funil decrescente — ocupa o
- * mesmo espaço físico que o gráfico populado teria, em vez de um ícone com
- * uma frase perdida num card enorme, quando o filtro de período não pega
- * nenhum negócio aberto. */
-export function FunnelSkeleton({ message }: { message: string }) {
-  const widths = [92, 68, 46, 30];
-  return (
-    <div className="space-y-2.5">
-      {widths.map((w, i) => (
-        <div key={i} className="flex items-center gap-3 opacity-50">
-          <span className="h-2.5 w-20 shrink-0 rounded-full bg-neutral-100 dark:bg-neutral-800" />
-          <div className="h-7 min-w-0 flex-1 rounded-md bg-neutral-100 dark:bg-neutral-800">
-            <div className="h-full rounded-md bg-neutral-200 dark:bg-neutral-700" style={{ width: `${w}%` }} />
-          </div>
-          <span className="h-2.5 w-16 shrink-0 rounded-full bg-neutral-100 dark:bg-neutral-800" />
-        </div>
-      ))}
-      <p className="pt-1 text-center text-sm text-neutral-400 dark:text-neutral-500">{message}</p>
-    </div>
-  );
-}
-
 /**
  * Funil horizontal decrescente (estilo Pipedrive): a largura de cada barra é
  * proporcional à primeira etapa (o "topo" do funil), e cada etapa mostra a
@@ -40,8 +18,9 @@ export function FunnelSkeleton({ message }: { message: string }) {
  * negócios ao longo do tempo) — então uma etapa pode até "crescer" em relação
  * à anterior, dependendo de quando cada negócio foi criado.
  */
-export function FunnelChart({ stages }: { stages: FunnelStage[] }) {
+export function FunnelChart({ stages, variant = "sequence" }: { stages: FunnelStage[]; variant?: "sequence" | "snapshot" }) {
   const baseline = Math.max(1, stages[0]?.count ?? 0);
+  const largestStage = Math.max(1, ...stages.map((stage) => stage.count));
   const [grown, setGrown] = useState(false);
   const [hovered, setHovered] = useState<string | null>(null);
 
@@ -49,6 +28,35 @@ export function FunnelChart({ stages }: { stages: FunnelStage[] }) {
     const frame = requestAnimationFrame(() => setGrown(true));
     return () => cancelAnimationFrame(frame);
   }, []);
+
+  if (variant === "snapshot") {
+    return (
+      <div className="divide-y divide-neutral-100 dark:divide-neutral-800/70">
+        {stages.map((stage) => (
+          <div key={stage.id} className="py-3 first:pt-0 last:pb-0">
+            <div className="flex items-baseline justify-between gap-4">
+              <p className="min-w-0 text-sm font-medium text-neutral-800 dark:text-neutral-200">{stage.label}</p>
+              <div className="shrink-0 text-right tabular-nums">
+                <span className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{stage.count.toLocaleString("pt-BR")}</span>
+                {stage.value !== undefined && stage.value > 0 && (
+                  <span className="ml-2 text-xs text-neutral-500 dark:text-neutral-400">{formatCurrency(stage.value)}</span>
+                )}
+              </div>
+            </div>
+            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
+              <div
+                className="h-full rounded-full transition-[width] duration-700 ease-out motion-reduce:transition-none"
+                style={{
+                  width: grown ? `${(stage.count / largestStage) * 100}%` : "0%",
+                  backgroundColor: stage.color ?? "#2a78d6",
+                }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-2.5">

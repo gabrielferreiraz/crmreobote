@@ -23,6 +23,7 @@ import {
 import { PhoneInput } from "@/components/phone-input";
 import { useCepAutofill } from "@/lib/use-cep-autofill";
 import { formatCep, onlyCepDigits } from "@/lib/cep";
+import { formatDateBR } from "@/lib/format-datetime";
 import { maskCpf } from "@/lib/cpf";
 import { formatCnpj, isValidCnpj, normalizeCnpj } from "@/lib/cnpj";
 import {
@@ -84,6 +85,7 @@ type ServerState = {
   documentsWaived: boolean;
   canBypass: boolean;
   canWaive: boolean;
+  reusedFromPreviousAt: string | null;
 };
 
 export type RegistrationStatus = {
@@ -268,7 +270,12 @@ export function RegistrationForm({
   const [documents, setDocuments] = useState<Doc[]>([]);
   const [viewing, setViewing] = useState<Doc | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
-  const [meta, setMeta] = useState({ requiresBankData: false, documentsWaived: false, canBypass: false });
+  const [meta, setMeta] = useState({
+    requiresBankData: false,
+    documentsWaived: false,
+    canBypass: false,
+    reusedFromPreviousAt: null as string | null,
+  });
   // Nome da administradora escolhida: vem do servidor junto com as exigências
   // (a tela só tem o id). É o que decide o que a seção "Cota vendida" oferece.
   const [administratorName, setAdministratorName] = useState<string | null>(null);
@@ -311,7 +318,12 @@ export function RegistrationForm({
       .then((data) => {
         done = true;
         setContactName(data.contactName);
-        setMeta({ requiresBankData: data.requiresBankData, documentsWaived: data.documentsWaived, canBypass: data.canWaive });
+        setMeta({
+          requiresBankData: data.requiresBankData,
+          documentsWaived: data.documentsWaived,
+          canBypass: data.canWaive,
+          reusedFromPreviousAt: data.reusedFromPreviousAt,
+        });
         setAdministratorName(data.administratorName ?? null);
         // Trocar a administradora só atualiza as exigências — nunca sobrescreve o que a pessoa já digitou.
         if (!dirty.current) {
@@ -781,6 +793,11 @@ export function RegistrationForm({
       </Section>
 
       <Section n={2} title="Dados do cliente" keys={personKeys} missingKeys={missingKeys}>
+        {meta.reusedFromPreviousAt && (
+          <p className="rounded-lg bg-brand-light/40 px-3 py-2 text-xs text-neutral-700 dark:bg-brand-light/10 dark:text-neutral-300">
+            Preenchido com os dados da última compra deste cliente, em {formatDateBR(meta.reusedFromPreviousAt)}. Confira e corrija o que mudou.
+          </p>
+        )}
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1 sm:col-span-2">
             <p className="field-label">Tipo de cliente</p>

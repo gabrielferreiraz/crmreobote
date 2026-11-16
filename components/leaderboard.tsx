@@ -6,7 +6,9 @@ export type LeaderboardEntry = {
   name: string;
   photoUrl?: string | null;
   primaryValue: string;
+  barValue?: number;
   secondaryValue?: string;
+  details?: { label: string; value: number | string }[];
   /** Ação opcional no fim da linha (ex.: "Ver negócios" do card "Negócios fechados") — montada por quem usa o ranking, este componente só dá o lugar. */
   action?: ReactNode;
 };
@@ -43,51 +45,42 @@ export function Leaderboard({ entries, emptyLabel }: { entries: LeaderboardEntry
   }
 
   return (
-    // divide-y (não space-y) — cada linha ganha um filete embaixo pra separar
-    // da próxima: sem isso, um detalhe de 2 linhas ("31 WhatsApp · 13 visita ·
-    // 2 nota") colava visualmente na linha seguinte e o card inteiro lia como
-    // bagunça, um bloco só de texto, não 5 pessoas distintas (pedido
-    // explícito: "ainda vejo como uma bagunça visual"). O 1º colocado ganha um
-    // fundo âmbar bem leve — o mesmo tom do selo de ouro dele — pra bater o
-    // olho em quem está na frente sem precisar ler número nenhum.
     <div className="divide-y divide-neutral-100 dark:divide-neutral-800/70">
       {entries.map((entry, i) => {
         const rank = i + 1;
+        const hasAvatar = entry.photoUrl !== undefined;
         return (
-          // Nome sozinho na própria linha, sem NADA "shrink-0" dividindo espaço
-          // com ele — foi exatamente um vizinho de largura fixa na mesma linha
-          // (o valor) que causava a sobreposição/espremida em cards estreitos
-          // de 4 colunas (2 tentativas anteriores, ambas quebraram do mesmo
-          // jeito: o nome multi-linha some por baixo do valor de largura fixa,
-          // já que os dois disputam a MESMA linha em flexbox). Valor e detalhe
-          // vão numa linha de baixo, sozinhos também — cada bloco com a
-          // largura inteira do card só pra si, zero disputa, zero sobreposição
-          // possível, não importa quão longo o nome ou o valor sejam.
-          <div key={entry.id} className={`px-2 py-2.5 ${rank === 1 ? "bg-amber-50/70 dark:bg-amber-500/[0.06]" : ""}`}>
-            <div className="flex items-center gap-3">
-              <span
-                className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold tabular-nums ${
-                  RANK_BADGE[rank] ?? "text-neutral-400 dark:text-neutral-500"
-                }`}
-              >
-                {rank}
-              </span>
-              {entry.photoUrl !== undefined && <Avatar name={entry.name} src={entry.photoUrl} size="xs" className="shrink-0" />}
-              {/* Nome menor, valor maior de propósito — quem abre este card
-                  quer bater o olho no NÚMERO (quanto vendeu, qual taxa),
-                  não em quem é; o nome é só contexto pra identificar a linha. */}
-              <span className="min-w-0 flex-1 text-sm font-semibold text-neutral-800 dark:text-neutral-200">
-                {entry.name}
-              </span>
-            </div>
-            <div className="pl-9">
-              <p className="text-base leading-snug font-bold tabular-nums text-neutral-900 dark:text-neutral-100">{entry.primaryValue}</p>
-              {/* Detalhe e ação lado a lado quando há ação — o detalhe ganha
-                  o espaço que sobrar (min-w-0), a ação nunca é espremida. */}
+          <div
+            key={entry.id}
+            className={`grid items-start gap-x-2.5 px-2 py-3 group-data-[expanded=true]/ranking:py-5 ${hasAvatar ? "grid-cols-[1.75rem_1.75rem_minmax(0,1fr)]" : "grid-cols-[1.75rem_minmax(0,1fr)]"}`}
+          >
+            <span
+              className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold tabular-nums ${
+                RANK_BADGE[rank] ?? "text-neutral-400 dark:text-neutral-500"
+              }`}
+            >
+              {rank}
+            </span>
+            {hasAvatar && <Avatar name={entry.name} src={entry.photoUrl} size="sm" />}
+            <span className="min-w-0 self-center text-sm font-semibold text-neutral-800 group-data-[expanded=false]/ranking:truncate group-data-[expanded=true]/ranking:text-lg dark:text-neutral-200">
+              {entry.name}
+            </span>
+            <div className={`min-w-0 ${hasAvatar ? "col-start-3" : "col-start-2"}`}>
+              <p className="mt-1 text-lg leading-tight font-bold tabular-nums text-neutral-900 group-data-[expanded=true]/ranking:text-2xl dark:text-neutral-100">{entry.primaryValue}</p>
+              {entry.details && entry.details.length > 0 && (
+                <dl className="mt-4 grid grid-cols-1 gap-x-8 gap-y-3 border-t border-neutral-100 pt-3 group-data-[expanded=false]/ranking:hidden sm:grid-cols-2 dark:border-neutral-800">
+                  {entry.details.map((detail) => (
+                    <div key={detail.label} className="min-w-0">
+                      <dt className="text-sm text-neutral-500 dark:text-neutral-400">{detail.label}</dt>
+                      <dd className="mt-0.5 break-words text-lg font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">{typeof detail.value === "number" ? detail.value.toLocaleString("pt-BR") : detail.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              )}
               {(entry.secondaryValue || entry.action) && (
-                <div className="mt-1 flex items-center justify-between gap-2">
+                <div className={`mt-2 flex flex-wrap items-center justify-between gap-2 ${entry.action ? "" : "group-data-[expanded=false]/ranking:hidden"}`}>
                   {entry.secondaryValue ? (
-                    <p className="min-w-0 text-xs text-neutral-500 dark:text-neutral-400">{entry.secondaryValue}</p>
+                    <p className="min-w-0 text-sm text-neutral-500 group-data-[expanded=false]/ranking:hidden dark:text-neutral-400">{entry.secondaryValue}</p>
                   ) : (
                     <span />
                   )}
