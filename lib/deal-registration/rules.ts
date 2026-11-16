@@ -52,6 +52,8 @@ export type RegistrationSnapshot = {
     maritalStatus: string | null;
     monthlyIncome: number | null;
     groupNumber: string | null;
+    /** Valor do crédito da cota principal (as extras guardam o seu em extraQuotas). */
+    creditValue?: number | null;
     /** Cota e dígito: opcionais no tipo para não quebrar quem monta o snapshot só com o cadastro do consultor. */
     quotaNumber?: string | null;
     quotaDigit?: string | null;

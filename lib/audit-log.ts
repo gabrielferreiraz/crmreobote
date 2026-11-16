@@ -88,7 +88,9 @@ export type AuditAction =
   | "DEAL_REGISTRATION_DOCS_PURGED"
   | "DEAL_DOCUMENT_REQUESTED"
   | "DEAL_DOCUMENT_REQUEST_CANCELLED"
-  // Arquivamento reversível: remove o negócio das listas sem apagá-lo.
+  // Negócio arquivado/desarquivado (ver Deal.archivedAt): não apaga nada, mas
+  // tira o negócio da vista de TODO mundo da organização — quem sumiu com o
+  // negócio de outra pessoa precisa ficar registrado.
   | "DEAL_ARCHIVED"
   | "DEAL_UNARCHIVED"
   | "DEAL_DOCUMENT_REQUEST_ANSWERED"

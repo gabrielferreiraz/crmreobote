@@ -21,6 +21,7 @@ import {
   type MissingItem,
   type RegistrationSnapshot,
 } from "./rules";
+import { parseExtraQuotas, parseQuotaKind, type ExtraQuota, type QuotaKind } from "./extra-quotas";
 
 export type RegistrationContext = {
   deal: { id: string; ownerId: string; contactId: string; status: "OPEN" | "WON" | "LOST"; administratorId: string | null };
@@ -28,6 +29,11 @@ export type RegistrationContext = {
   snapshot: RegistrationSnapshot;
   documents: { id: string; kind: "PHOTO_ID" | "SOCIAL_CONTRACT" | "OTHER" | "PAYMENT_PROOF"; fileName: string; size: number; createdAt: Date }[];
   administratorId: string | null;
+  /** Nome da administradora escolhida — a tela decide por ele o que mostrar (ver isServopaAdministrator). */
+  administratorName: string | null;
+  /** Cotas além da principal; lista vazia = venda de uma cota só. */
+  extraQuotas: ExtraQuota[];
+  quotaKind: QuotaKind;
   requiresBankData: boolean;
   documentsWaived: boolean;
   missing: MissingItem[];
@@ -78,7 +84,7 @@ export async function loadRegistrationContext(
   const administratorId = administratorIdOverride === undefined ? deal.administratorId : administratorIdOverride || null;
   const [administrator, otherWon] = await Promise.all([
     administratorId
-      ? prisma.consortiumAdministrator.findFirst({ where: { id: administratorId, organizationId }, select: { requiresBankData: true } })
+      ? prisma.consortiumAdministrator.findFirst({ where: { id: administratorId, organizationId }, select: { requiresBankData: true, name: true } })
       : Promise.resolve(null),
     // Cliente que já comprou antes: a administradora já tem os documentos dele.
     prisma.deal.count({ where: { organizationId, contactId: deal.contactId, status: "WON", id: { not: deal.id } } }),
@@ -112,6 +118,7 @@ export async function loadRegistrationContext(
       maritalStatus: r?.maritalStatus ?? null,
       monthlyIncome: r?.monthlyIncome != null ? Number(r.monthlyIncome) : null,
       groupNumber: r?.groupNumber ?? null,
+      creditValue: r?.creditValue != null ? Number(r.creditValue) : null,
       quotaNumber: r?.quotaNumber ?? null,
       quotaDigit: r?.quotaDigit ?? null,
       termMonths: r?.termMonths ?? null,
@@ -133,6 +140,9 @@ export async function loadRegistrationContext(
     snapshot,
     documents: (r?.documents ?? []).map((d) => ({ id: d.id, kind: d.kind, fileName: d.fileName, size: d.size, createdAt: d.createdAt })),
     administratorId,
+    administratorName: administrator?.name ?? null,
+    extraQuotas: parseExtraQuotas(r?.extraQuotas),
+    quotaKind: parseQuotaKind(r?.quotaKind),
     requiresBankData,
     documentsWaived,
     missing: findMissingRegistrationItems(snapshot, { requiresBankData, documentsWaived }),
@@ -165,10 +175,14 @@ export type RegistrationDraftInput = {
     maritalStatus?: string | null;
     monthlyIncome?: number | null;
     groupNumber?: string | null;
+    creditValue?: number | null;
     quotaNumber?: string | null;
     quotaDigit?: string | null;
     termMonths?: number | null;
     paymentMethod?: string | null;
+    /** Substitui a lista inteira (a tela sempre manda o estado completo das cotas extras). */
+    extraQuotas?: ExtraQuota[];
+    quotaKind?: QuotaKind;
     bankName?: string | null;
     bankAgency?: string | null;
     bankAccount?: string | null;

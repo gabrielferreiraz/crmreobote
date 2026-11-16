@@ -12,6 +12,7 @@ import {
   saveRegistrationDraft,
   syncQuotaToProcess,
 } from "@/lib/deal-registration/service";
+import { cleanExtraQuotas, MAX_EXTRA_QUOTAS, parseExtraQuotas, QUOTA_KINDS } from "@/lib/deal-registration/extra-quotas";
 import { diffQuotaSnapshots, diffRegistrationSnapshots, getDealAuditLabel, loadRegistrationAuditSnapshot } from "@/lib/deal-registration/audit";
 import { logAudit } from "@/lib/audit-log";
 import { formatDateTimeBR, formatElapsed } from "@/lib/format-datetime";
@@ -59,6 +60,30 @@ const bodySchema = z
           .optional(),
         termMonths: z.number().int().min(1).max(600).nullable().optional(),
         paymentMethod: z.enum(PAYMENT_METHOD_OPTIONS).nullable().optional(),
+        creditValue: z.number().min(0).max(100_000_000).nullable().optional(),
+        quotaKind: z.enum(QUOTA_KINDS).optional(),
+        // Cotas extras: a tela manda a lista INTEIRA (não é um acréscimo
+        // incremental), por isso ela pode chegar vazia para apagar todas.
+        // Mesmos limites do grupo e do prazo acima — nada entra aqui que não
+        // entraria na cota principal.
+        extraQuotas: z
+          .array(
+            z
+              .object({
+                groupNumber: z
+                  .string()
+                  .trim()
+                  .refine((v) => v === "" || /^\d{1,8}$/.test(v), "Grupo da cota extra: use só números.")
+                  .nullable()
+                  .optional(),
+                termMonths: z.number().int().min(1).max(600).nullable().optional(),
+                value: z.number().min(0).max(100_000_000).nullable().optional(),
+                kind: z.enum(QUOTA_KINDS).optional(),
+              })
+              .strict(),
+          )
+          .max(MAX_EXTRA_QUOTAS, `No máximo ${MAX_EXTRA_QUOTAS} cotas extras.`)
+          .optional(),
         bankName: text(100),
         bankAgency: text(20),
         bankAccount: text(30),
@@ -88,6 +113,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       contactName: ctx.contactName,
       contact: ctx.snapshot.contact,
       registration: ctx.snapshot.registration,
+      administratorName: ctx.administratorName,
+      extraQuotas: ctx.extraQuotas,
+      quotaKind: ctx.quotaKind,
       documents: ctx.documents,
       requiresBankData: ctx.requiresBankData,
       documentsWaived: ctx.documentsWaived,
@@ -119,11 +147,17 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Dados inválidos" }, { status: 400 });
     }
     const input = parsed.data;
+    // extraQuotas sai do resto porque é o único campo que não vai para o banco
+    // como veio: passa pelo mesmo leitor que lê a coluna (campo faltando vira
+    // null, número fora da faixa some, linha em branco é descartada), então o
+    // que é gravado tem exatamente o formato que `parseExtraQuotas` devolve.
+    const { extraQuotas: rawExtraQuotas, ...registrationRest } = input.registration ?? {};
     const registration = input.registration
       ? {
-          ...input.registration,
+          ...registrationRest,
           ...(input.registration.cpf !== undefined ? { cpf: normalizeRegistrationCpf(input.registration.cpf) } : {}),
           ...(input.registration.cnpj !== undefined ? { cnpj: normalizeRegistrationCnpj(input.registration.cnpj) } : {}),
+          ...(rawExtraQuotas !== undefined ? { extraQuotas: cleanExtraQuotas(parseExtraQuotas(rawExtraQuotas)) } : {}),
         }
       : undefined;
     const contact = input.contact

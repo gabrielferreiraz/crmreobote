@@ -4487,8 +4487,21 @@ model DealRegistration {
   quotaDigit     String?
   termMonths     Int?
   paymentMethod  String?
+  // Valor do crédito DESTA cota (a principal). Fica aqui, e não só em
+  // Deal.value, porque uma venda pode ter várias cotas: Deal.value é o
+  // tamanho do negócio, isto é o crédito de uma cota específica, que é o
+  // número que vai para a administradora.
+  creditValue    Decimal? @db.Decimal(12, 2)
+  // Cotas ALÉM da principal acima, quando a venda fechou mais de uma na mesma
+  // administradora: lista de { groupNumber, termMonths, value } — ver
+  // lib/deal-registration/extra-quotas.ts, que é quem lê e valida isto.
+  // JSON porque a quantidade é livre; vazio/ausente = venda de uma cota só.
+  extraQuotas    Json?
+  // "MEIA" | "INTEGRAL" da cota principal (Servopa). As extras guardam o seu
+  // dentro de extraQuotas. Vazio = integral (ver lib/deal-registration/extra-quotas.ts).
+  quotaKind      String?
 
-  bankName        String?
+  bankName       String?
   bankAgency      String?
   bankAccount     String?
   bankAccountType String?

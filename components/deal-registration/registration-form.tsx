@@ -1,10 +1,25 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CheckCircle2, Eraser, Loader2, QrCode, Upload, X } from "lucide-react";
+import { CheckCircle2, Copy, Eraser, Loader2, Plus, QrCode, Table2, Upload, X } from "lucide-react";
 import { Select } from "@/components/select";
 import { DocumentThumb, DocumentViewer, formatFileSize } from "@/components/deal-registration/document-preview";
+import { ServopaQuotaPicker } from "@/components/deal-registration/servopa-quota-picker";
+import type { AdheredQuota } from "@/lib/proposals/quotas";
 import { CurrencyInput } from "@/components/currency-input";
+import { formatCurrency } from "@/lib/format";
+import {
+  EMPTY_EXTRA_QUOTA,
+  MAX_EXTRA_QUOTAS,
+  cleanExtraQuotas,
+  isBlankExtraQuota,
+  calcQuotaTotals,
+  isServopaAdministrator,
+  parseQuotaKind,
+  type ExtraQuota,
+  type QuotaKind,
+  type QuotaTotals,
+} from "@/lib/deal-registration/extra-quotas";
 import { PhoneInput } from "@/components/phone-input";
 import { useCepAutofill } from "@/lib/use-cep-autofill";
 import { formatCep, onlyCepDigits } from "@/lib/cep";
@@ -43,18 +58,27 @@ type Form = {
   maritalStatus: string;
   monthlyIncome: string;
   groupNumber: string;
+  /** Valor do crédito da cota principal, em reais, como texto (igual a monthlyIncome). */
+  creditValue: string;
   termMonths: string;
   paymentMethod: string;
   bankName: string;
   bankAgency: string;
   bankAccount: string;
   bankAccountType: string;
+  /** Cotas ALÉM da principal. Só aparece fora da Servopa — ver o botão "+" na seção 4. */
+  extraQuotas: ExtraQuota[];
+  /** Meia ou integral da cota principal (Servopa). */
+  quotaKind: QuotaKind;
 };
 
 type ServerState = {
   contactName: string;
   contact: RegistrationSnapshot["contact"];
   registration: RegistrationSnapshot["registration"];
+  administratorName: string | null;
+  extraQuotas: ExtraQuota[];
+  quotaKind?: QuotaKind;
   documents: Doc[];
   requiresBankData: boolean;
   documentsWaived: boolean;
@@ -72,12 +96,19 @@ export type RegistrationStatus = {
   total: number;
 };
 
-export type RegistrationApi = { flush: () => Promise<boolean>; focusFirstMissing: () => void };
+export type RegistrationApi = {
+  flush: () => Promise<boolean>;
+  focusFirstMissing: () => void;
+  /** Os créditos anexados na consulta às tabelas viram as cotas da venda. */
+  applyServopaQuotas: (quotas: AdheredQuota[]) => void;
+  /** Totais bruto/líquido das cotas (null com uma cota integral só) — o Ganho os leva para o valor do negócio. */
+  getQuotaTotal: () => QuotaTotals | null;
+};
 
 const EMPTY_FORM: Form = {
   email: "", whatsapp: "", zipCode: "", address: "", addressNumber: "", neighborhood: "", city: "", state: "", company: "",
-  personType: "PF", holderName: "", cpf: "", cnpj: "", profession: "", maritalStatus: "", monthlyIncome: "", groupNumber: "", termMonths: "",
-  paymentMethod: "", bankName: "", bankAgency: "", bankAccount: "", bankAccountType: "",
+  personType: "PF", holderName: "", cpf: "", cnpj: "", profession: "", maritalStatus: "", monthlyIncome: "", groupNumber: "", creditValue: "", termMonths: "",
+  paymentMethod: "", bankName: "", bankAgency: "", bankAccount: "", bankAccountType: "", extraQuotas: [], quotaKind: "INTEGRAL",
 };
 
 function toForm(s: ServerState): Form {
@@ -100,12 +131,15 @@ function toForm(s: ServerState): Form {
     maritalStatus: r.maritalStatus ?? "",
     monthlyIncome: r.monthlyIncome != null ? String(r.monthlyIncome) : "",
     groupNumber: r.groupNumber ?? "",
+    creditValue: r.creditValue != null ? String(r.creditValue) : "",
     termMonths: r.termMonths != null ? String(r.termMonths) : "",
     paymentMethod: r.paymentMethod ?? "",
     bankName: r.bankName ?? "",
     bankAgency: r.bankAgency ?? "",
     bankAccount: r.bankAccount ?? "",
     bankAccountType: r.bankAccountType ?? "",
+    extraQuotas: s.extraQuotas ?? [],
+    quotaKind: parseQuotaKind(s.quotaKind),
   };
 }
 
@@ -121,6 +155,7 @@ function toSnapshot(f: Form, documents: Doc[]): RegistrationSnapshot {
       personType: f.personType, holderName: f.holderName, cpf: f.cpf, cnpj: f.cnpj, profession: f.profession, maritalStatus: f.maritalStatus,
       monthlyIncome: income != null && Number.isFinite(income) ? income : null,
       groupNumber: f.groupNumber, termMonths: term != null && Number.isFinite(term) ? term : null,
+      creditValue: f.creditValue ? Number(f.creditValue) : null,
       paymentMethod: f.paymentMethod, bankName: f.bankName, bankAgency: f.bankAgency, bankAccount: f.bankAccount,
       bankAccountType: f.bankAccountType,
     },
@@ -153,14 +188,48 @@ function toPayload(f: Form) {
       maritalStatus: t(f.maritalStatus),
       monthlyIncome: f.monthlyIncome ? Number(f.monthlyIncome) : null,
       groupNumber: t(f.groupNumber),
+      creditValue: f.creditValue ? Number(f.creditValue) : null,
       termMonths: Number(f.termMonths) > 0 ? Number(f.termMonths) : null,
       paymentMethod: t(f.paymentMethod),
       bankName: t(f.bankName),
       bankAgency: t(f.bankAgency),
       bankAccount: t(f.bankAccount),
       bankAccountType: t(f.bankAccountType),
+      // Sempre a lista inteira: o servidor substitui o que estiver gravado
+      // (é assim que remover uma linha chega lá). Linha em branco não vai.
+      extraQuotas: cleanExtraQuotas(f.extraQuotas),
+      quotaKind: f.quotaKind,
     },
   };
+}
+
+/** Meia | Integral — duas opções, uma sempre marcada (sem marcação vale integral). */
+function QuotaKindToggle({ value, onChange, label }: { value: QuotaKind; onChange: (v: QuotaKind) => void; label: string }) {
+  const options: { key: QuotaKind; text: string }[] = [
+    { key: "MEIA", text: "Meia" },
+    { key: "INTEGRAL", text: "Integral" },
+  ];
+  return (
+    <div role="radiogroup" aria-label={`${label}: meia ou integral`} className="inline-flex overflow-hidden rounded-md border border-neutral-300 text-xs font-medium dark:border-neutral-700">
+      {options.map((o) => {
+        const on = value === o.key;
+        return (
+          <button
+            key={o.key}
+            type="button"
+            role="radio"
+            aria-checked={on}
+            onClick={() => onChange(o.key)}
+            className={`px-2.5 py-1 transition-colors ${
+              on ? "bg-brand text-white" : "text-neutral-500 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800"
+            }`}
+          >
+            {o.text}
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 /**
@@ -179,9 +248,16 @@ export function RegistrationForm({
   showErrors = false,
   onStatus,
   registerApi,
+  onOpenTables,
 }: {
   dealId: string;
   administratorId: string | null;
+  /**
+   * Abrir a consulta às tabelas da Servopa. Quem troca o conteúdo da janela é
+   * o modal de cima (closed-at-dialog) — é o mesmo painel da proposta, e ele
+   * substitui o que está na tela em vez de empilhar outra janela.
+   */
+  onOpenTables?: () => void;
   /** Depois de tentar concluir com algo faltando: destaca todos os campos pendentes. */
   showErrors?: boolean;
   onStatus: (status: RegistrationStatus) => void;
@@ -193,6 +269,13 @@ export function RegistrationForm({
   const [viewing, setViewing] = useState<Doc | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
   const [meta, setMeta] = useState({ requiresBankData: false, documentsWaived: false, canBypass: false });
+  // Nome da administradora escolhida: vem do servidor junto com as exigências
+  // (a tela só tem o id). É o que decide o que a seção "Cota vendida" oferece.
+  const [administratorName, setAdministratorName] = useState<string | null>(null);
+  // Lista de grupos embaixo do campo Grupo/Prazo da cota vendida (só Servopa).
+  // Também só monta ao abrir: a consulta sai quando o campo recebe o foco.
+  const [quotaPickerOpen, setQuotaPickerOpen] = useState(false);
+  const quotaBoxRef = useRef<HTMLDivElement>(null);
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -214,15 +297,22 @@ export function RegistrationForm({
   useEffect(() => {
     const controller = new AbortController();
     const qs = administratorId ? `?administratorId=${encodeURIComponent(administratorId)}` : "";
+    let done = false;
     fetch(`/api/deals/${dealId}/registration${qs}`, { signal: controller.signal })
       .then(async (res) => {
         const data = await res.json().catch(() => ({}));
+        // Cancelada no meio da leitura do corpo: o `.catch` acima engoliu o
+        // erro e `data` seria `{}` — seguir adiante estouraria em
+        // `data.contact.zipCode` e mostraria um erro falso. Para aqui.
+        if (controller.signal.aborted) throw controller.signal.reason;
         if (!res.ok) throw new Error((data as { error?: string }).error ?? "Não foi possível carregar o cadastro");
         return data as ServerState;
       })
       .then((data) => {
+        done = true;
         setContactName(data.contactName);
         setMeta({ requiresBankData: data.requiresBankData, documentsWaived: data.documentsWaived, canBypass: data.canWaive });
+        setAdministratorName(data.administratorName ?? null);
         // Trocar a administradora só atualiza as exigências — nunca sobrescreve o que a pessoa já digitou.
         if (!dirty.current) {
           setSavedCep(onlyCepDigits(data.contact.zipCode ?? "") || undefined);
@@ -233,9 +323,16 @@ export function RegistrationForm({
         setLoadError(null);
       })
       .catch((err) => {
-        if ((err as DOMException).name !== "AbortError") setLoadError((err as Error).message);
+        done = true;
+        if (controller.signal.aborted || (err as DOMException).name === "AbortError") return;
+        setLoadError((err as Error).message);
       });
-    return () => controller.abort();
+    // Com MOTIVO e só se ainda estiver em voo: um `abort()` pelado vira
+    // "signal is aborted without reason" no painel de erro do dev, porque o
+    // StrictMode monta, desmonta e monta de novo (mesmo cuidado das tabelas).
+    return () => {
+      if (!done) controller.abort(new DOMException("Carregamento do cadastro cancelado: a tela mudou.", "AbortError"));
+    };
   }, [dealId, administratorId]);
 
   const save = useCallback(async (): Promise<boolean> => {
@@ -281,9 +378,34 @@ export function RegistrationForm({
     return () => clearTimeout(timer);
   }, [form, loaded, save]);
 
+  // Fechar a lista de grupos: clique fora da área da cota ou Esc. O clique nos
+  // próprios campos e nas linhas da lista fica de fora porque os dois estão
+  // dentro de `quotaBoxRef`.
+  useEffect(() => {
+    if (!quotaPickerOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (!quotaBoxRef.current?.contains(e.target as Node)) setQuotaPickerOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setQuotaPickerOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [quotaPickerOpen]);
+
   function set<K extends keyof Form>(key: K, value: Form[K]) {
     dirty.current = true;
     setForm((f) => ({ ...f, [key]: value }));
+  }
+
+  /** Vários campos de uma vez, numa alteração só (a cota escolhida na tabela). */
+  function patch(values: Partial<Form>) {
+    dirty.current = true;
+    setForm((f) => ({ ...f, ...values }));
   }
 
   const cepFields = useMemo(
@@ -363,9 +485,50 @@ export function RegistrationForm({
     target.querySelector<HTMLElement>("input:not([type=file]), button, textarea")?.focus({ preventScroll: true });
   }, []);
 
+  /**
+   * O que a consulta às tabelas traz de volta: cada crédito anexado vira uma
+   * cota da venda. `cotas` é quantidade — 3 cotas do mesmo crédito viram três
+   * linhas iguais, porque aqui cada cota é cadastrada uma a uma na
+   * administradora (cota e dígito são preenchidos depois, um por linha).
+   *
+   * A primeira vai para os campos principais e o resto para as cotas extras,
+   * respeitando o teto. Forma de pagamento não vem daqui: é uma só para a
+   * venda inteira e quem escolhe é o consultor.
+   */
+  const applyServopaQuotas = useCallback((picked: AdheredQuota[]) => {
+    const rows: ExtraQuota[] = picked.flatMap((q) =>
+      Array.from({ length: Math.max(1, Math.trunc(q.cotas)) }, () => ({
+        groupNumber: q.groupNumber,
+        termMonths: q.termMonths,
+        value: Number(q.creditValue),
+        kind: "INTEGRAL" as const,
+      })),
+    );
+    const [first, ...rest] = rows;
+    if (!first) return;
+    dirty.current = true;
+    setForm((f) => ({
+      ...f,
+      groupNumber: first.groupNumber ?? "",
+      termMonths: first.termMonths != null ? String(first.termMonths) : "",
+      creditValue: first.value != null ? first.value.toFixed(2) : "",
+      quotaKind: "INTEGRAL",
+      extraQuotas: rest.slice(0, MAX_EXTRA_QUOTAS),
+    }));
+  }, []);
+
+  // Soma das cotas (só existe com 2+ cotas); atualizada a cada render, lida pelo Ganho.
+  const quotaTotalRef = useRef<QuotaTotals | null>(null);
+  const getQuotaTotal = useCallback(() => quotaTotalRef.current, []);
   useEffect(() => {
-    registerApi({ flush: save, focusFirstMissing });
-  }, [registerApi, save, focusFirstMissing]);
+    const extras = form.extraQuotas ?? [];
+    const totals = calcQuotaTotals([{ value: form.creditValue ? Number(form.creditValue) : null, kind: form.quotaKind }, ...extras]);
+    quotaTotalRef.current = extras.length > 0 || totals.hasHalf ? totals : null;
+  }, [form.creditValue, form.quotaKind, form.extraQuotas]);
+
+  useEffect(() => {
+    registerApi({ flush: save, focusFirstMissing, applyServopaQuotas, getQuotaTotal });
+  }, [registerApi, save, focusFirstMissing, applyServopaQuotas, getQuotaTotal]);
 
   useEffect(() => {
     onStatus({ loading: !loaded && !loadError, ready: loaded && missing.length === 0, summary, canBypass: meta.canBypass, done, total });
@@ -440,6 +603,44 @@ export function RegistrationForm({
     );
   };
 
+  /**
+   * A Servopa tem caminho próprio (as tabelas dela já vivem dentro do CRM, com
+   * grupo, prazo e crédito conferidos — ver memory-tabelas-servopa.md), então
+   * ali a cota não é digitada à mão. Em QUALQUER outra administradora não
+   * existe essa base, e uma venda com mais de uma cota só pode ser registrada
+   * digitando: é daí que vem o "+".
+   */
+  const isServopa = isServopaAdministrator(administratorName);
+  const extraQuotas = form.extraQuotas;
+  const canAddQuota = !isServopa && extraQuotas.length < MAX_EXTRA_QUOTAS;
+
+  const addExtraQuota = () => set("extraQuotas", [...extraQuotas, { ...EMPTY_EXTRA_QUOTA }]);
+  const removeExtraQuota = (index: number) => set("extraQuotas", extraQuotas.filter((_, i) => i !== index));
+  const setExtraQuota = (index: number, patch: Partial<ExtraQuota>) =>
+    set("extraQuotas", extraQuotas.map((q, i) => (i === index ? { ...q, ...patch } : q)));
+
+  /**
+   * A cota principal lida como uma cota qualquer — é o que permite duplicá-la
+   * sem repetir a leitura dos quatro campos em cada lugar.
+   */
+  const mainQuota: ExtraQuota = {
+    groupNumber: form.groupNumber.trim() || null,
+    termMonths: Number(form.termMonths) > 0 ? Number(form.termMonths) : null,
+    value: form.creditValue ? Number(form.creditValue) : null,
+    kind: form.quotaKind,
+  };
+
+  /**
+   * Duplicar: a venda de várias cotas quase sempre repete grupo, prazo e
+   * crédito — muda só a cota/dígito, que é o administrativo que preenche
+   * depois. Copiar é o caso comum; a linha em branco do "+" é a exceção.
+   * Cópia por valor (um objeto novo), senão editar a cópia mexeria na origem.
+   */
+  const duplicateQuota = (source: ExtraQuota) => {
+    if (!canAddQuota || isBlankExtraQuota(source)) return;
+    set("extraQuotas", [...extraQuotas, { ...source }]);
+  };
+
   const isPix = form.paymentMethod === "PIX";
   const hasPixProof = documents.some((d) => d.kind === "PAYMENT_PROOF");
 
@@ -483,17 +684,14 @@ export function RegistrationForm({
             setDragOver(null);
             void upload(kind, e.dataTransfer.files);
           }}
-          className={`flex cursor-pointer flex-col items-center gap-1 rounded-xl border-2 border-dashed px-4 text-center transition-[border-color,background-color,transform,box-shadow,padding] duration-300 ease-smooth ${
-            dragOver === kind ? "scale-[1.015] shadow-md" : ""
-          } ${uploading === kind ? "animate-pulse" : ""} ${
-            list.length ? "py-3" : "py-6"
-          } ${
-            dragOver === kind
+          className={`flex cursor-pointer flex-col items-center gap-1 rounded-xl border-2 border-dashed px-4 text-center transition-[border-color,background-color,transform,box-shadow,padding] duration-300 ease-smooth ${dragOver === kind ? "scale-[1.015] shadow-md" : ""
+            } ${uploading === kind ? "animate-pulse" : ""} ${list.length ? "py-3" : "py-6"
+            } ${dragOver === kind
               ? "border-brand bg-brand-light/40"
               : bad
                 ? "border-amber-400 bg-amber-50/60 dark:border-amber-500/70 dark:bg-amber-500/10"
                 : "border-neutral-300 hover:border-neutral-400 dark:border-neutral-700 dark:hover:border-neutral-500"
-          }`}
+            }`}
         >
           {uploading === kind ? (
             <Loader2 className="h-5 w-5 animate-spin text-neutral-500" />
@@ -689,38 +887,262 @@ export function RegistrationForm({
         </div>
       </Section>
 
-      <Section n={4} title="Cota vendida" keys={quotaKeys} missingKeys={missingKeys}>
-        <div className="grid gap-3 sm:grid-cols-3">
-          {field(
-            "groupNumber",
-            "Grupo",
-            <input
-              className="field-input"
-              inputMode="numeric"
-              autoComplete="off"
-              value={form.groupNumber}
-              onChange={(e) => set("groupNumber", e.target.value.replace(/\D/g, "").slice(0, 8))}
-              placeholder="Ex.: 1568"
-            />,
+      <Section
+        n={4}
+        title="Cota vendida"
+        keys={quotaKeys}
+        missingKeys={missingKeys}
+        action={
+          canAddQuota ? (
+            <>
+              {/* Duplicar some enquanto não há o que copiar — um botão que não
+                  faz nada ensina errado. */}
+              {!isBlankExtraQuota(mainQuota) && (
+                <button
+                  type="button"
+                  onClick={() => duplicateQuota(mainQuota)}
+                  className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
+                  title="Cria outra cota já com grupo, prazo, crédito e forma de pagamento desta"
+                >
+                  <Copy className="h-3.5 w-3.5" strokeWidth={2} />
+                  Duplicar
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={addExtraQuota}
+                className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium text-brand transition-colors hover:bg-brand-light/40 dark:hover:bg-brand/15"
+                title={`Esta venda fechou mais de uma cota na ${administratorName ?? "administradora"}`}
+              >
+                <Plus className="h-3.5 w-3.5" strokeWidth={2.5} />
+                Outra cota
+              </button>
+            </>
+          ) : null
+        }
+      >
+        {/* O outro lado do ternário: na Servopa as tabelas já vivem dentro do
+            CRM (grupo, prazo e crédito conferidos — ver
+            memory-tabelas-servopa.md), então em vez de "+ Outra cota" aparece
+            o caminho para elas: o mesmo painel de créditos da proposta. */}
+        {isServopa && onOpenTables && (
+          <button
+            type="button"
+            onClick={onOpenTables}
+            className="inline-flex items-center gap-2 rounded-lg border border-brand/40 bg-brand-light/30 px-3 py-2 text-sm font-medium text-brand transition-colors hover:bg-brand-light/60 dark:border-brand/40 dark:bg-brand/10 dark:hover:bg-brand/20"
+          >
+            <Table2 className="h-4 w-4 shrink-0" strokeWidth={2} />
+            Selecionar grupo para venda
+          </button>
+        )}
+
+        {/* As MESMAS três colunas da cota extra logo abaixo. A forma de
+            pagamento não está aqui porque é uma só para a venda inteira —
+            fica embaixo, depois de todas as cotas.
+
+            Na Servopa, tocar em Grupo ou Prazo abre a lista das tabelas que já
+            estão no CRM: escolher o grupo e o crédito preenche os três campos
+            juntos, em vez de digitar (e errar) um por um. Fora da Servopa não
+            existe essa base e os campos seguem digitados. */}
+        <div ref={quotaBoxRef} className="relative">
+          {isServopa && (
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <span className="text-xs font-semibold text-neutral-600 dark:text-neutral-300">Cota 1</span>
+              <QuotaKindToggle value={form.quotaKind} onChange={(v) => set("quotaKind", v)} label="Cota 1" />
+            </div>
           )}
-          {field(
-            "termMonths",
-            "Prazo (meses)",
-            <input
-              className="field-input"
-              inputMode="numeric"
-              autoComplete="off"
-              value={form.termMonths}
-              onChange={(e) => set("termMonths", e.target.value.replace(/\D/g, "").slice(0, 3))}
-              placeholder="Ex.: 180"
-            />,
-          )}
-          {field(
-            "paymentMethod",
-            "Forma de pagamento",
-            <Select value={form.paymentMethod} onChange={(v) => set("paymentMethod", v)} options={PAYMENT_METHOD_OPTIONS.map((o) => ({ value: o, label: o }))} placeholder="Escolha" ariaLabel="Forma de pagamento" />,
+          <div className="grid gap-3 sm:grid-cols-3">
+            {field(
+              "groupNumber",
+              "Grupo",
+              <input
+                className="field-input"
+                inputMode="numeric"
+                autoComplete="off"
+                value={form.groupNumber}
+                onChange={(e) => set("groupNumber", e.target.value.replace(/\D/g, "").slice(0, 8))}
+                onFocus={isServopa ? () => setQuotaPickerOpen(true) : undefined}
+                role={isServopa ? "combobox" : undefined}
+                aria-expanded={isServopa ? quotaPickerOpen : undefined}
+                aria-controls={isServopa ? "servopa-quota-picker" : undefined}
+                placeholder="Ex.: 1568"
+              />,
+            )}
+            {field(
+              "termMonths",
+              "Prazo (meses)",
+              <input
+                className="field-input"
+                inputMode="numeric"
+                autoComplete="off"
+                value={form.termMonths}
+                onChange={(e) => set("termMonths", e.target.value.replace(/\D/g, "").slice(0, 3))}
+                onFocus={isServopa ? () => setQuotaPickerOpen(true) : undefined}
+                placeholder="Ex.: 180"
+              />,
+            )}
+            {field(
+              "creditValue",
+              "Valor do crédito",
+              <CurrencyInput value={form.creditValue} onChange={(v) => set("creditValue", v)} />,
+            )}
+          </div>
+          {isServopa && quotaPickerOpen && (
+            <div id="servopa-quota-picker">
+              <ServopaQuotaPicker
+                query={form.groupNumber}
+                onClose={() => setQuotaPickerOpen(false)}
+                onPick={(pick) => {
+                  patch({
+                    groupNumber: pick.groupNumber,
+                    termMonths: String(pick.termMonths),
+                    creditValue: pick.creditValue.toFixed(2),
+                  });
+                  setQuotaPickerOpen(false);
+                }}
+              />
+            </div>
           )}
         </div>
+
+        {/* Cotas extras (fora da Servopa): os mesmos três campos da cota
+            principal. Nenhuma delas entra na conta de "o que falta":
+            acrescentar uma linha nunca pode travar o Ganho. */}
+        {extraQuotas.length > 0 && (
+          <div className="space-y-3">
+            {extraQuotas.map((q, i) => (
+              // Sem moldura (borda, fundo e respiro): só a divisória fina
+              // entre uma cota e outra.
+              <div key={i} className="border-t border-neutral-200 pt-3 dark:border-neutral-800">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold text-neutral-600 dark:text-neutral-300">Cota {i + 2}</span>
+                  <span className="flex items-center gap-1">
+                    {isServopa && (
+                      <QuotaKindToggle value={parseQuotaKind(q.kind)} onChange={(v) => setExtraQuota(i, { kind: v })} label={`Cota ${i + 2}`} />
+                    )}
+                    {canAddQuota && !isBlankExtraQuota(q) && (
+                      <button
+                        type="button"
+                        onClick={() => duplicateQuota(q)}
+                        className="rounded p-0.5 text-neutral-400 transition-colors hover:bg-neutral-200/70 hover:text-neutral-700 dark:hover:bg-neutral-700 dark:hover:text-neutral-100"
+                        aria-label={`Duplicar a cota ${i + 2}`}
+                        title="Cria outra cota com estes mesmos valores"
+                      >
+                        <Copy className="h-3.5 w-3.5" strokeWidth={2} />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => removeExtraQuota(i)}
+                      className="rounded p-0.5 text-neutral-400 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400"
+                      aria-label={`Remover a cota ${i + 2}`}
+                    >
+                      <X className="h-3.5 w-3.5" strokeWidth={2} />
+                    </button>
+                  </span>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="space-y-1">
+                    <label className="field-label">Grupo</label>
+                    <input
+                      className="field-input"
+                      inputMode="numeric"
+                      autoComplete="off"
+                      value={q.groupNumber ?? ""}
+                      onChange={(e) => setExtraQuota(i, { groupNumber: e.target.value.replace(/\D/g, "").slice(0, 8) || null })}
+                      placeholder="Ex.: 1568"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="field-label">Prazo (meses)</label>
+                    <input
+                      className="field-input"
+                      inputMode="numeric"
+                      autoComplete="off"
+                      value={q.termMonths != null ? String(q.termMonths) : ""}
+                      onChange={(e) => {
+                        const digits = e.target.value.replace(/\D/g, "").slice(0, 3);
+                        const n = Number(digits);
+                        setExtraQuota(i, { termMonths: digits && n >= 1 && n <= 600 ? n : null });
+                      }}
+                      placeholder="Ex.: 180"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="field-label">Valor do crédito</label>
+                    {/* Mesma máscara de dinheiro do resto do CRM: só dígitos
+                        entram e viram centavos (150000 -> R$ 1.500,00). */}
+                    <CurrencyInput
+                      value={q.value != null ? q.value.toFixed(2) : ""}
+                      onChange={(v) => setExtraQuota(i, { value: v ? Number(v) : null })}
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+            {extraQuotas.length >= MAX_EXTRA_QUOTAS && (
+              <p className="text-xs text-neutral-500 dark:text-neutral-400">Limite de {MAX_EXTRA_QUOTAS} cotas extras por venda.</p>
+            )}
+          </div>
+        )}
+
+        {/* Soma de todas as cotas (a principal + as extras). Só aparece com
+            mais de uma: com uma cota só o total seria o próprio campo. Cota
+            sem valor entra como zero. A soma é feita em centavos inteiros —
+            somar reais em ponto flutuante dá centavo fantasma. */}
+        {(extraQuotas.length > 0 || mainQuota.kind === "MEIA") && (() => {
+          const totals = calcQuotaTotals([mainQuota, ...extraQuotas]);
+          return (
+            <div className="space-y-0.5 border-t border-neutral-200 pt-3 dark:border-neutral-800">
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="text-sm font-medium text-neutral-600 dark:text-neutral-300">
+                  Total de {extraQuotas.length + 1} {extraQuotas.length === 0 ? "cota" : "cotas"}
+                </span>
+                <span className="text-base font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">{formatCurrency(totals.net)}</span>
+              </div>
+              {totals.hasHalf && (
+                <div className="flex items-baseline justify-between gap-3 text-xs text-neutral-500 dark:text-neutral-400">
+                  <span>Crédito cheio, sem dividir as meias</span>
+                  <span className="tabular-nums">{formatCurrency(totals.gross)}</span>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
+        {/* Forma de pagamento: UMA para a venda inteira, por isso fica embaixo
+            de todas as cotas e não dentro de nenhuma. Botões lado a lado em
+            vez de lista suspensa — são 4 opções fixas e curtas, então vale
+            mais mostrar todas do que esconder atrás de um clique (e some o
+            rótulo quebrando em duas linhas dentro da coluna estreita). */}
+        {field(
+          "paymentMethod",
+          "Forma de pagamento",
+          <div role="radiogroup" aria-label="Forma de pagamento" className="flex flex-wrap gap-1.5">
+            {PAYMENT_METHOD_OPTIONS.map((o) => {
+              const on = form.paymentMethod === o;
+              return (
+                <button
+                  key={o}
+                  type="button"
+                  role="radio"
+                  aria-checked={on}
+                  // Clicar na opção já marcada desmarca: é o único jeito de
+                  // voltar atrás sem a opção "nenhuma" que a lista suspensa
+                  // tinha pelo placeholder.
+                  onClick={() => set("paymentMethod", on ? "" : o)}
+                  className={`rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors ${on
+                    ? "border-brand bg-brand text-white"
+                    : "border-neutral-300 text-neutral-700 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
+                    }`}
+                >
+                  {o}
+                </button>
+              );
+            })}
+          </div>,
+        )}
+
         <div
           className={`grid transition-[grid-template-rows,opacity] duration-500 ease-smooth ${isPix ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`}
           aria-hidden={!isPix}
@@ -734,9 +1156,8 @@ export function RegistrationForm({
                 </p>
                 <span
                   key={hasPixProof ? "ok" : "pending"}
-                  className={`proof-pop inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                    hasPixProof ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" : "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
-                  }`}
+                  className={`proof-pop inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${hasPixProof ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" : "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
+                    }`}
                 >
                   {hasPixProof && <CheckCircle2 className="h-3 w-3" strokeWidth={2.25} />}
                   {hasPixProof ? "Comprovante anexado" : "Falta anexar o comprovante"}
@@ -776,12 +1197,15 @@ function Section({
   title,
   keys,
   missingKeys,
+  action,
   children,
 }: {
   n: number;
   title: string;
   keys: string[];
   missingKeys: Set<string>;
+  /** Botão da própria seção (ex.: "+ Outra cota"), ao lado do selo de pendência. */
+  action?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const left = keys.filter((k) => missingKeys.has(k)).length;
@@ -790,19 +1214,21 @@ function Section({
       <div className="flex items-center justify-between gap-2">
         <h3 className="flex items-center gap-2 text-sm font-semibold text-neutral-900 dark:text-neutral-100">
           <span
-            className={`flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-bold ${
-              left === 0 ? "bg-emerald-500 text-white" : "bg-neutral-200 text-neutral-600 dark:bg-neutral-700 dark:text-neutral-200"
-            }`}
+            className={`flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-bold ${left === 0 ? "bg-emerald-500 text-white" : "bg-neutral-200 text-neutral-600 dark:bg-neutral-700 dark:text-neutral-200"
+              }`}
           >
             {left === 0 ? <CheckCircle2 className="h-3.5 w-3.5" /> : n}
           </span>
           {title}
         </h3>
-        {left === 0 ? (
-          <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">Completo</span>
-        ) : (
-          <span className="text-xs font-medium text-amber-700 dark:text-amber-400">{left === 1 ? "1 faltando" : `${left} faltando`}</span>
-        )}
+        <span className="flex shrink-0 items-center gap-2">
+          {action}
+          {left === 0 ? (
+            <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">Completo</span>
+          ) : (
+            <span className="text-xs font-medium text-amber-700 dark:text-amber-400">{left === 1 ? "1 faltando" : `${left} faltando`}</span>
+          )}
+        </span>
       </div>
       {children}
     </section>

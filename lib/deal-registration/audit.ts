@@ -7,6 +7,7 @@
 import { prisma } from "@/lib/prisma";
 import { diffFields, type AuditChange, type FieldSpec } from "@/lib/audit-diff";
 import { formatCurrency } from "@/lib/format";
+import { describeExtraQuotas, parseExtraQuotas } from "./extra-quotas";
 
 const money = (v: unknown): string | null => {
   if (v === null || v === undefined || v === "") return null;
@@ -17,13 +18,25 @@ const money = (v: unknown): string | null => {
 /** Da cota vendida: o consultor preenche no cadastro do Ganho. */
 const CONSULTANT_QUOTA_FIELD_SPECS: Record<string, FieldSpec> = {
   groupNumber: { label: "Grupo" },
+  creditValue: { label: "Valor do crédito", format: money },
   termMonths: { label: "Prazo", format: (v) => (v === null || v === undefined || v === "" ? null : `${v} meses`) },
   paymentMethod: { label: "Forma de pagamento" },
+};
+
+/**
+ * Cotas extras entram na auditoria como UMA linha de texto já pronta (ver
+ * describeExtraQuotas), não campo a campo: o que importa registrar é que a
+ * venda passou a ter outras cotas e quais são. Fica fora de
+ * QUOTA_FIELD_SPECS porque o administrativo não mexe nisso.
+ */
+const EXTRA_QUOTAS_FIELD_SPEC: Record<string, FieldSpec> = {
+  extraQuotas: { label: "Cotas extras" },
 };
 
 /** Dados do cliente e do cadastro que o consultor edita (inclui grupo, prazo e forma de pagamento). */
 export const REGISTRATION_FIELD_SPECS: Record<string, FieldSpec> = {
   ...CONSULTANT_QUOTA_FIELD_SPECS,
+  ...EXTRA_QUOTAS_FIELD_SPEC,
   holderName: { label: "Nome do titular na administradora" },
   personType: { label: "Tipo de cliente", format: (v) => (v === "PJ" ? "Pessoa jurídica" : v === "PF" ? "Pessoa física" : null) },
   cpf: { label: "CPF", sensitive: true },
@@ -87,10 +100,12 @@ export async function loadRegistrationAuditSnapshot(organizationId: string, deal
           bankAccount: true,
           bankAccountType: true,
           groupNumber: true,
+          creditValue: true,
           quotaNumber: true,
           quotaDigit: true,
           termMonths: true,
           paymentMethod: true,
+          extraQuotas: true,
         },
       },
     },
@@ -110,10 +125,12 @@ export async function loadRegistrationAuditSnapshot(organizationId: string, deal
     bankAccount: r?.bankAccount ?? null,
     bankAccountType: r?.bankAccountType ?? null,
     groupNumber: r?.groupNumber ?? null,
+    creditValue: r?.creditValue != null ? Number(r.creditValue) : null,
     quotaNumber: r?.quotaNumber ?? null,
     quotaDigit: r?.quotaDigit ?? null,
     termMonths: r?.termMonths ?? null,
     paymentMethod: r?.paymentMethod ?? null,
+    extraQuotas: describeExtraQuotas(parseExtraQuotas(r?.extraQuotas)),
   };
 }
 
