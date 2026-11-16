@@ -1,7 +1,7 @@
-import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { Prisma } from "@/app/generated/prisma/client";
-import { evaluateLeadClaim } from "@/lib/lead-claim";
+import { lastOwnerTouch } from "@/lib/lead-claim";
+import { classifyPanelLead, loadEligibilityFacts, panelCampaignAuditId, sha256 } from "@/lib/api/painel-lead-eligibility";
 import { findMissingRequiredFields, labelForRequiredField } from "@/lib/deal-required-fields";
 import { panelPhoneLookupVariants } from "@/lib/api/painel-phone-match";
 import { formatBrazilianPhone, parsePhone, resolveContactPhones } from "@/lib/phone-normalize";
@@ -10,8 +10,9 @@ import { sanitizeCell } from "@/lib/csv-sanitize";
 
 // A base da campanha saiu do próprio CRM: muitos "não encontrados" indicam
 // problema na busca, não contatos novos. O disjuntor para antes de virar lote.
-export const MAX_LAST_RESORT_CREATIONS_PER_DAY = 20;
+export const MAX_LAST_RESORT_CREATIONS_PER_DAY = 300;
 const LAST_RESORT_ACTION = "PANEL_DISTRIBUTION_CREATED";
+const NEW_DEAL_ACTION = "PANEL_DISTRIBUTION_NEW_DEAL";
 
 export const panelRedistributionSchema = z.object({
   requestId: z.string().trim().min(1).max(200),
@@ -38,14 +39,14 @@ type Input = z.infer<typeof panelRedistributionSchema>;
 type Snapshot = { ownerId: string; contactOwnerId: string | null; pipelineId: string; stageId: string; status: string; closedAt?: string | null; lossReasonId?: string | null };
 type Result = {
   id: string; contactId: string; outcome: "updated" | "created"; auditId: string; before: Snapshot | null; after: Snapshot;
-  contactCreated?: boolean; warnings: string[]; replayed: boolean;
+  contactCreated?: boolean; previousContactOwnerId?: string | null; warnings: string[]; replayed: boolean;
 };
 
 export class PanelRedistributionError extends Error {
-  constructor(public code: string, message: string, public status = 409) { super(message); }
+  constructor(public code: string, message: string, public status = 409, public retryAfter?: Date | null) { super(message); }
 }
 
-function fail(code: string, message: string, status = 409): never { throw new PanelRedistributionError(code, message, status); }
+function fail(code: string, message: string, status = 409, retryAfter?: Date | null): never { throw new PanelRedistributionError(code, message, status, retryAfter); }
 
 /** Busca ampla que só serve para IMPEDIR uma criação: nunca escolhe um cadastro para alterar. */
 async function assertNoPossibleContact(tx: Prisma.TransactionClient, organizationId: string, phone: string, name: string, email?: string) {
@@ -69,9 +70,10 @@ async function assertCreationBudget(tx: Prisma.TransactionClient, organizationId
   }
 }
 
-/** Último recurso: só chega aqui depois de a busca falhar e com autorização explícita na solicitação. */
-async function createDealAsLastResort(tx: Prisma.TransactionClient, organizationId: string, apiKeyName: string, actorName: string, input: Input, stage: { requiredFields: Prisma.PipelineStageGetPayload<object>["requiredFields"] }, existing: { id: string; name: string; source: string | null; jobTitle: string | null } | null, auditId: (contactId: string) => string): Promise<Omit<Result, "replayed">> {
-  await assertCreationBudget(tx, organizationId);
+/** LAST_RESORT: telefone não encontrado, só com autorização explícita e sob disjuntor. RULE: contato existente e livre pelas regras de elegibilidade, que recebe um negócio novo (o antigo, perdido ou ganho, continua como está). */
+async function createDealAsLastResort(tx: Prisma.TransactionClient, organizationId: string, apiKeyName: string, actorName: string, input: Input, stage: { requiredFields: Prisma.PipelineStageGetPayload<object>["requiredFields"] }, existing: { id: string; name: string; source: string | null; jobTitle: string | null; responsavelId: string | null } | null, auditId: (contactId: string) => string, mode: "LAST_RESORT" | "RULE" = "LAST_RESORT"): Promise<Omit<Result, "replayed">> {
+  if (mode === "LAST_RESORT") await assertCreationBudget(tx, organizationId);
+  const previousOwnerId = existing?.responsavelId ?? null;
   const missing = findMissingRequiredFields(stage.requiredFields, { value: null, grossValue: null, creditType: null, expectedCloseAt: null,
     contactSource: existing?.source ?? `Painel Nichos - ${input.campaignKey}`, contactJobTitle: existing?.jobTitle ?? null });
   const warnings = missing.length ? [`A etapa pede o preenchimento de: ${missing.map(labelForRequiredField).join(", ")}.`] : [];
@@ -104,24 +106,17 @@ async function createDealAsLastResort(tx: Prisma.TransactionClient, organization
   } });
   const after: Snapshot = { ownerId: input.ownerId, contactOwnerId: input.ownerId, pipelineId: input.pipelineId, stageId: input.stageId, status: "OPEN" };
   const id = auditId(contact.id);
-  const result = { id: deal.id, contactId: contact.id, outcome: "created" as const, auditId: id, before: null, after, contactCreated: !existing, warnings };
+  const result = { id: deal.id, contactId: contact.id, outcome: "created" as const, auditId: id, before: null, after, contactCreated: !existing, ...(existing ? { previousContactOwnerId: previousOwnerId } : {}), warnings };
   await tx.auditLog.create({ data: { id, organizationId, actorUserId: input.actorId, actorName,
-    action: LAST_RESORT_ACTION, targetType: "Deal", targetId: deal.id,
+    action: mode === "RULE" ? NEW_DEAL_ACTION : LAST_RESORT_ACTION, targetType: "Deal", targetId: deal.id,
     detail: JSON.stringify({ requestId: input.requestId, campaignKey: input.campaignKey, apiKeyName, result }),
   } });
   await tx.activity.create({ data: { organizationId, dealId: deal.id, contactId: contact.id, userId: input.actorId, type: "SYSTEM",
-    body: `Painel Nichos: negócio criado como último recurso, porque ${existing ? "o contato não tinha nenhum negócio" : "o telefone não foi encontrado"} no CRM. Auditoria: ${id}.`,
+    body: mode === "RULE"
+      ? `Painel Nichos: lead liberado pelas regras da campanha. Negócio novo criado e contato transferido para ${input.ownerId}; os negócios anteriores permanecem como estavam. Auditoria: ${id}.`
+      : `Painel Nichos: negócio criado como último recurso, porque ${existing ? "o contato não tinha nenhum negócio" : "o telefone não foi encontrado"} no CRM. Auditoria: ${id}.`,
   } });
   return result;
-}
-
-/** Decide sozinho quando o telefone leva a vários cadastros ou negócios: mesmo nome da planilha, depois negócio aberto, depois o mais recente. `deals` vem do mais recente para o mais antigo. */
-function chooseDeal<T extends { contactId: string; status: string }>(deals: T[], contacts: Array<{ id: string; name: string }>, leadName?: string): T | undefined {
-  const normalize = (value: string) => value.trim().toLowerCase();
-  const sameName = new Set(leadName ? contacts.filter(contact => normalize(contact.name) === normalize(leadName)).map(contact => contact.id) : []);
-  const preferred = deals.filter(deal => sameName.has(deal.contactId));
-  const pool = preferred.length ? preferred : deals;
-  return pool.find(deal => deal.status === "OPEN") ?? pool[0];
 }
 
 /** A tela e o WhatsApp só leem `phone`/`whatsapp`: contato com número apenas nos campos normalizados chegaria "sem número" ao consultor. Só preenche campo vazio, com o número que o próprio cadastro já tem. */
@@ -132,11 +127,11 @@ function visiblePhonesToRestore(contact: { phone: string | null; whatsapp: strin
   return phone || whatsapp ? { ...(phone ? { phone } : {}), ...(whatsapp ? { whatsapp } : {}) } : null;
 }
 
-/** Called only inside a SERIALIZABLE transaction after setTenantOnTx. Creates records only through createDealAsLastResort. */
+
+/** Called only inside a SERIALIZABLE transaction after setTenantOnTx. Quem pode receber o lead é decidido por classifyPanelLead, a mesma regra da checagem em lote. */
 export async function redistributeExistingDeal(tx: Prisma.TransactionClient, organizationId: string, apiKeyName: string, input: Input): Promise<Result> {
-  const hash = (value: string) => createHash("sha256").update(value).digest("hex");
-  const requestHash = hash(JSON.stringify(input));
-  const receiptId = `pn_request_${hash(`${organizationId}:${input.requestId}`)}`;
+  const requestHash = sha256(JSON.stringify(input));
+  const receiptId = `pn_request_${sha256(`${organizationId}:${input.requestId}`)}`;
   await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${organizationId + ":" + input.requestId}, 0)) IS NULL AS ignored`;
 
   // Authorize on EVERY call, including replays. The API key is an integration
@@ -149,8 +144,9 @@ export async function redistributeExistingDeal(tx: Prisma.TransactionClient, org
   const target = await tx.organizationUser.findFirst({ where: { organizationId, userId: input.ownerId, active: true, role: "MEMBER", area: "VENDAS" } });
   if (!target) fail("OWNER_NOT_ACTIVE", "O consultor de destino não é um membro ativo de vendas desta organização.", 400);
 
-  const scopeIds = new Set([input.actorId]);
+  // O consultor de destino precisa estar na equipe de quem pede. Os leads, não: quem decide se um lead está livre é a regra de elegibilidade.
   if (actor.role !== "OWNER") {
+    const scopeIds = new Set([input.actorId]);
     const teams = await tx.team.findMany({
       where: { organizationId, ...(actor.role === "MANAGER" ? { managerId: input.actorId } : { leaderId: input.actorId }) },
       include: { members: { select: { userId: true } } },
@@ -180,8 +176,8 @@ export async function redistributeExistingDeal(tx: Prisma.TransactionClient, org
     { phoneNormalized: { in: variants } }, { whatsappNormalized: { in: variants } },
     { phone: { in: variants } }, { whatsapp: { in: variants } },
   ] };
-  const matches = await tx.contact.findMany({ where: matchWhere, select: { id: true, name: true }, orderBy: { id: "asc" }, take: 20 });
-  const campaignAuditId = (id: string) => `pn_campaign_${hash(`${organizationId}:${input.campaignKey}:${id}`)}`;
+  const matches = await tx.contact.findMany({ where: matchWhere, select: { id: true, name: true, responsavelId: true }, orderBy: { id: "asc" }, take: 20 });
+  const campaignAuditId = (id: string) => panelCampaignAuditId(organizationId, input.campaignKey, id);
   // Um dealId conhecido que sumiu foi removido de propósito: nunca recriar.
   const mayCreate = input.createIfMissing && !input.dealId;
   const finishCreation = async (created: Omit<Result, "replayed">): Promise<Result> => {
@@ -198,19 +194,22 @@ export async function redistributeExistingDeal(tx: Prisma.TransactionClient, org
   }
 
   // Todos os cadastros do telefone contam: se qualquer um já passou nesta campanha, o lead não volta.
+  let campaignDistributed = false;
   for (const match of matches) {
     await tx.$queryRaw`SELECT id FROM "Contact" WHERE id = ${match.id} AND "organizationId" = ${organizationId} FOR UPDATE`;
-    if (await tx.auditLog.findUnique({ where: { id: campaignAuditId(match.id) } })) {
-      fail("CONTACT_ALREADY_DISTRIBUTED", "Este contato já foi redistribuído nesta campanha, possivelmente por outro formato do mesmo telefone.");
-    }
+    if (await tx.auditLog.findUnique({ where: { id: campaignAuditId(match.id) } })) campaignDistributed = true;
   }
 
-  const deals = await tx.deal.findMany({
-    where: { organizationId, contactId: { in: matches.map(match => match.id) }, pipelineId: input.pipelineId, status: { in: ["OPEN", "LOST"] }, ...(input.dealId ? { id: input.dealId } : {}) },
-    select: { id: true, contactId: true, status: true, updatedAt: true }, orderBy: { updatedAt: "desc" },
+  // Lido depois do bloqueio das linhas: a decisão vale para o estado que será gravado.
+  const facts = await loadEligibilityFacts(tx, organizationId, matches);
+  const decision = await classifyPanelLead({
+    contacts: matches, deals: facts.deals, activeUserIds: facts.activeUserIds, pipelineId: input.pipelineId, campaignDistributed,
+    dealId: input.dealId, leadName: input.fallback?.name, lastTouch: (contactId, ownerId) => lastOwnerTouch(tx, organizationId, contactId, ownerId),
   });
-  const chosen = chooseDeal(deals, matches, input.fallback?.name);
-  const contactId = chosen?.contactId ?? matches[0].id;
+  if (!decision.free) fail(decision.code, decision.reason, decision.code === "DEAL_NOT_FOUND" ? 404 : 409, decision.retryAfter);
+  if (decision.action === "NEW") fail("CONTACT_CHANGED", "O contato mudou durante a consulta. Confira o cadastro e tente novamente.");
+
+  const contactId = decision.contactId;
   const contact = await tx.contact.findFirst({ where: { id: contactId, organizationId } });
   if (!contact) fail("CONTACT_CHANGED", "O contato mudou durante a consulta. Confira o cadastro e tente novamente.");
   const restoredPhones = visiblePhonesToRestore(contact);
@@ -223,46 +222,28 @@ export async function redistributeExistingDeal(tx: Prisma.TransactionClient, org
   }
   const auditId = campaignAuditId(contactId);
 
-  // Só cria para um único contato sem NENHUM negócio: ganho, perdido ou em outro funil não gera duplicata.
-  if (!chosen && mayCreate && matches.length === 1 && await tx.deal.count({ where: { organizationId, contactId } }) === 0) {
-    if (actor.role !== "OWNER" && contact.responsavelId && !scopeIds.has(contact.responsavelId)) {
-      const claim = await evaluateLeadClaim(organizationId, contactId, contact.responsavelId, tx);
-      if (!claim.claimReason) fail("CURRENT_OWNER_OUTSIDE_TEAM", "Este cadastro pertence a um responsável ativo de outra equipe. A transferência precisa ser autorizada no CRM.", 403);
-    }
-    return finishCreation(await createDealAsLastResort(tx, organizationId, apiKeyName, actor.user.name, input, stage, contact, campaignAuditId));
+  // Contato livre sem negócio aberto no funil: negócio novo. O histórico (perdido ou ganho de consultor inativo) fica como está.
+  if (decision.action === "NEW_DEAL") {
+    return finishCreation(await createDealAsLastResort(tx, organizationId, apiKeyName, actor.user.name, input, stage, contact, campaignAuditId, "RULE"));
   }
-  if (!chosen) fail("DEAL_NOT_FOUND", "Não foi encontrado um negócio aberto ou perdido deste contato no funil selecionado. Nenhum negócio novo foi criado.", 404);
-  await tx.$queryRaw`SELECT id FROM "Deal" WHERE id = ${chosen.id} AND "organizationId" = ${organizationId} FOR UPDATE`;
-  const deal = await tx.deal.findFirst({ where: { id: chosen.id, organizationId, contactId, pipelineId: input.pipelineId } });
-  if (!deal || deal.status === "WON") fail("DEAL_CHANGED", "O negócio mudou ou está ganho. Confira o cadastro antes de continuar.");
-  if (deal.status === "LOST" && !input.reopenLost) fail("REOPEN_REQUIRED", "O negócio está perdido. Autorize a reabertura na solicitação para movê-lo para a campanha.");
 
-  // Negócio perdido não está sendo trabalhado por ninguém: a campanha pode entregá-lo a qualquer equipe.
-  if (actor.role !== "OWNER" && deal.status !== "LOST" && (!scopeIds.has(deal.ownerId) || (contact.responsavelId && !scopeIds.has(contact.responsavelId)))) {
-    const claim = await evaluateLeadClaim(organizationId, contactId, contact.responsavelId, tx);
-    if (!claim.claimReason) fail("CURRENT_OWNER_OUTSIDE_TEAM", "Este cadastro pertence a um responsável ativo de outra equipe. A transferência precisa ser autorizada no CRM.", 403);
-  }
-  const otherActiveDeal = await tx.deal.findFirst({ where: { organizationId, contactId, id: { not: deal.id }, status: { in: ["OPEN", "WON"] }, ownerId: { not: input.ownerId } }, select: { id: true } });
+  await tx.$queryRaw`SELECT id FROM "Deal" WHERE id = ${decision.dealId} AND "organizationId" = ${organizationId} FOR UPDATE`;
+  const deal = await tx.deal.findFirst({ where: { id: decision.dealId, organizationId, contactId, pipelineId: input.pipelineId } });
+  if (!deal || deal.status !== "OPEN") fail("DEAL_CHANGED", "O negócio mudou. Confira o cadastro antes de continuar.");
+
   const warnings: string[] = [];
-  // O negócio escolhido passa, mas quem cuida do outro negócio ativo continua dono do contato.
-  if (otherActiveDeal) warnings.push("O contato continua com o responsável atual, porque ele tem outro negócio ativo.");
-
   const missing = findMissingRequiredFields(stage.requiredFields, { value: deal.value, grossValue: deal.grossValue, creditType: deal.creditType,
     expectedCloseAt: deal.expectedCloseAt, contactSource: contact.source, contactJobTitle: contact.jobTitle });
   // O lead sempre entra na etapa da campanha. Nada é inventado: o consultor preenche o que faltar.
   if (missing.length) warnings.push(`A etapa pede o preenchimento de: ${missing.map(labelForRequiredField).join(", ")}.`);
   const stageId = input.stageId;
-  const contactOwnerId = otherActiveDeal ? contact.responsavelId : input.ownerId;
 
   const before: Snapshot = { ownerId: deal.ownerId, contactOwnerId: contact.responsavelId, pipelineId: deal.pipelineId, stageId: deal.stageId, status: deal.status, closedAt: deal.closedAt?.toISOString() ?? null, lossReasonId: deal.lossReasonId };
-  const after: Snapshot = { ownerId: input.ownerId, contactOwnerId, pipelineId: input.pipelineId, stageId, status: "OPEN" };
+  const after: Snapshot = { ownerId: input.ownerId, contactOwnerId: input.ownerId, pipelineId: input.pipelineId, stageId, status: "OPEN" };
   await tx.deal.update({ where: { id: deal.id }, data: {
-    ownerId: input.ownerId, stageId, status: "OPEN",
-    ...(deal.stageId !== stageId || deal.status !== "OPEN" ? { stageEnteredAt: new Date() } : {}),
-    // Mesma regra da reabertura em massa: senão o negócio aberto segue nos relatórios por data de fechamento.
-    ...(deal.status === "LOST" ? { closedAt: null, lossReasonId: null } : {}),
+    ownerId: input.ownerId, stageId, ...(deal.stageId !== stageId ? { stageEnteredAt: new Date() } : {}),
   } });
-  if (!otherActiveDeal) await tx.contact.update({ where: { id: contactId }, data: { responsavelId: input.ownerId } });
+  await tx.contact.update({ where: { id: contactId }, data: { responsavelId: input.ownerId } });
   if (deal.ownerId !== input.ownerId) await tx.dealParticipant.deleteMany({ where: { dealId: deal.id, userId: input.ownerId } });
   const result: Result = { id: deal.id, contactId, outcome: "updated", auditId, before, after, warnings, replayed: false };
   await tx.auditLog.create({ data: { id: auditId, organizationId, actorUserId: input.actorId, actorName: actor.user.name,
@@ -274,7 +255,7 @@ export async function redistributeExistingDeal(tx: Prisma.TransactionClient, org
     detail: JSON.stringify({ requestId: input.requestId, requestHash, result }),
   } });
   await tx.activity.create({ data: { organizationId, dealId: deal.id, contactId, userId: input.actorId, type: "SYSTEM",
-    body: `Painel Nichos: redistribuiu o negócio${otherActiveDeal ? "" : " e o contato"} para ${input.ownerId}; etapa ${deal.stageId} → ${stageId}; status ${deal.status} → OPEN. Auditoria: ${auditId}.`,
+    body: `Painel Nichos: redistribuiu o negócio e o contato para ${input.ownerId}; etapa ${deal.stageId} → ${stageId}. Auditoria: ${auditId}.`,
   } });
   return result;
 }

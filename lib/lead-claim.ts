@@ -102,7 +102,7 @@ export async function evaluateLeadClaim(
  *  - mensagem de WhatsApp mandada por ele (pelo CRM ou pelo próprio celular).
  * Campanha e automação não contam: saem sozinhas, não são ele trabalhando o lead.
  */
-async function lastOwnerTouch(
+export async function lastOwnerTouch(
   db: LeadClaimClient,
   organizationId: string,
   contactId: string,

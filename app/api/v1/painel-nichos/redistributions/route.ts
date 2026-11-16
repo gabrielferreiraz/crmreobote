@@ -44,6 +44,9 @@ export async function POST(req: Request) {
                   });
                 }
                 await enqueueWebhookEvent(access.organizationId, "deal.created", payload);
+                if (result.previousContactOwnerId !== undefined && result.previousContactOwnerId !== result.after.contactOwnerId) await enqueueWebhookEvent(access.organizationId, "contact.owner_changed", {
+                  id: result.contactId, name: deal.contact.name, previousOwnerId: result.previousContactOwnerId, ownerId: result.after.contactOwnerId,
+                });
                 return;
               }
               if (result.before.ownerId !== result.after.ownerId) await enqueueWebhookEvent(access.organizationId, "deal.owner_changed", { ...payload, previousOwner: { id: result.before.ownerId } });
@@ -57,7 +60,7 @@ export async function POST(req: Request) {
       }
       return apiSuccess(result);
     } catch (error) {
-      if (error instanceof PanelRedistributionError) return apiError(error.message, error.status, [{ code: error.code }]);
+      if (error instanceof PanelRedistributionError) return apiError(error.message, error.status, [{ code: error.code, ...(error.retryAfter !== undefined ? { retryAfter: error.retryAfter?.toISOString() ?? null } : {}) }]);
       if (error && typeof error === "object" && "code" in error && error.code === "P2034") {
         return apiError("O cadastro mudou durante a redistribuição. Confira o estado atual antes de reenviar.", 409);
       }
