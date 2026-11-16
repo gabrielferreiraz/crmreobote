@@ -19,12 +19,22 @@
 
 import { formatCurrency } from "@/lib/format";
 
+/** Cota meia ou integral (Servopa). Ausente = integral. */
+export const QUOTA_KINDS = ["MEIA", "INTEGRAL"] as const;
+export type QuotaKind = (typeof QUOTA_KINDS)[number];
+
+export function parseQuotaKind(value: unknown): QuotaKind {
+  return value === "MEIA" ? "MEIA" : "INTEGRAL";
+}
+
 export type ExtraQuota = {
   /** Só dígitos, como o grupo da cota principal. */
   groupNumber: string | null;
   termMonths: number | null;
   /** Valor do crédito, em reais. */
   value: number | null;
+  /** Meia ou integral; ausente = integral. */
+  kind?: QuotaKind;
 };
 
 // Forma de pagamento NÃO entra aqui de propósito: é uma só para a venda
@@ -62,6 +72,7 @@ export function parseExtraQuotas(value: unknown): ExtraQuota[] {
       groupNumber: group || null,
       termMonths: term != null && term >= 1 && term <= 600 ? term : null,
       value: amount != null && amount >= 0 ? amount : null,
+      kind: parseQuotaKind(row.kind),
     });
   }
   return out;
@@ -82,9 +93,46 @@ export function describeExtraQuotas(list: ExtraQuota[]): string | null {
       if (q.groupNumber) parts.push(`grupo ${q.groupNumber}`);
       if (q.termMonths != null) parts.push(`${q.termMonths} meses`);
       if (q.value != null) parts.push(formatCurrency(q.value));
+      if (q.kind === "MEIA") parts.push("meia");
       return parts.join(" · ") || "cota em branco";
     })
     .join("; ");
+}
+
+/** Valor que a cota realmente vale na venda: meia = metade do crédito, integral = o crédito inteiro. */
+export function effectiveQuotaValue(q: Pick<ExtraQuota, "value" | "kind">): number {
+  const value = q.value ?? 0;
+  return q.kind === "MEIA" ? value / 2 : value;
+}
+
+export type QuotaTotals = {
+  /** Soma dos créditos cheios, todas como integral. */
+  gross: number;
+  /** Soma com as meias divididas por 2. Igual ao bruto quando não há meia. */
+  net: number;
+  hasHalf: boolean;
+};
+
+/**
+ * Totais da venda. Somados em centavos inteiros (reais em ponto flutuante
+ * dão centavo fantasma); a metade de uma meia arredonda para o centavo.
+ * Sem nenhuma meia, é tudo integral e bruto = líquido.
+ */
+export function calcQuotaTotals(list: Pick<ExtraQuota, "value" | "kind">[]): QuotaTotals {
+  let gross = 0;
+  let net = 0;
+  let hasHalf = false;
+  for (const q of list) {
+    const cents = Math.round((q.value ?? 0) * 100);
+    gross += cents;
+    if (q.kind === "MEIA") {
+      hasHalf = true;
+      net += Math.round(cents / 2);
+    } else {
+      net += cents;
+    }
+  }
+  return { gross: gross / 100, net: (hasHalf ? net : gross) / 100, hasHalf };
 }
 
 /** O que vai para o banco: linhas em branco somem e o teto é respeitado. */

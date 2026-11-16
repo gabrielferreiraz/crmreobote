@@ -12,7 +12,7 @@ import {
   saveRegistrationDraft,
   syncQuotaToProcess,
 } from "@/lib/deal-registration/service";
-import { cleanExtraQuotas, MAX_EXTRA_QUOTAS, parseExtraQuotas } from "@/lib/deal-registration/extra-quotas";
+import { cleanExtraQuotas, MAX_EXTRA_QUOTAS, parseExtraQuotas, QUOTA_KINDS } from "@/lib/deal-registration/extra-quotas";
 import { diffQuotaSnapshots, diffRegistrationSnapshots, getDealAuditLabel, loadRegistrationAuditSnapshot } from "@/lib/deal-registration/audit";
 import { logAudit } from "@/lib/audit-log";
 import { formatDateTimeBR, formatElapsed } from "@/lib/format-datetime";
@@ -61,6 +61,7 @@ const bodySchema = z
         termMonths: z.number().int().min(1).max(600).nullable().optional(),
         paymentMethod: z.enum(PAYMENT_METHOD_OPTIONS).nullable().optional(),
         creditValue: z.number().min(0).max(100_000_000).nullable().optional(),
+        quotaKind: z.enum(QUOTA_KINDS).optional(),
         // Cotas extras: a tela manda a lista INTEIRA (não é um acréscimo
         // incremental), por isso ela pode chegar vazia para apagar todas.
         // Mesmos limites do grupo e do prazo acima — nada entra aqui que não
@@ -77,6 +78,7 @@ const bodySchema = z
                   .optional(),
                 termMonths: z.number().int().min(1).max(600).nullable().optional(),
                 value: z.number().min(0).max(100_000_000).nullable().optional(),
+                kind: z.enum(QUOTA_KINDS).optional(),
               })
               .strict(),
           )
@@ -113,6 +115,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       registration: ctx.snapshot.registration,
       administratorName: ctx.administratorName,
       extraQuotas: ctx.extraQuotas,
+      quotaKind: ctx.quotaKind,
       documents: ctx.documents,
       requiresBankData: ctx.requiresBankData,
       documentsWaived: ctx.documentsWaived,

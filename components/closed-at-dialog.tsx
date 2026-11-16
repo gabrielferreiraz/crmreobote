@@ -11,6 +11,8 @@ import { getServerTodayKey } from "@/app/actions/date-actions";
 import { formatCurrency } from "@/lib/format";
 import { formatMonthLong } from "@/lib/commissions/engine";
 import { RegistrationForm, type RegistrationApi, type RegistrationStatus } from "@/components/deal-registration/registration-form";
+import { TablesLookupPanel } from "@/components/proposals/tables-lookup-dialog";
+import type { AdheredQuota } from "@/lib/proposals/quotas";
 
 type CommissionPreview =
   | { status: "inactive" }
@@ -141,6 +143,14 @@ export function ClosedAtDialog({
   const [regStatus, setRegStatus] = useState<RegistrationStatus>({ loading: true, ready: false, summary: "", canBypass: false, done: 0, total: 0 });
   const regApi = useRef<RegistrationApi | null>(null);
   const [showErrors, setShowErrors] = useState(false);
+  /**
+   * Consulta às tabelas da Servopa — o MESMO painel da proposta
+   * (components/proposals/tables-lookup-dialog). Ele troca o conteúdo desta
+   * janela, não abre outra; os créditos anexados ficam aqui para a pessoa
+   * poder voltar, ajustar e usar.
+   */
+  const [tablesOpen, setTablesOpen] = useState(false);
+  const [quotas, setQuotas] = useState<AdheredQuota[]>([]);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const needsCreditType = needsAdministrator && creditTypes.length > 0;
 
@@ -164,6 +174,27 @@ export function ClosedAtDialog({
     if (registrationEnabled && step === "sale") {
       setStep("registration");
       return;
+    }
+    // Várias cotas ou alguma meia: o negócio passa a refletir as cotas — líquido
+    // com as meias divididas por 2, bruto com o crédito cheio (sem meia os dois
+    // são iguais). O servidor só grava, e só registra na linha do tempo, o que mudou.
+    const quotaTotals = registrationEnabled ? regApi.current?.getQuotaTotal() : null;
+    if (quotaTotals && quotaTotals.gross > 0 && registrationDealId) {
+      try {
+        const res = await fetch(`/api/deals/${registrationDealId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ value: quotaTotals.net, grossValue: quotaTotals.gross }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          setSubmitError((data as { error?: string }).error ?? "Não foi possível atualizar o valor do negócio.");
+          return;
+        }
+      } catch {
+        setSubmitError("Não foi possível atualizar o valor do negócio.");
+        return;
+      }
     }
     if (registrationEnabled && !regStatus.ready) {
       // Em vez de um botão travado sem explicação: mostra o que falta e leva até lá.
@@ -227,8 +258,35 @@ export function ClosedAtDialog({
 
   if (inRegistration) {
     return (
-      <Modal onClose={onClose} maxWidth="max-w-2xl">
-        <form onSubmit={handleSubmit} className="space-y-4">
+      // Mesma mecânica da proposta: com a consulta aberta a janela cresce,
+      // encolhe pelo espaço dos cartões de anexo (--lookup-reserve) e mostra
+      // o painel no lugar do formulário.
+      <Modal
+        onClose={onClose}
+        maxWidth={
+          tablesOpen
+            ? "max-w-7xl !h-[calc(100vh_-_1rem_-_var(--lookup-reserve,0px))] [translate:0_calc(var(--lookup-reserve,0px)_*_-0.5)] transition-[height,translate] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] !max-h-[calc(100vh-1rem)] !overflow-hidden"
+            : "max-w-2xl"
+        }
+      >
+        {tablesOpen && (
+          <TablesLookupPanel
+            onBack={() => setTablesOpen(false)}
+            onClose={onClose}
+            quotas={quotas}
+            onQuotasChange={setQuotas}
+            saveLabel="Concluir"
+            saveTitle="Preenche grupo, prazo e valor do crédito das cotas da venda"
+            onSaveQuotas={() => {
+              regApi.current?.applyServopaQuotas(quotas);
+              setTablesOpen(false);
+            }}
+          />
+        )}
+        {/* O formulário continua MONTADO atrás (só escondido): assim o
+            rascunho, o que já foi digitado e os documentos enviados não se
+            perdem ao ir e voltar das tabelas. */}
+        <form onSubmit={handleSubmit} className={tablesOpen ? "hidden" : "space-y-4"}>
           <div>
             <button type="button" onClick={() => setStep("sale")} className="mb-1 inline-flex items-center gap-1 text-xs font-medium text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200">
               <ArrowLeft className="h-3.5 w-3.5" /> Voltar
@@ -243,6 +301,7 @@ export function ClosedAtDialog({
             dealId={registrationDealId!}
             administratorId={administratorId}
             showErrors={showErrors}
+            onOpenTables={() => setTablesOpen(true)}
             onStatus={setRegStatus}
             registerApi={(api) => {
               regApi.current = api;

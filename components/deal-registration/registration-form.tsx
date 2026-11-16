@@ -4,16 +4,21 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, Copy, Eraser, Loader2, Plus, QrCode, Table2, Upload, X } from "lucide-react";
 import { Select } from "@/components/select";
 import { DocumentThumb, DocumentViewer, formatFileSize } from "@/components/deal-registration/document-preview";
-import { ServopaTablesDialog } from "@/components/deal-registration/servopa-tables-dialog";
 import { ServopaQuotaPicker } from "@/components/deal-registration/servopa-quota-picker";
+import type { AdheredQuota } from "@/lib/proposals/quotas";
 import { CurrencyInput } from "@/components/currency-input";
+import { formatCurrency } from "@/lib/format";
 import {
   EMPTY_EXTRA_QUOTA,
   MAX_EXTRA_QUOTAS,
   cleanExtraQuotas,
   isBlankExtraQuota,
+  calcQuotaTotals,
   isServopaAdministrator,
+  parseQuotaKind,
   type ExtraQuota,
+  type QuotaKind,
+  type QuotaTotals,
 } from "@/lib/deal-registration/extra-quotas";
 import { PhoneInput } from "@/components/phone-input";
 import { useCepAutofill } from "@/lib/use-cep-autofill";
@@ -63,6 +68,8 @@ type Form = {
   bankAccountType: string;
   /** Cotas ALÉM da principal. Só aparece fora da Servopa — ver o botão "+" na seção 4. */
   extraQuotas: ExtraQuota[];
+  /** Meia ou integral da cota principal (Servopa). */
+  quotaKind: QuotaKind;
 };
 
 type ServerState = {
@@ -71,6 +78,7 @@ type ServerState = {
   registration: RegistrationSnapshot["registration"];
   administratorName: string | null;
   extraQuotas: ExtraQuota[];
+  quotaKind?: QuotaKind;
   documents: Doc[];
   requiresBankData: boolean;
   documentsWaived: boolean;
@@ -88,12 +96,19 @@ export type RegistrationStatus = {
   total: number;
 };
 
-export type RegistrationApi = { flush: () => Promise<boolean>; focusFirstMissing: () => void };
+export type RegistrationApi = {
+  flush: () => Promise<boolean>;
+  focusFirstMissing: () => void;
+  /** Os créditos anexados na consulta às tabelas viram as cotas da venda. */
+  applyServopaQuotas: (quotas: AdheredQuota[]) => void;
+  /** Totais bruto/líquido das cotas (null com uma cota integral só) — o Ganho os leva para o valor do negócio. */
+  getQuotaTotal: () => QuotaTotals | null;
+};
 
 const EMPTY_FORM: Form = {
   email: "", whatsapp: "", zipCode: "", address: "", addressNumber: "", neighborhood: "", city: "", state: "", company: "",
   personType: "PF", holderName: "", cpf: "", cnpj: "", profession: "", maritalStatus: "", monthlyIncome: "", groupNumber: "", creditValue: "", termMonths: "",
-  paymentMethod: "", bankName: "", bankAgency: "", bankAccount: "", bankAccountType: "", extraQuotas: [],
+  paymentMethod: "", bankName: "", bankAgency: "", bankAccount: "", bankAccountType: "", extraQuotas: [], quotaKind: "INTEGRAL",
 };
 
 function toForm(s: ServerState): Form {
@@ -124,6 +139,7 @@ function toForm(s: ServerState): Form {
     bankAccount: r.bankAccount ?? "",
     bankAccountType: r.bankAccountType ?? "",
     extraQuotas: s.extraQuotas ?? [],
+    quotaKind: parseQuotaKind(s.quotaKind),
   };
 }
 
@@ -182,8 +198,38 @@ function toPayload(f: Form) {
       // Sempre a lista inteira: o servidor substitui o que estiver gravado
       // (é assim que remover uma linha chega lá). Linha em branco não vai.
       extraQuotas: cleanExtraQuotas(f.extraQuotas),
+      quotaKind: f.quotaKind,
     },
   };
+}
+
+/** Meia | Integral — duas opções, uma sempre marcada (sem marcação vale integral). */
+function QuotaKindToggle({ value, onChange, label }: { value: QuotaKind; onChange: (v: QuotaKind) => void; label: string }) {
+  const options: { key: QuotaKind; text: string }[] = [
+    { key: "MEIA", text: "Meia" },
+    { key: "INTEGRAL", text: "Integral" },
+  ];
+  return (
+    <div role="radiogroup" aria-label={`${label}: meia ou integral`} className="inline-flex overflow-hidden rounded-md border border-neutral-300 text-xs font-medium dark:border-neutral-700">
+      {options.map((o) => {
+        const on = value === o.key;
+        return (
+          <button
+            key={o.key}
+            type="button"
+            role="radio"
+            aria-checked={on}
+            onClick={() => onChange(o.key)}
+            className={`px-2.5 py-1 transition-colors ${
+              on ? "bg-brand text-white" : "text-neutral-500 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800"
+            }`}
+          >
+            {o.text}
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 /**
@@ -202,9 +248,16 @@ export function RegistrationForm({
   showErrors = false,
   onStatus,
   registerApi,
+  onOpenTables,
 }: {
   dealId: string;
   administratorId: string | null;
+  /**
+   * Abrir a consulta às tabelas da Servopa. Quem troca o conteúdo da janela é
+   * o modal de cima (closed-at-dialog) — é o mesmo painel da proposta, e ele
+   * substitui o que está na tela em vez de empilhar outra janela.
+   */
+  onOpenTables?: () => void;
   /** Depois de tentar concluir com algo faltando: destaca todos os campos pendentes. */
   showErrors?: boolean;
   onStatus: (status: RegistrationStatus) => void;
@@ -219,9 +272,6 @@ export function RegistrationForm({
   // Nome da administradora escolhida: vem do servidor junto com as exigências
   // (a tela só tem o id). É o que decide o que a seção "Cota vendida" oferece.
   const [administratorName, setAdministratorName] = useState<string | null>(null);
-  // Consulta às tabelas da Servopa (botão "Acessar tabelas"). Só monta quando
-  // abre — é assim que a requisição sai no clique, e não ao carregar a tela.
-  const [tablesOpen, setTablesOpen] = useState(false);
   // Lista de grupos embaixo do campo Grupo/Prazo da cota vendida (só Servopa).
   // Também só monta ao abrir: a consulta sai quando o campo recebe o foco.
   const [quotaPickerOpen, setQuotaPickerOpen] = useState(false);
@@ -247,13 +297,19 @@ export function RegistrationForm({
   useEffect(() => {
     const controller = new AbortController();
     const qs = administratorId ? `?administratorId=${encodeURIComponent(administratorId)}` : "";
+    let done = false;
     fetch(`/api/deals/${dealId}/registration${qs}`, { signal: controller.signal })
       .then(async (res) => {
         const data = await res.json().catch(() => ({}));
+        // Cancelada no meio da leitura do corpo: o `.catch` acima engoliu o
+        // erro e `data` seria `{}` — seguir adiante estouraria em
+        // `data.contact.zipCode` e mostraria um erro falso. Para aqui.
+        if (controller.signal.aborted) throw controller.signal.reason;
         if (!res.ok) throw new Error((data as { error?: string }).error ?? "Não foi possível carregar o cadastro");
         return data as ServerState;
       })
       .then((data) => {
+        done = true;
         setContactName(data.contactName);
         setMeta({ requiresBankData: data.requiresBankData, documentsWaived: data.documentsWaived, canBypass: data.canWaive });
         setAdministratorName(data.administratorName ?? null);
@@ -267,9 +323,16 @@ export function RegistrationForm({
         setLoadError(null);
       })
       .catch((err) => {
-        if ((err as DOMException).name !== "AbortError") setLoadError((err as Error).message);
+        done = true;
+        if (controller.signal.aborted || (err as DOMException).name === "AbortError") return;
+        setLoadError((err as Error).message);
       });
-    return () => controller.abort();
+    // Com MOTIVO e só se ainda estiver em voo: um `abort()` pelado vira
+    // "signal is aborted without reason" no painel de erro do dev, porque o
+    // StrictMode monta, desmonta e monta de novo (mesmo cuidado das tabelas).
+    return () => {
+      if (!done) controller.abort(new DOMException("Carregamento do cadastro cancelado: a tela mudou.", "AbortError"));
+    };
   }, [dealId, administratorId]);
 
   const save = useCallback(async (): Promise<boolean> => {
@@ -422,9 +485,50 @@ export function RegistrationForm({
     target.querySelector<HTMLElement>("input:not([type=file]), button, textarea")?.focus({ preventScroll: true });
   }, []);
 
+  /**
+   * O que a consulta às tabelas traz de volta: cada crédito anexado vira uma
+   * cota da venda. `cotas` é quantidade — 3 cotas do mesmo crédito viram três
+   * linhas iguais, porque aqui cada cota é cadastrada uma a uma na
+   * administradora (cota e dígito são preenchidos depois, um por linha).
+   *
+   * A primeira vai para os campos principais e o resto para as cotas extras,
+   * respeitando o teto. Forma de pagamento não vem daqui: é uma só para a
+   * venda inteira e quem escolhe é o consultor.
+   */
+  const applyServopaQuotas = useCallback((picked: AdheredQuota[]) => {
+    const rows: ExtraQuota[] = picked.flatMap((q) =>
+      Array.from({ length: Math.max(1, Math.trunc(q.cotas)) }, () => ({
+        groupNumber: q.groupNumber,
+        termMonths: q.termMonths,
+        value: Number(q.creditValue),
+        kind: "INTEGRAL" as const,
+      })),
+    );
+    const [first, ...rest] = rows;
+    if (!first) return;
+    dirty.current = true;
+    setForm((f) => ({
+      ...f,
+      groupNumber: first.groupNumber ?? "",
+      termMonths: first.termMonths != null ? String(first.termMonths) : "",
+      creditValue: first.value != null ? first.value.toFixed(2) : "",
+      quotaKind: "INTEGRAL",
+      extraQuotas: rest.slice(0, MAX_EXTRA_QUOTAS),
+    }));
+  }, []);
+
+  // Soma das cotas (só existe com 2+ cotas); atualizada a cada render, lida pelo Ganho.
+  const quotaTotalRef = useRef<QuotaTotals | null>(null);
+  const getQuotaTotal = useCallback(() => quotaTotalRef.current, []);
   useEffect(() => {
-    registerApi({ flush: save, focusFirstMissing });
-  }, [registerApi, save, focusFirstMissing]);
+    const extras = form.extraQuotas ?? [];
+    const totals = calcQuotaTotals([{ value: form.creditValue ? Number(form.creditValue) : null, kind: form.quotaKind }, ...extras]);
+    quotaTotalRef.current = extras.length > 0 || totals.hasHalf ? totals : null;
+  }, [form.creditValue, form.quotaKind, form.extraQuotas]);
+
+  useEffect(() => {
+    registerApi({ flush: save, focusFirstMissing, applyServopaQuotas, getQuotaTotal });
+  }, [registerApi, save, focusFirstMissing, applyServopaQuotas, getQuotaTotal]);
 
   useEffect(() => {
     onStatus({ loading: !loaded && !loadError, ready: loaded && missing.length === 0, summary, canBypass: meta.canBypass, done, total });
@@ -523,6 +627,7 @@ export function RegistrationForm({
     groupNumber: form.groupNumber.trim() || null,
     termMonths: Number(form.termMonths) > 0 ? Number(form.termMonths) : null,
     value: form.creditValue ? Number(form.creditValue) : null,
+    kind: form.quotaKind,
   };
 
   /**
@@ -631,7 +736,6 @@ export function RegistrationForm({
       {viewing && (
         <DocumentViewer src={`/api/deals/${dealId}/registration/documents/${viewing.id}`} fileName={viewing.fileName} onClose={() => setViewing(null)} />
       )}
-      {tablesOpen && <ServopaTablesDialog onClose={() => setTablesOpen(false)} />}
       <div className="space-y-1.5">
         <div className="flex items-center justify-between text-sm">
           <span className="font-medium text-neutral-900 dark:text-neutral-100">
@@ -820,12 +924,11 @@ export function RegistrationForm({
         {/* O outro lado do ternário: na Servopa as tabelas já vivem dentro do
             CRM (grupo, prazo e crédito conferidos — ver
             memory-tabelas-servopa.md), então em vez de "+ Outra cota" aparece
-            o caminho para elas. Por enquanto só a casca: o botão ainda não
-            faz nada. */}
-        {isServopa && (
+            o caminho para elas: o mesmo painel de créditos da proposta. */}
+        {isServopa && onOpenTables && (
           <button
             type="button"
-            onClick={() => setTablesOpen(true)}
+            onClick={onOpenTables}
             className="inline-flex items-center gap-2 rounded-lg border border-brand/40 bg-brand-light/30 px-3 py-2 text-sm font-medium text-brand transition-colors hover:bg-brand-light/60 dark:border-brand/40 dark:bg-brand/10 dark:hover:bg-brand/20"
           >
             <Table2 className="h-4 w-4 shrink-0" strokeWidth={2} />
@@ -842,6 +945,12 @@ export function RegistrationForm({
             juntos, em vez de digitar (e errar) um por um. Fora da Servopa não
             existe essa base e os campos seguem digitados. */}
         <div ref={quotaBoxRef} className="relative">
+          {isServopa && (
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <span className="text-xs font-semibold text-neutral-600 dark:text-neutral-300">Cota 1</span>
+              <QuotaKindToggle value={form.quotaKind} onChange={(v) => set("quotaKind", v)} label="Cota 1" />
+            </div>
+          )}
           <div className="grid gap-3 sm:grid-cols-3">
             {field(
               "groupNumber",
@@ -900,12 +1009,17 @@ export function RegistrationForm({
             principal. Nenhuma delas entra na conta de "o que falta":
             acrescentar uma linha nunca pode travar o Ganho. */}
         {extraQuotas.length > 0 && (
-          <div className="space-y-2">
+          <div className="space-y-3">
             {extraQuotas.map((q, i) => (
-              <div key={i} className="rounded-lg border border-neutral-200 bg-neutral-50/60 p-3 dark:border-neutral-800 dark:bg-neutral-900/40">
+              // Sem moldura (borda, fundo e respiro): só a divisória fina
+              // entre uma cota e outra.
+              <div key={i} className="border-t border-neutral-200 pt-3 dark:border-neutral-800">
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <span className="text-xs font-semibold text-neutral-600 dark:text-neutral-300">Cota {i + 2}</span>
                   <span className="flex items-center gap-1">
+                    {isServopa && (
+                      <QuotaKindToggle value={parseQuotaKind(q.kind)} onChange={(v) => setExtraQuota(i, { kind: v })} label={`Cota ${i + 2}`} />
+                    )}
                     {canAddQuota && !isBlankExtraQuota(q) && (
                       <button
                         type="button"
@@ -971,6 +1085,30 @@ export function RegistrationForm({
             )}
           </div>
         )}
+
+        {/* Soma de todas as cotas (a principal + as extras). Só aparece com
+            mais de uma: com uma cota só o total seria o próprio campo. Cota
+            sem valor entra como zero. A soma é feita em centavos inteiros —
+            somar reais em ponto flutuante dá centavo fantasma. */}
+        {(extraQuotas.length > 0 || mainQuota.kind === "MEIA") && (() => {
+          const totals = calcQuotaTotals([mainQuota, ...extraQuotas]);
+          return (
+            <div className="space-y-0.5 border-t border-neutral-200 pt-3 dark:border-neutral-800">
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="text-sm font-medium text-neutral-600 dark:text-neutral-300">
+                  Total de {extraQuotas.length + 1} {extraQuotas.length === 0 ? "cota" : "cotas"}
+                </span>
+                <span className="text-base font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">{formatCurrency(totals.net)}</span>
+              </div>
+              {totals.hasHalf && (
+                <div className="flex items-baseline justify-between gap-3 text-xs text-neutral-500 dark:text-neutral-400">
+                  <span>Crédito cheio, sem dividir as meias</span>
+                  <span className="tabular-nums">{formatCurrency(totals.gross)}</span>
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Forma de pagamento: UMA para a venda inteira, por isso fica embaixo
             de todas as cotas e não dentro de nenhuma. Botões lado a lado em

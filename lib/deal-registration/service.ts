@@ -21,7 +21,7 @@ import {
   type MissingItem,
   type RegistrationSnapshot,
 } from "./rules";
-import { parseExtraQuotas, type ExtraQuota } from "./extra-quotas";
+import { parseExtraQuotas, parseQuotaKind, type ExtraQuota, type QuotaKind } from "./extra-quotas";
 
 export type RegistrationContext = {
   deal: { id: string; ownerId: string; contactId: string; status: "OPEN" | "WON" | "LOST"; administratorId: string | null };
@@ -33,6 +33,7 @@ export type RegistrationContext = {
   administratorName: string | null;
   /** Cotas além da principal; lista vazia = venda de uma cota só. */
   extraQuotas: ExtraQuota[];
+  quotaKind: QuotaKind;
   requiresBankData: boolean;
   documentsWaived: boolean;
   missing: MissingItem[];
@@ -141,6 +142,7 @@ export async function loadRegistrationContext(
     administratorId,
     administratorName: administrator?.name ?? null,
     extraQuotas: parseExtraQuotas(r?.extraQuotas),
+    quotaKind: parseQuotaKind(r?.quotaKind),
     requiresBankData,
     documentsWaived,
     missing: findMissingRegistrationItems(snapshot, { requiresBankData, documentsWaived }),
@@ -180,6 +182,7 @@ export type RegistrationDraftInput = {
     paymentMethod?: string | null;
     /** Substitui a lista inteira (a tela sempre manda o estado completo das cotas extras). */
     extraQuotas?: ExtraQuota[];
+    quotaKind?: QuotaKind;
     bankName?: string | null;
     bankAgency?: string | null;
     bankAccount?: string | null;

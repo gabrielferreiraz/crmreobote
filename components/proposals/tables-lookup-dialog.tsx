@@ -63,12 +63,17 @@ export function TablesLookupPanel({
   quotas,
   onQuotasChange,
   onSaveQuotas,
+  saveLabel = "Usar na proposta",
+  saveTitle = "Preenche crédito, cotas, prazo, taxa e parcela da proposta",
 }: {
   onBack: () => void;
   onClose: () => void;
   quotas: AdheredQuota[];
   onQuotasChange: (quotas: AdheredQuota[]) => void;
   onSaveQuotas: () => void;
+  /** O painel também é usado no cadastro do Ganho, onde o botão conclui a escolha das cotas. */
+  saveLabel?: string;
+  saveTitle?: string;
 }) {
   const [data, setData] = useState<{ tables: TableRow[]; lastSyncAt: string | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -356,6 +361,8 @@ export function TablesLookupPanel({
           onCotasChange={setCotas}
           onRemove={toggleQuota}
           onSave={onSaveQuotas}
+          saveLabel={saveLabel}
+          saveTitle={saveTitle}
         />
       )}
     </>
@@ -374,6 +381,8 @@ function QuotasCart({
   onCotasChange,
   onRemove,
   onSave,
+  saveLabel,
+  saveTitle,
 }: {
   quotas: AdheredQuota[];
   expanded: boolean;
@@ -382,6 +391,8 @@ function QuotasCart({
   onCotasChange: (tableId: string, category: string, cotas: number) => void;
   onRemove: (quota: AdheredQuota) => void;
   onSave: () => void;
+  saveLabel: string;
+  saveTitle: string;
 }) {
   const totals = totalizarQuotas(quotas);
   const clamp = (value: number) => Math.max(1, Math.min(99, value || 1));
@@ -516,9 +527,9 @@ function QuotasCart({
             onSave();
           }}
         >
-          <button type="submit" className="btn-primary" title="Preenche crédito, cotas, prazo, taxa e parcela da proposta">
+          <button type="submit" className="btn-primary" title={saveTitle}>
             <Save className="h-4 w-4" strokeWidth={2} />
-            Usar na proposta
+            {saveLabel}
           </button>
         </form>
       </div>
