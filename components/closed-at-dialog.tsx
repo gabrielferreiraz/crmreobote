@@ -305,7 +305,11 @@ export function ClosedAtDialog({
         maxWidth={
           tablesOpen
             ? "max-w-7xl !h-[calc(100vh_-_1rem_-_var(--lookup-reserve,0px))] [translate:0_calc(var(--lookup-reserve,0px)_*_-0.5)] transition-[height,translate] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] !max-h-[calc(100vh-1rem)] !overflow-hidden"
-            : "max-w-2xl"
+            : // O painel vira uma coluna flex: o corpo rola (overflow-y-auto), o rodapé
+              // NÃO — ele fica fora da área que rola, nunca mais por cima do fim do formulário
+              // (sticky dentro da mesma área que rola cobre o que passa por baixo dele o tempo
+              // todo, não só perto do fim; já tentado e não resolveu).
+              "max-w-2xl !flex !flex-col !overflow-hidden !p-0"
         }
       >
         {tablesOpen && (
@@ -325,47 +329,58 @@ export function ClosedAtDialog({
         {/* O formulário continua MONTADO atrás (só escondido): assim o
             rascunho, o que já foi digitado e os documentos enviados não se
             perdem ao ir e voltar das tabelas. */}
-        <form onSubmit={handleSubmit} className={tablesOpen ? "hidden" : "space-y-4"}>
-          <div>
-            <button
-              type="button"
-              onClick={() => {
-                setStep("sale");
-                setArmed(false);
+        <form onSubmit={handleSubmit} className={tablesOpen ? "hidden" : "flex min-h-0 flex-1 flex-col"}>
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
+            <div>
+              <button
+                type="button"
+                onClick={() => {
+                  setStep("sale");
+                  setArmed(false);
+                }}
+                className="mb-1 inline-flex items-center gap-1 text-xs font-medium text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200"
+              >
+                <ArrowLeft className="h-3.5 w-3.5" /> Voltar
+              </button>
+              <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Cadastro do cliente</h2>
+              <p className="text-sm text-neutral-500 dark:text-neutral-400">
+                Dados e documentos que {adminName ? `a ${adminName}` : "a administradora"} pede para cadastrar a cota. Você pode fechar e continuar depois: tudo fica salvo.
+              </p>
+            </div>
+
+            <RegistrationForm
+              dealId={registrationDealId!}
+              administratorId={administratorId}
+              showErrors={showErrors}
+              onOpenTables={() => setTablesOpen(true)}
+              onStatus={setRegStatus}
+              registerApi={(api) => {
+                regApi.current = api;
               }}
-              className="mb-1 inline-flex items-center gap-1 text-xs font-medium text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200"
-            >
-              <ArrowLeft className="h-3.5 w-3.5" /> Voltar
-            </button>
-            <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Cadastro do cliente</h2>
-            <p className="text-sm text-neutral-500 dark:text-neutral-400">
-              Dados e documentos que {adminName ? `a ${adminName}` : "a administradora"} pede para cadastrar a cota. Você pode fechar e continuar depois: tudo fica salvo.
-            </p>
+            />
+
+            {submitError && <p className="text-sm text-red-600">{submitError}</p>}
           </div>
 
-          <RegistrationForm
-            dealId={registrationDealId!}
-            administratorId={administratorId}
-            showErrors={showErrors}
-            onOpenTables={() => setTablesOpen(true)}
-            onStatus={setRegStatus}
-            registerApi={(api) => {
-              regApi.current = api;
-            }}
-          />
-
-          {submitError && <p className="text-sm text-red-600">{submitError}</p>}
-
-          <div className="sticky bottom-0 -mx-5 -mb-5 border-t border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
-            <div className="flex min-h-11 items-center gap-2.5 border-b border-neutral-100 px-5 py-2.5 dark:border-neutral-800/80">
+          <div className="shrink-0 border-t border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
+            {/* Faixa colorida pelo estado — a cor já diz "ok"/"falta algo" antes mesmo de ler o texto. */}
+            <div
+              className={`flex min-h-10 items-center gap-2 px-5 py-2 text-sm font-medium ${
+                regStatus.loading
+                  ? "bg-neutral-50 text-neutral-500 dark:bg-neutral-800/50 dark:text-neutral-400"
+                  : regStatus.ready
+                    ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400"
+                    : "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400"
+              }`}
+            >
               {regStatus.loading ? (
-                <Loader2 className="h-4 w-4 shrink-0 animate-spin text-neutral-400" strokeWidth={2} />
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin" strokeWidth={2} />
               ) : regStatus.ready ? (
-                <CircleCheck className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" strokeWidth={2} />
+                <CircleCheck className="h-4 w-4 shrink-0" strokeWidth={2} />
               ) : (
-                <CircleAlert className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" strokeWidth={2} />
+                <CircleAlert className="h-4 w-4 shrink-0" strokeWidth={2} />
               )}
-              <p className={`min-w-0 text-sm font-medium ${regStatus.loading ? "text-neutral-500 dark:text-neutral-400" : regStatus.ready ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}`}>
+              <p className="min-w-0 truncate">
                 {regStatus.loading
                   ? "Verificando o cadastro…"
                   : !regStatus.ready
@@ -375,20 +390,28 @@ export function ClosedAtDialog({
                       : "Cadastro completo"}
               </p>
             </div>
-            <div className="flex flex-col-reverse gap-2 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center">
-                <button type="button" onClick={handleFinishLater} disabled={savingDraft || loading || skipping} className="btn-secondary w-full sm:w-auto">
-                  {savingDraft ? <><Loader2 className="h-4 w-4 animate-spin" /> Salvando rascunho</> : "Terminar cadastro depois"}
+
+            <div className="flex flex-col gap-3 px-5 pt-3 pb-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+                <button
+                  type="button"
+                  onClick={handleFinishLater}
+                  disabled={savingDraft || loading || skipping}
+                  className="inline-flex items-center gap-1.5 text-sm font-medium text-neutral-500 transition hover:text-neutral-800 disabled:cursor-not-allowed disabled:opacity-50 dark:text-neutral-400 dark:hover:text-neutral-100"
+                >
+                  {savingDraft && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  {savingDraft ? "Salvando rascunho…" : "Terminar cadastro depois"}
                 </button>
                 {regStatus.canBypass && (
                   <button
                     type="button"
                     onClick={() => void handleSkipRegistration()}
                     disabled={loading || skipping || savingDraft}
-                    className="btn-ghost w-full text-neutral-600 sm:w-auto dark:text-neutral-300"
                     title="Dá o ganho sem exigir nenhum dado ou documento do cadastro"
+                    className="inline-flex items-center gap-1.5 text-sm font-medium text-amber-600 transition hover:text-amber-700 disabled:cursor-not-allowed disabled:opacity-50 dark:text-amber-400 dark:hover:text-amber-300"
                   >
-                    {skipping ? <><Loader2 className="h-4 w-4 animate-spin" /> Confirmando</> : <><FileX2 className="h-4 w-4" /> Dar ganho sem documentação</>}
+                    {skipping ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileX2 className="h-3.5 w-3.5" />}
+                    {skipping ? "Confirmando…" : "Dar ganho sem documentação"}
                   </button>
                 )}
               </div>

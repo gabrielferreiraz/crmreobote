@@ -6,7 +6,7 @@ import { formatCurrency, formatDuration } from "@/lib/format";
 import { EmptyState } from "@/components/empty-state";
 import { Avatar } from "@/components/avatar";
 import { DonutChart } from "@/components/charts/donut-chart";
-import { TrendAreaChart, DrillableTrendChart } from "@/components/charts/trend-area-chart";
+import { DrillableTrendChart } from "@/components/charts/trend-area-chart";
 import { PersonalHero, findRankingPosition } from "./personal-hero";
 import { WonDealsButton } from "./won-deals-button";
 import { FunnelChart } from "@/components/charts/funnel-chart";
@@ -264,7 +264,6 @@ export default async function RelatoriosPage({
     teamActivityList,
     teamRanking,
     revenueTrendDaily,
-    teamActivityTrend,
     statusSlices,
     lossBreakdown,
     maxLossCount,
@@ -709,15 +708,24 @@ export default async function RelatoriosPage({
         <dl className="grid border-y border-neutral-200 sm:grid-cols-3 sm:divide-x sm:divide-neutral-200 dark:border-neutral-800 dark:sm:divide-neutral-800">
           <div className="min-w-0 px-1 py-4 sm:px-5">
             <dt className="text-sm text-neutral-500 dark:text-neutral-400">Vendas líquidas</dt>
-            <dd className="mt-1 break-words text-xl font-semibold tabular-nums text-emerald-700 sm:text-2xl dark:text-emerald-400">{formatCurrency(wonTotalValue)}</dd>
+            <dd className="mt-1 flex flex-wrap items-center gap-2 break-words text-xl font-semibold tabular-nums text-emerald-700 sm:text-2xl dark:text-emerald-400">
+              {formatCurrency(wonTotalValue)}
+              <DeltaBadge current={wonTotalValue} previous={compareData?.wonTotalValue ?? null} compareLabel={compareData?.rangeLabel} />
+            </dd>
           </div>
           <div className="min-w-0 border-t border-neutral-200 px-1 py-4 sm:border-t-0 sm:px-5 dark:border-neutral-800">
             <dt className="text-sm text-neutral-500 dark:text-neutral-400">Vendas brutas</dt>
-            <dd className="mt-1 break-words text-xl font-semibold tabular-nums text-neutral-900 sm:text-2xl dark:text-neutral-100">{formatCurrency(wonGrossTotalValue)}</dd>
+            <dd className="mt-1 flex flex-wrap items-center gap-2 break-words text-xl font-semibold tabular-nums text-neutral-900 sm:text-2xl dark:text-neutral-100">
+              {formatCurrency(wonGrossTotalValue)}
+              <DeltaBadge current={wonGrossTotalValue} previous={compareData?.wonGrossTotalValue ?? null} compareLabel={compareData?.rangeLabel} />
+            </dd>
           </div>
           <div className="min-w-0 border-t border-neutral-200 px-1 py-4 sm:border-t-0 sm:px-5 dark:border-neutral-800">
             <dt className="text-sm text-neutral-500 dark:text-neutral-400">Ticket médio</dt>
-            <dd className="mt-1 break-words text-xl font-semibold tabular-nums text-neutral-900 sm:text-2xl dark:text-neutral-100">{wonCount > 0 ? formatCurrency(avgWonValue) : "—"}</dd>
+            <dd className="mt-1 flex flex-wrap items-center gap-2 break-words text-xl font-semibold tabular-nums text-neutral-900 sm:text-2xl dark:text-neutral-100">
+              {wonCount > 0 ? formatCurrency(avgWonValue) : "—"}
+              <DeltaBadge current={avgWonValue} previous={compareData?.avgWonValue ?? null} compareLabel={compareData?.rangeLabel} />
+            </dd>
           </div>
         </dl>
         <p className="text-sm text-neutral-500 dark:text-neutral-400">{wonCount} {wonCount === 1 ? "negócio ganho" : "negócios ganhos"}</p>
@@ -924,15 +932,6 @@ export default async function RelatoriosPage({
                   })}
                 </div>
               )}
-            </div>
-            <div className="card col-span-12 p-6">
-              <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Tempo ativo da equipe por dia</h3>
-              <p className="text-xs text-neutral-400 dark:text-neutral-500">
-                Soma do tempo com a aba do CRM em primeiro plano, todo mundo junto, dia a dia.
-              </p>
-              <div className="mt-6">
-                <TrendAreaChart data={teamActivityTrend} format={{ type: "duration" }} />
-              </div>
             </div>
           </div>
 

@@ -9,6 +9,7 @@ import { PhoneInput } from "@/components/phone-input";
 import { Select } from "@/components/select";
 import { VoiceInputButton } from "@/components/voice-input-button";
 import { ESTADOS_BR } from "@/lib/contacts/constants";
+import { formatCurrency, halfCurrencyValue } from "@/lib/format";
 import { parseLeadText, normalizeLabel, type ParsedLeadFields } from "@/lib/quick-register/parse-lead-text";
 import { appendDictatedLeadText } from "@/lib/quick-register/format-dictated-lead-text";
 import { validatePhoneField } from "@/lib/phone-normalize";
@@ -68,6 +69,8 @@ export function QuickRegisterDealForm({
   const [zipCode, setZipCode] = useState("");
   const [value, setValue] = useState("");
   const [grossValue, setGrossValue] = useState("");
+  const suggestedNet = halfCurrencyValue(grossValue);
+  const suggestionApplied = suggestedNet != null && value !== "" && Math.round(Number(value) * 100) === Math.round(suggestedNet * 100);
   const [creditType, setCreditType] = useState("");
   const [description, setDescription] = useState("");
   const [ownerId, setOwnerId] = useState(currentUserId);
@@ -186,12 +189,9 @@ export function QuickRegisterDealForm({
       setZipCode(parsed.zipCode);
       filled.add("zipCode");
     }
-    if (parsed.value) {
-      setValue(String(parsed.value));
-      filled.add("value");
-    }
     if (parsed.grossValue) {
       setGrossValue(String(parsed.grossValue));
+      setValue("");
       filled.add("grossValue");
     }
     if (parsed.description) {
@@ -538,12 +538,20 @@ export function QuickRegisterDealForm({
               <label className="field-label">Valor líquido</label>
               <CurrencyInput
                 value={value}
-                onChange={(v) => {
-                  setValue(v);
-                  reviewed("value");
-                }}
-                className={fieldHighlight("value")}
+                onChange={() => {}}
+                readOnly
+                placeholder={suggestedNet == null ? "0,00" : suggestedNet.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               />
+              {suggestedNet != null ? (
+                <div className="mt-2 space-y-2">
+                  <p className="text-sm text-neutral-600 dark:text-neutral-300">Sugestão (50%): <strong className="tabular-nums text-neutral-900 dark:text-neutral-100">{formatCurrency(suggestedNet)}</strong></p>
+                  <button type="button" onClick={() => setValue(suggestedNet.toFixed(2))} disabled={suggestionApplied} className="btn-secondary btn-sm w-full justify-center">
+                    {suggestionApplied ? "Valor aplicado" : "Usar valor"}
+                  </button>
+                </div>
+              ) : (
+                <p className="text-xs text-neutral-500 dark:text-neutral-400">Informe o valor bruto para calcular a sugestão de 50%.</p>
+              )}
             </div>
             <div className="space-y-1">
               <label className="field-label">Valor bruto</label>
@@ -551,6 +559,7 @@ export function QuickRegisterDealForm({
                 value={grossValue}
                 onChange={(v) => {
                   setGrossValue(v);
+                  setValue("");
                   reviewed("grossValue");
                 }}
                 className={fieldHighlight("grossValue")}

@@ -59,10 +59,18 @@ export function PushSubscriptionProvider({ children }: { children: ReactNode }) 
       try {
         const registration = await navigator.serviceWorker.register("/sw.js");
         const existing = await registration.pushManager.getSubscription();
-        if (existing) await claimSubscription(existing.toJSON()).catch(() => false);
+        if (existing) {
+          const synced = await claimSubscription(existing.toJSON()).catch(() => false);
+          if (active && !synced) {
+            setError("O navegador tem uma inscrição, mas o servidor não conseguiu confirmá-la. Reative as notificações para sincronizar.");
+          }
+        }
         if (active) setStatus(existing ? "subscribed" : "unsubscribed");
       } catch {
-        if (active) setStatus("unsubscribed");
+        if (active) {
+          setStatus("unsubscribed");
+          setError("Não foi possível verificar o serviço de notificações deste navegador.");
+        }
       }
     })();
 
@@ -77,12 +85,16 @@ export function PushSubscriptionProvider({ children }: { children: ReactNode }) 
     try {
       const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
       if (!publicKey) {
-        setError("Notificacoes push nao configuradas no servidor.");
+        setError("Notificações push não estão configuradas neste ambiente.");
+        return;
+      }
+      if (Notification.permission === "denied") {
+        setError("O navegador bloqueou as notificações. Permita-as nas configurações do site e tente novamente.");
         return;
       }
       const permission = await Notification.requestPermission();
       if (permission !== "granted") {
-        setError("Permissao negada no navegador.");
+        setError("Permissão não concedida no navegador.");
         return;
       }
       const registration = await navigator.serviceWorker.ready;
@@ -92,7 +104,7 @@ export function PushSubscriptionProvider({ children }: { children: ReactNode }) 
       });
       const ok = await claimSubscription(subscription.toJSON());
       if (!ok) {
-        setError("Erro ao salvar inscricao no servidor.");
+        setError("O navegador permitiu notificações, mas não foi possível registrar este computador no servidor.");
         return;
       }
       setStatus("subscribed");

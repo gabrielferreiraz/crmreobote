@@ -116,18 +116,6 @@ export function buildDailyBuckets(trendStart: Date, trendEnd: Date): DayOrMonthB
   });
 }
 
-/** Um balde por DIA se o período cabe uns 30 pontos legíveis (<=31 dias de
- * calendário), senão cai pra um balde por MÊS (ver buildMonthlyBuckets). */
-export function buildDailyOrMonthlyBuckets(
-  trendStart: Date,
-  trendEnd: Date,
-): { buckets: DayOrMonthBucket[]; bucketDaily: boolean; trendSpanDays: number } {
-  const trendSpanDays = countTrendSpanDays(trendStart, trendEnd);
-  const bucketDaily = trendSpanDays <= 31;
-  const buckets = bucketDaily ? buildDailyBuckets(trendStart, trendEnd) : buildMonthlyBuckets(trendStart, trendEnd);
-  return { buckets, bucketDaily, trendSpanDays };
-}
-
 /** Acha o balde de `buckets` (diário ou mensal) que contém a data já quebrada em partes de Brasília. */
 export function findBucket<T extends { year: number; month: number; day?: number }>(
   buckets: T[],
@@ -137,15 +125,4 @@ export function findBucket<T extends { year: number; month: number; day?: number
   return bucketDaily
     ? buckets.find((b) => b.year === parts.year && b.month === parts.month && b.day === parts.day)
     : buckets.find((b) => b.year === parts.year && b.month === parts.month);
-}
-
-/** Mesma lógica de findBucket, mas devolvendo o índice — usado quando o balde precisa ser mutado por índice num array clonado (ver teamActivityTrend em lib/reports/commercial-data.ts). */
-export function findBucketIndex<T extends { year: number; month: number; day?: number }>(
-  buckets: T[],
-  bucketDaily: boolean,
-  parts: { year: number; month: number; day: number },
-): number {
-  return bucketDaily
-    ? buckets.findIndex((b) => b.year === parts.year && b.month === parts.month && b.day === parts.day)
-    : buckets.findIndex((b) => b.year === parts.year && b.month === parts.month);
 }

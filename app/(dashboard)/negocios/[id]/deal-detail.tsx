@@ -5,7 +5,7 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, StickyNote, CircleDot, CheckCircle2, XCircle, Clock, Loader2, Pencil, Check, X, ThumbsUp, ThumbsDown, Trash2, User, Phone, MessageSquare, Mic, ChevronRight, Briefcase, CalendarCheck, UserCheck, Mail, ExternalLink, FileText, ListTodo, Plus, MoreHorizontal } from "lucide-react";
-import { formatCurrency, daysSince } from "@/lib/format";
+import { formatCurrency, halfCurrencyValue, daysSince } from "@/lib/format";
 import { isStale } from "@/lib/stale";
 import { normalizePhoneNumber, toDialNumber } from "@/lib/phone-normalize";
 import { ACTIVITY_TABS, ACTIVITY_ICON, ACTIVITY_BODY_TEMPLATES, MEETING_OUTCOME_OPTIONS } from "@/lib/activity-icons";
@@ -602,6 +602,7 @@ export function DealDetail({
   split,
   coOwnerOnly = false,
   currentUserRole,
+  isSalesConsultant,
   currentUserId,
   proposals,
   defaultProposalDescription,
@@ -630,6 +631,7 @@ export function DealDetail({
   coOwnerOnly?: boolean;
   /** Excluir tarefa (Videochamada/Visita/etc.) é restrito ao Dono da organização — ver DELETE /api/tasks/[id]. */
   currentUserRole?: string;
+  isSalesConsultant: boolean;
   currentUserId: string;
   /** Propostas comerciais deste negócio (mais nova primeiro) — ver components/proposals/proposals-card.tsx. */
   proposals: ProposalDTO[];
@@ -1923,6 +1925,7 @@ export function DealDetail({
                   value={deal.value}
                   grossValue={deal.grossValue}
                   editable={canEditDetails}
+                  lockNetManualEdit={isSalesConsultant}
                   onSaveValue={saveDealValue}
                   onSaveGrossValue={saveDealGrossValue}
                 />
@@ -2409,6 +2412,7 @@ export function DealDetail({
               value={deal.value}
               grossValue={deal.grossValue}
               editable={canEditDetails}
+              lockNetManualEdit={isSalesConsultant}
               onSaveValue={saveDealValue}
               onSaveGrossValue={saveDealGrossValue}
             />
@@ -2719,6 +2723,7 @@ export function DealDetail({
             if (!savingWonValues) setWonValuesPromptOpen(false);
           }}
           missingFields={missingFinancialValues(deal.value, deal.grossValue)}
+          valueSuggestion={halfCurrencyValue(deal.grossValue)}
           stageName="Ganho"
           leadSources={sources}
           jobTitles={jobTitles}
@@ -3011,19 +3016,54 @@ function FinancialValuesCard({
   value,
   grossValue,
   editable,
+  lockNetManualEdit,
   onSaveValue,
   onSaveGrossValue,
 }: {
   value: number | null;
   grossValue: number | null;
   editable: boolean;
+  lockNetManualEdit: boolean;
   onSaveValue: (v: string) => Promise<{ ok: boolean; error?: string }>;
   onSaveGrossValue: (v: string) => Promise<{ ok: boolean; error?: string }>;
 }) {
+  const grossCents = grossValue == null ? null : Math.round(grossValue * 100);
+  const suggestedNetCents = grossCents == null ? null : Math.round(grossCents / 2);
+  const suggestedNet = suggestedNetCents == null ? null : suggestedNetCents / 100;
+  const alreadyApplied = value != null && suggestedNetCents != null && Math.round(value * 100) === suggestedNetCents;
+  const [applyingSuggestion, setApplyingSuggestion] = useState(false);
+  const [suggestionError, setSuggestionError] = useState<string | null>(null);
+
+  async function applySuggestedNet() {
+    if (suggestedNet == null || applyingSuggestion || alreadyApplied) return;
+    setApplyingSuggestion(true);
+    setSuggestionError(null);
+    try {
+      const result = await onSaveValue(suggestedNet.toFixed(2));
+      if (!result.ok) setSuggestionError(result.error ?? "Não foi possível salvar o valor sugerido.");
+    } catch {
+      setSuggestionError("Não foi possível salvar o valor sugerido.");
+    } finally {
+      setApplyingSuggestion(false);
+    }
+  }
+
   return (
     <div className="card p-3.5 border border-neutral-200 dark:border-neutral-800/80 shadow-2xs bg-white dark:bg-neutral-900/90">
       <div className="grid grid-cols-2 gap-3">
-        <ValueItem label="Valor Líquido" value={value} editable={editable} onSave={onSaveValue} />
+        <div>
+          <ValueItem
+            label="Valor Líquido"
+            value={value}
+            editable={editable && !lockNetManualEdit}
+            onSave={onSaveValue}
+            suggestedValue={editable ? suggestedNet : null}
+            suggestionApplied={alreadyApplied}
+            applyingSuggestion={applyingSuggestion}
+            suggestionError={suggestionError}
+            onApplySuggestion={applySuggestedNet}
+          />
+        </div>
         <div className="border-l border-neutral-100 dark:border-neutral-800/80 pl-3">
           <ValueItem label="Valor Bruto" value={grossValue} editable={editable} onSave={onSaveGrossValue} />
         </div>
@@ -3037,11 +3077,21 @@ function ValueItem({
   value,
   editable,
   onSave,
+  suggestedValue,
+  suggestionApplied,
+  applyingSuggestion,
+  suggestionError,
+  onApplySuggestion,
 }: {
   label: string;
   value: number | null;
   editable: boolean;
   onSave: (value: string) => Promise<{ ok: boolean; error?: string }>;
+  suggestedValue?: number | null;
+  suggestionApplied?: boolean;
+  applyingSuggestion?: boolean;
+  suggestionError?: string | null;
+  onApplySuggestion?: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value != null ? String(value) : "");
@@ -3092,6 +3142,47 @@ function ValueItem({
   }
 
   if (!editing) {
+    if (suggestedValue != null) {
+      const displaySuggestion = value == null;
+      return (
+        <div className="space-y-0.5">
+          <div className="flex items-center justify-between gap-1">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">{label}</span>
+            {editable && (
+              <button
+                type="button"
+                onClick={() => {
+                  setDraft(value != null ? String(value) : "");
+                  setError(null);
+                  setEditing(true);
+                }}
+                className="rounded p-0.5 text-neutral-400 opacity-60 transition-opacity hover:opacity-100"
+                title="Editar valor líquido"
+              >
+                <Pencil className="h-3 w-3" strokeWidth={2} />
+              </button>
+            )}
+          </div>
+          <p className={`text-lg font-bold tracking-tight tabular-nums ${displaySuggestion && !suggestionApplied ? "text-neutral-400 dark:text-neutral-500" : "text-emerald-600 dark:text-emerald-400"}`}>
+            {formatCurrency(displaySuggestion ? suggestedValue : value)}
+          </p>
+          {displaySuggestion && (
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+              <span className="text-xs text-neutral-500 dark:text-neutral-400">50% do bruto</span>
+              <button
+                type="button"
+                onClick={onApplySuggestion}
+                disabled={applyingSuggestion || suggestionApplied}
+                className={`text-xs font-semibold underline-offset-2 hover:underline disabled:no-underline ${suggestionApplied ? "text-emerald-600 dark:text-emerald-400" : "text-brand"}`}
+              >
+                {applyingSuggestion ? "Salvando..." : suggestionApplied ? "Aplicado" : "Aplicar"}
+              </button>
+            </div>
+          )}
+          {suggestionError && <p role="alert" className="text-xs text-red-600 dark:text-red-400">{suggestionError}</p>}
+        </div>
+      );
+    }
     return (
       <button
         type="button"

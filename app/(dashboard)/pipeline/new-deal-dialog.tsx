@@ -6,6 +6,7 @@ import { Modal } from "@/components/modal";
 import { CurrencyInput } from "@/components/currency-input";
 import { ContactSearchInput } from "@/components/contact-search-input";
 import { LoadingDots } from "@/components/loading-dots";
+import { formatCurrency, halfCurrencyValue } from "@/lib/format";
 import { Select } from "@/components/select";
 import { CustomFieldsFieldset, type CustomFieldDefinitionInput, type CustomFieldFormValues } from "@/components/custom-fields-fieldset";
 import { readNewDealDraft, writeNewDealDraft, clearNewDealDraft } from "@/lib/new-deal-draft";
@@ -68,8 +69,14 @@ export function NewDealDialog({
   // Guardado junto do id — ver comentário em lib/new-deal-draft.ts sobre por
   // quê (senão o campo de busca volta mostrando a caixa vazia).
   const [contactName, setContactName] = useState(draftRestored?.contactName ?? "");
-  const [value, setValue] = useState(draftRestored?.value ?? "");
+  const [value, setValue] = useState(() => {
+    const suggested = halfCurrencyValue(draftRestored?.grossValue);
+    const restored = draftRestored?.value ?? "";
+    return suggested != null && Math.round(Number(restored) * 100) === Math.round(suggested * 100) ? restored : "";
+  });
   const [grossValue, setGrossValue] = useState(draftRestored?.grossValue ?? "");
+  const suggestedNet = halfCurrencyValue(grossValue);
+  const suggestionApplied = suggestedNet != null && value !== "" && Math.round(Number(value) * 100) === Math.round(suggestedNet * 100);
   const [creditType, setCreditType] = useState(draftRestored?.creditType ?? "");
   const [ownerId, setOwnerId] = useState(draftRestored?.ownerId || currentUserId);
   const [customFieldValues, setCustomFieldValues] = useState<CustomFieldFormValues>(draftRestored?.customFieldValues ?? {});
@@ -272,11 +279,26 @@ export function NewDealDialog({
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1">
                   <label className="field-label">Valor líquido</label>
-                  <CurrencyInput value={value} onChange={setValue} />
+                  <CurrencyInput
+                    value={value}
+                    onChange={() => {}}
+                    readOnly
+                    placeholder={suggestedNet == null ? "0,00" : suggestedNet.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  />
+                  {suggestedNet != null ? (
+                    <div className="mt-2 space-y-2">
+                      <p className="text-sm text-neutral-600 dark:text-neutral-300">Sugestão (50%): <strong className="tabular-nums text-neutral-900 dark:text-neutral-100">{formatCurrency(suggestedNet)}</strong></p>
+                      <button type="button" onClick={() => setValue(suggestedNet.toFixed(2))} disabled={suggestionApplied} className="btn-secondary btn-sm w-full justify-center">
+                        {suggestionApplied ? "Valor aplicado" : "Usar valor"}
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-neutral-500 dark:text-neutral-400">Informe o valor bruto para calcular a sugestão de 50%.</p>
+                  )}
                 </div>
                 <div className="space-y-1">
                   <label className="field-label">Valor bruto</label>
-                  <CurrencyInput value={grossValue} onChange={setGrossValue} />
+                  <CurrencyInput value={grossValue} onChange={(next) => { setGrossValue(next); setValue(""); }} />
                 </div>
                 <div className="space-y-1">
                   <label className="field-label">Tipo de crédito</label>

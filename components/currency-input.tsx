@@ -8,6 +8,8 @@ export function CurrencyInput({
   bare,
   prefixClassName,
   autoFocus,
+  readOnly = false,
+  placeholder = "0,00",
   onFocus,
   onBlur,
   onKeyDown,
@@ -39,6 +41,8 @@ export function CurrencyInput({
    * (`text-sm`), ignorado. */
   prefixClassName?: string;
   autoFocus?: boolean;
+  readOnly?: boolean;
+  placeholder?: string;
   /** Pra quem precisa saber que a edição começou — ex.: o card de proposta
    * esconde os botões de ação enquanto um campo está em foco, pra ninguém
    * gerar o documento com alteração ainda não salva. */
@@ -67,14 +71,15 @@ export function CurrencyInput({
       </span>
       <input
         autoFocus={autoFocus}
+        readOnly={readOnly}
         onFocus={onFocus}
         onBlur={onBlur}
         onKeyDown={onKeyDown}
         inputMode="decimal"
         value={display}
         onChange={handleChange}
-        placeholder="0,00"
-        className={`${bare ? "w-full bg-transparent outline-none" : "field-input"} pl-9 ${className}`}
+        placeholder={placeholder}
+        className={`${bare ? "w-full bg-transparent outline-none" : "field-input"} pl-9 ${readOnly ? "cursor-default" : ""} ${className}`}
         style={style}
       />
     </div>

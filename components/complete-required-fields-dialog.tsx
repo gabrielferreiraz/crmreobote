@@ -8,6 +8,7 @@ import { CurrencyInput } from "./currency-input";
 import { DatePicker } from "./date-picker";
 import type { RequirableDealField } from "@/lib/deal-required-fields";
 import { Avatar } from "./avatar";
+import { formatCurrency } from "@/lib/format";
 
 export type RequirableFieldValues = Partial<Record<RequirableDealField, string>>;
 
@@ -16,6 +17,7 @@ export interface CompleteRequiredFieldsDialogProps {
   onClose: () => void;
   onSubmit: (values: RequirableFieldValues) => void;
   missingFields: RequirableDealField[];
+  valueSuggestion?: number | null;
   deals: { id: string; name: string; contactName: string; contactInitials: string }[];
   stageName: string;
   leadSources: { label: string }[];
@@ -30,6 +32,7 @@ export function CompleteRequiredFieldsDialog({
   onClose,
   onSubmit,
   missingFields,
+  valueSuggestion,
   deals,
   stageName,
   leadSources,
@@ -143,6 +146,20 @@ export function CompleteRequiredFieldsDialog({
               value={values.value ?? ""}
               onChange={(val: string) => setValues({ ...values, value: val })}
             />
+            {valueSuggestion != null && (
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                <span className="text-neutral-500 dark:text-neutral-400">
+                  Sugestão: metade do valor bruto ({formatCurrency(valueSuggestion)})
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setValues({ ...values, value: valueSuggestion.toFixed(2) })}
+                  className="font-semibold text-brand hover:underline"
+                >
+                  Usar sugestão
+                </button>
+              </div>
+            )}
           </div>
         )}
 

@@ -39,6 +39,13 @@ export function formatCurrency(value: number | string | null | undefined) {
   return num.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+export function halfCurrencyValue(value: number | string | null | undefined): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const amount = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(amount)) return null;
+  return Math.round(Math.round(amount * 100) / 2) / 100;
+}
+
 /**
  * Moeda compacta pra KPI/card ("R$ 639,9 mi", "R$ 500 mil") — ver
  * new-design-for-claude/README.md, "Formatação (pt-BR)". Não existia

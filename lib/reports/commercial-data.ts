@@ -32,7 +32,7 @@ import { ONLINE_THRESHOLD_MS } from "@/lib/user-activity";
 import { RISK_WINDOW_MS, RISK_THRESHOLD } from "@/lib/whatsapp/health-check";
 import { buildQuickRanges, normalizeDateKeyRange, singleMonthLabel } from "@/lib/date-ranges";
 import { getGoalTeamSnapshot, suggestedGoalValue } from "@/lib/goals/suggestion";
-import { defaultTrendWindow, buildDailyOrMonthlyBuckets, buildDailyBuckets, findBucket, findBucketIndex } from "@/lib/reports/trend";
+import { defaultTrendWindow, buildDailyBuckets, findBucket } from "@/lib/reports/trend";
 import { isCompareMode, resolveComparePeriod } from "@/lib/reports/period-compare";
 import { dealTagWhere, normalizeReportTags } from "@/lib/reports/tags";
 import { normalizeReportPeople } from "@/lib/reports/people-filter";
@@ -1193,20 +1193,7 @@ export async function getCommercialReportData(params: {
       details: [{ label: "Valor ganho", value: formatCurrency(t.wonValue) }],
     }));
 
-  // ─── Evolução: valor ganho ao longo do período escolhido — por dia se o
-  // período for curto (cabe uns 30 pontos legíveis), por mês se for longo.
-  // Ver lib/reports/trend.ts pro porquê do fencepost e do cuidado com fuso.
-  const { buckets: monthTrend, bucketDaily } = buildDailyOrMonthlyBuckets(trendStart, trendEnd);
-
-  for (const deal of wonDealsForTrend) {
-    if (!deal.closedAt) continue;
-    const parts = getBrazilParts(deal.closedAt);
-    const bucket = findBucket(monthTrend, bucketDaily, parts);
-    if (bucket) bucket.value += deal.value ? Number(deal.value) : 0;
-  }
-
-  // Mesma série de "Evolução do valor ganho", só que SEMPRE por dia (não só
-  // quando o período é curto, como monthTrend acima) — é o que alimenta o
+  // Série de "Evolução do valor ganho", sempre por dia — é o que alimenta o
   // drill-down do gráfico (DrillableTrendChart): mês → semana → dia, tudo
   // reagregado no navegador a partir desses mesmos dias, sem round-trip
   // nenhum ao servidor por nível de zoom (ver componente). wonDealsForTrend
@@ -1220,30 +1207,6 @@ export async function getCommercialReportData(params: {
     if (bucket) bucket.value += deal.value ? Number(deal.value) : 0;
   }
   const revenueTrendDaily = revenueTrendDailyBuckets.map((b) => ({ year: b.year, month: b.month, day: b.day!, value: b.value }));
-
-  // Clona os buckets de monthTrend (mesmas datas/rótulos) pra uma segunda
-  // série independente — tempo ativo da equipe em vez de valor ganho.
-  const teamActivityTrend = monthTrend.map((b) => ({ ...b, value: 0, breakdown: [] as { label: string; value: number }[] }));
-  // Por bucket, soma separado por consultor — vira o detalhamento do balão ao
-  // passar o mouse (sem isso o gráfico só mostra o total do dia/mês, sem dar
-  // pra saber quem puxou aquele número).
-  const activityBreakdownByBucket = new Map<number, Map<string, number>>();
-  for (const row of dailyActivityRaw) {
-    const [y, m, d] = row.date.split("-").map(Number);
-    const bucketIndex = findBucketIndex(teamActivityTrend, bucketDaily, { year: y, month: m - 1, day: d });
-    if (bucketIndex === -1) continue;
-    teamActivityTrend[bucketIndex].value += row.activeSeconds;
-    if (row.activeSeconds > 0) {
-      const perUser = activityBreakdownByBucket.get(bucketIndex) ?? new Map<string, number>();
-      perUser.set(row.userId, (perUser.get(row.userId) ?? 0) + row.activeSeconds);
-      activityBreakdownByBucket.set(bucketIndex, perUser);
-    }
-  }
-  for (const [bucketIndex, perUser] of activityBreakdownByBucket) {
-    teamActivityTrend[bucketIndex].breakdown = Array.from(perUser.entries())
-      .map(([userId, seconds]) => ({ label: personName(userId), value: seconds }))
-      .sort((a, b) => b.value - a.value);
-  }
 
   const statusSlices = [
     { label: "Ganhos", value: wonCount, color: "#059669" },
@@ -2106,9 +2069,7 @@ export async function getCommercialReportData(params: {
     crmChangesRanking,
     teamActivityList,
     teamRanking,
-    monthTrend,
     revenueTrendDaily,
-    teamActivityTrend,
     statusSlices,
     lossBreakdown,
     maxLossCount,
