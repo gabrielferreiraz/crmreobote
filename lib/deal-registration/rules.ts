@@ -213,13 +213,15 @@ export function applyReusablePersonalFields<T extends ReusablePersonalFields>(
 }
 
 /**
- * Quem pode marcar Ganho SEM o cadastro (com motivo registrado). Desligado para
- * todos a pedido do dono (08/11) — ele também precisa preencher, inclusive para
- * testar o fluxo. Para reabrir a exceção, devolva canBypassRegistration(m).
+ * Quem pode marcar Ganho SEM o cadastro (com motivo registrado automaticamente).
+ * Religado para todo mundo a pedido do dono (16/11) — o consultor não é obrigado
+ * a preencher nada para dar o ganho; o botão "Dar ganho sem documentação" (ver
+ * closed-at-dialog.tsx) usa esta liberação. (Esteve desligado para todos entre
+ * 08/11 e 16/11.)
  */
 export function canWaiveRegistration(m: { role: string; area: string }): boolean {
   void m;
-  return false;
+  return true;
 }
 
 /** Quem enxerga documentos e dados sensíveis e marca a cota como cadastrada (Dono e Administrativo). */

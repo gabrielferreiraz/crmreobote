@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { ArrowLeft, Check, CircleAlert, CircleCheck, Loader2 } from "lucide-react";
+import { ArrowLeft, Check, CircleAlert, CircleCheck, FileX2, Loader2 } from "lucide-react";
 import { Modal } from "./modal";
 import { LoadingDots } from "./loading-dots";
 import { DatePicker } from "./date-picker";
@@ -250,6 +250,28 @@ export function ClosedAtDialog({
     }
   }
 
+  const [skipping, setSkipping] = useState(false);
+  /**
+   * Atalho pedido pelo dono (16/11): o consultor não é obrigado a preencher nada
+   * para dar o Ganho. Confirma direto, sem exigir campo nenhum do cadastro — o
+   * que já tiver sido digitado é salvo como rascunho, mas nada impede o Ganho.
+   */
+  async function handleSkipRegistration() {
+    if (loading || skipping || savingDraft) return;
+    setSkipping(true);
+    setSubmitError(null);
+    try {
+      if (regApi.current) await regApi.current.flush().catch(() => false);
+      await onConfirm(closedAt, {
+        administratorId: needsAdministrator ? administratorId : null,
+        creditType: needsCreditType ? creditType : null,
+        skipRegistrationReason: "Ganho sem cadastro: o consultor optou por não preencher agora.",
+      });
+    } finally {
+      setSkipping(false);
+    }
+  }
+
   const adminName = administrators.find((a) => a.id === administratorId)?.name;
   const submitLabel = (
     <>
@@ -354,10 +376,23 @@ export function ClosedAtDialog({
               </p>
             </div>
             <div className="flex flex-col-reverse gap-2 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
-              <button type="button" onClick={handleFinishLater} disabled={savingDraft || loading} className="btn-secondary w-full sm:w-auto">
-                {savingDraft ? <><Loader2 className="h-4 w-4 animate-spin" /> Salvando rascunho</> : "Terminar cadastro depois"}
-              </button>
-              <button type="submit" disabled={loading || regStatus.loading} className={`${confirmClassName} w-full justify-center sm:w-auto`}>
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center">
+                <button type="button" onClick={handleFinishLater} disabled={savingDraft || loading || skipping} className="btn-secondary w-full sm:w-auto">
+                  {savingDraft ? <><Loader2 className="h-4 w-4 animate-spin" /> Salvando rascunho</> : "Terminar cadastro depois"}
+                </button>
+                {regStatus.canBypass && (
+                  <button
+                    type="button"
+                    onClick={() => void handleSkipRegistration()}
+                    disabled={loading || skipping || savingDraft}
+                    className="btn-ghost w-full text-neutral-600 sm:w-auto dark:text-neutral-300"
+                    title="Dá o ganho sem exigir nenhum dado ou documento do cadastro"
+                  >
+                    {skipping ? <><Loader2 className="h-4 w-4 animate-spin" /> Confirmando</> : <><FileX2 className="h-4 w-4" /> Dar ganho sem documentação</>}
+                  </button>
+                )}
+              </div>
+              <button type="submit" disabled={loading || skipping || regStatus.loading} className={`${confirmClassName} w-full justify-center sm:w-auto`}>
                 {!loading && regStatus.ready && <Check className="h-4 w-4" strokeWidth={2.5} />}
                 {submitLabel}
               </button>

@@ -89,10 +89,11 @@ test("só Dono e Administrativo dispensam o cadastro", () => {
   assert.equal(canBypassRegistration({ role: "MANAGER", area: "VENDAS" }), false);
 });
 
-test("ninguém dispensa o cadastro hoje (nem o Dono)", async () => {
+test("qualquer um dispensa o cadastro no Ganho (religado para o consultor em 16/11)", async () => {
   const { canWaiveRegistration } = await import("@/lib/deal-registration/rules");
-  assert.equal(canWaiveRegistration({ role: "OWNER", area: "VENDAS" }), false);
-  assert.equal(canWaiveRegistration({ role: "MEMBER", area: "ADMINISTRATIVO" }), false);
+  assert.equal(canWaiveRegistration({ role: "OWNER", area: "VENDAS" }), true);
+  assert.equal(canWaiveRegistration({ role: "MEMBER", area: "VENDAS" }), true);
+  assert.equal(canWaiveRegistration({ role: "MEMBER", area: "ADMINISTRATIVO" }), true);
 });
 
 function addMonths(base: Date, months: number): Date {
