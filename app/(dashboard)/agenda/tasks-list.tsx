@@ -7,6 +7,7 @@ import { EmptyState } from "@/components/empty-state";
 import { FilterPopover } from "@/components/filter-popover";
 import { sortAlpha } from "@/lib/sort-alpha";
 import { NewTaskDialog } from "@/components/new-task-dialog";
+import { ProposalFollowUpDialog } from "@/components/proposal-followup-dialog";
 import { BulkScheduleTasksDialog, type BulkScheduleTask } from "@/components/bulk-schedule-tasks-dialog";
 import { Select } from "@/components/select";
 import { TASK_TYPE_LABELS, TASK_TYPE_COLOR } from "@/lib/task-icons";
@@ -168,6 +169,9 @@ export function TasksList({
     meetingOutcome?: "ATTENDED" | "NO_SHOW" | "RESCHEDULED",
     newDueAt?: string,
   ) {
+    // Pega a tarefa ANTES do refresh (que troca `initialTasks`) — é dela que
+    // vem o tipo/contato/negócio pra decidir a sugestão de follow-up abaixo.
+    const task = initialTasks.find((t) => t.id === taskId) ?? null;
     // requestJson (lib/client-request.ts): se o servidor recusar (ex.: sem
     // permissão, reunião sem resultado), mostra o motivo em vez de a tela só
     // "desmarcar sozinha" no refresh.
@@ -179,12 +183,49 @@ export function TasksList({
           : { completed, ...(meetingOutcome ? { meetingOutcome } : {}) },
     });
     const data = res.data ?? {};
-    if (res.ok && completed && meetingOutcome !== "RESCHEDULED") trackUse("agenda.atividade.concluir");
+    if (res.ok && completed && meetingOutcome !== "RESCHEDULED") {
+      trackUse("agenda.atividade.concluir");
+      // Proposta marcada como enviada: sugere o lembrete de acompanhamento
+      // (nunca obrigatório — a pessoa pode dispensar no diálogo). O prazo é
+      // calculado AQUI (não de novo no clique de confirmar) pra tela e
+      // servidor usarem exatamente o mesmo instante "1 dia depois".
+      if (task?.type === "PROPOSAL") {
+        // Date.now() só roda aqui dentro de um clique (evento), nunca durante o
+        // render — a regra react-hooks/purity não consegue provar isso sozinha.
+        // eslint-disable-next-line react-hooks/purity
+        setProposalFollowUp({ task, dueAt: new Date(Date.now() + 24 * 60 * 60 * 1000) });
+      }
+    }
     router.refresh();
     // Ctrl+Z (ver components/undo-provider.tsx) — RESCHEDULED nunca
     // devolve `undo` (fora do escopo do v1, ver PUT /api/tasks/[id]),
     // pushUndoToast já trata null/undefined como no-op.
     pushUndoToast(data.undo);
+  }
+
+  // Sugestão pós-conclusão de uma tarefa de Proposta: criar o lembrete de
+  // WhatsApp "Acompanhar análise de proposta" pra 1 dia depois, com o mesmo
+  // contato/negócio/responsável da proposta.
+  const [proposalFollowUp, setProposalFollowUp] = useState<{ task: Task; dueAt: Date } | null>(null);
+  async function createProposalFollowUp() {
+    if (!proposalFollowUp) return;
+    const { task, dueAt } = proposalFollowUp;
+    const res = await requestJson("/api/tasks", {
+      method: "POST",
+      json: {
+        type: "WHATSAPP",
+        title: "Acompanhar análise de proposta",
+        dueAt: dueAt.toISOString(),
+        contactId: task.contact?.id,
+        dealId: task.deal?.id,
+        ownerId: task.owner.id,
+      },
+    });
+    setProposalFollowUp(null);
+    if (res.ok) {
+      trackUse("agenda.atividade.nova");
+      router.refresh();
+    }
   }
 
   async function deleteTask(taskId: string) {
@@ -425,6 +466,14 @@ export function TasksList({
         <BulkScheduleTasksDialog
           tasks={bulkScheduleOpen}
           onClose={() => setBulkScheduleOpen(null)}
+        />
+      )}
+      {proposalFollowUp && (
+        <ProposalFollowUpDialog
+          contactName={proposalFollowUp.task.contact?.name ?? null}
+          dueAt={proposalFollowUp.dueAt}
+          onConfirm={createProposalFollowUp}
+          onClose={() => setProposalFollowUp(null)}
         />
       )}
     </div>

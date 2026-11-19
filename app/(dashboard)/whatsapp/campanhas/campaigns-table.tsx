@@ -111,7 +111,7 @@ type RawCampaign = {
   windowEndHour: number;
 };
 
-type InstanceOption = { id: string; label: string };
+type InstanceOption = { id: string; label: string; connected: boolean };
 type ScriptOption = { id: string; name: string; steps: ScriptStep[] };
 type CampaignSetup = { scripts: ScriptOption[]; audienceOptions: AudienceOptions };
 type PreviewPosition = { top: number; left: number; maxHeight: number };
@@ -502,7 +502,7 @@ export function CampaignsTable({
 
       {instances.length === 0 && (
         <p className="text-xs text-neutral-400 dark:text-neutral-500">
-          Nenhum WhatsApp conectado — conecte um em Configurações → Perfil antes de criar uma campanha.
+          Nenhum WhatsApp cadastrado — conecte um em Configurações → Perfil antes de criar uma campanha.
         </p>
       )}
 
@@ -1027,7 +1027,10 @@ function CampaignDialog({
   const [jobTitles, setJobTitles] = useState<string[]>(editCampaign?.audienceFilter.jobTitles ?? []);
   const [tags, setTags] = useState<string[]>(editCampaign?.audienceFilter.tags ?? []);
   const [cities, setCities] = useState<string[]>(editCampaign?.audienceFilter.cities ?? []);
-  const [instanceId, setInstanceId] = useState(editCampaign?.instanceId ?? instances[0]?.id ?? "");
+  const [instanceId, setInstanceId] = useState(
+    editCampaign?.instanceId ?? instances.find((i) => i.connected)?.id ?? instances[0]?.id ?? "",
+  );
+  const selectedInstance = instances.find((i) => i.id === instanceId) ?? null;
   const [selectedScriptIds, setSelectedScriptIds] = useState<string[]>(initialScriptRefs.ids);
   const [schedule, setSchedule] = useState<BulkCampaignSchedule>({
     delayMinSec: editCampaign?.delayMinSec ?? 120,
@@ -1307,10 +1310,20 @@ function CampaignDialog({
             <Select
               value={instanceId}
               onChange={setInstanceId}
-              options={instances.map((i) => ({ value: i.id, label: i.label }))}
+              options={instances.map((i) => ({ value: i.id, label: i.connected ? i.label : `${i.label} (desconectado)` }))}
             />
           </div>
         </div>
+
+        {selectedInstance && !selectedInstance.connected && (
+          <p className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-500/10 dark:text-amber-300">
+            <Unplug className="mt-0.5 h-3.5 w-3.5 shrink-0" strokeWidth={2.5} />
+            <span>
+              O WhatsApp de {selectedInstance.label} está desconectado. Dá pra {isEdit ? "salvar" : "criar"} a campanha assim mesmo, mas ela só
+              poderá ser iniciada depois que ele reconectar (Configurações → Perfil → WhatsApp).
+            </span>
+          </p>
+        )}
 
         <DialogSection icon={Users} title="Público" right={audienceBadge}>
           <ChipInput label="Cargo (um ou mais)" values={jobTitles} onChange={setJobTitles} placeholder="Ex.: Advogado — Enter pra adicionar" options={audienceOptions.jobTitles} />

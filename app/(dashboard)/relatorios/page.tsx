@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { Trophy, XCircle, CalendarCheck, Percent, UsersRound, Clock, Activity, UserCheck, Wallet, PhoneCall, FileText, FileCheck2, ListTodo } from "lucide-react";
 import { auth } from "@/lib/auth";
-import { formatCurrency, formatDuration } from "@/lib/format";
+import { formatCurrency } from "@/lib/format";
 import { EmptyState } from "@/components/empty-state";
 import { Avatar } from "@/components/avatar";
 import { DonutChart } from "@/components/charts/donut-chart";
@@ -39,6 +39,8 @@ import { WeekdayHeatmap } from "./weekday-heatmap";
 import { RankingCardsGrid, type RankingCardData } from "./ranking-cards-grid";
 import { normalizeDateKeyRange } from "@/lib/date-ranges";
 import { ExecutiveReportView } from "./executive-report-view";
+import { JobTitleRanking } from "./job-title-ranking";
+import { WhatsappSellerRanking } from "./whatsapp-seller-ranking";
 
 type ReportSearchParam = string | string[] | undefined;
 
@@ -264,6 +266,7 @@ export default async function RelatoriosPage({
     teamActivityList,
     teamRanking,
     revenueTrendDaily,
+    revenueTrendYtdDaily,
     statusSlices,
     lossBreakdown,
     maxLossCount,
@@ -796,7 +799,7 @@ export default async function RelatoriosPage({
       <CommercialGuideSection topic="funil">
       <section className="space-y-6">
         <SectionHeading eyebrow="Funil" title="Onde estão os negócios" />
-        <div className="grid grid-cols-12 gap-5">
+        <div className="grid grid-cols-12 items-start gap-5">
           <div className="card col-span-12 p-5 sm:p-6 lg:col-span-7">
             <div className="flex flex-wrap items-start justify-between gap-3 border-b border-neutral-100 pb-4 dark:border-neutral-800">
               <div>
@@ -816,19 +819,57 @@ export default async function RelatoriosPage({
             ) : (
               <div className="mt-5">
                 <FunnelChart
-                  stages={stageData.map((s) => ({ id: s.id, label: s.name, count: s.count, value: s.value, color: s.color }))}
+                  stages={stageData.map((s) => ({
+                    id: s.id,
+                    label: s.name,
+                    count: s.count,
+                    value: s.value,
+                    color: s.color,
+                    advanced: s.advanced,
+                    won: s.won,
+                    lost: s.lost,
+                  }))}
                   variant="snapshot"
+                  openTotal={openInActivePipeline}
                 />
               </div>
             )}
           </div>
           <div className="card col-span-12 p-5 sm:p-6 lg:col-span-5">
             <div className="border-b border-neutral-100 pb-4 dark:border-neutral-800">
-              <h3 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">Valor ganho</h3>
-              <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Evolução no período selecionado</p>
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <h3 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">Valor ganho</h3>
+                  <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">Evolução de fechamentos no período</p>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  {compareData && (
+                    <DeltaBadge
+                      current={wonTotalValue}
+                      previous={compareData.wonTotalValue}
+                      compareLabel={compareData.rangeLabel}
+                    />
+                  )}
+                  <span className="inline-flex items-center rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold tabular-nums text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400">
+                    {wonCount.toLocaleString("pt-BR")} {wonCount === 1 ? "fechamento" : "fechamentos"}
+                  </span>
+                </div>
+              </div>
+              {hasWonTrend && (
+                <div className="mt-3 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                  <p className="text-2xl font-bold tracking-tight tabular-nums text-neutral-900 dark:text-neutral-100">
+                    {formatCurrency(wonTotalValue)}
+                  </p>
+                  {wonCount > 0 && (
+                    <p className="text-xs tabular-nums text-neutral-500 dark:text-neutral-400">
+                      Ticket médio <span className="font-semibold text-neutral-700 dark:text-neutral-200">{formatCurrency(avgWonValue)}</span>
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
             {hasWonTrend ? (
-              <div className="mt-5"><DrillableTrendChart dailyData={revenueTrendDaily} /></div>
+              <div className="mt-4"><DrillableTrendChart dailyData={revenueTrendDaily} ytdDailyData={revenueTrendYtdDaily} /></div>
             ) : (
               <div className="flex min-h-52 flex-col items-start justify-center gap-2 py-6">
                 <p className="text-2xl font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">R$ 0,00</p>
@@ -837,9 +878,6 @@ export default async function RelatoriosPage({
             )}
             {hasWonTrend && (
               <div className="mt-6 border-t border-neutral-100 pt-5 dark:border-neutral-800">
-                <h4 className="mb-3 text-xs font-semibold tracking-wide text-neutral-400 uppercase dark:text-neutral-500">
-                  Por dia da semana
-                </h4>
                 <WeekdayHeatmap dailyData={revenueTrendDaily} />
               </div>
             )}
@@ -950,32 +988,7 @@ export default async function RelatoriosPage({
             title="Conversão por cargo"
             description="Quais cargos mais fecham negócio no período — ajuda a saber onde focar a prospecção."
           />
-          <div className="card overflow-x-auto p-6">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-neutral-200 text-left text-xs text-neutral-400 dark:border-neutral-800 dark:text-neutral-500">
-                  <th className="pb-2 font-medium">Cargo</th>
-                  <th className="pb-2 text-right font-medium">Ganhos</th>
-                  <th className="pb-2 text-right font-medium">Perdidos</th>
-                  <th className="pb-2 text-right font-medium">Conversão</th>
-                  <th className="pb-2 text-right font-medium">Valor ganho</th>
-                </tr>
-              </thead>
-              <tbody>
-                {jobTitleBreakdown.map((j) => (
-                  <tr key={j.label} className="border-b border-neutral-100 last:border-0 dark:border-neutral-800">
-                    <td className="py-2.5 font-medium text-neutral-900 dark:text-neutral-100">{j.label}</td>
-                    <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{j.won}</td>
-                    <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{j.lost}</td>
-                    <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{j.winRate}%</td>
-                    <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
-                      {formatCurrency(j.wonValue)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <JobTitleRanking rows={jobTitleBreakdown} />
         </section>
       )}
 
@@ -1025,86 +1038,12 @@ export default async function RelatoriosPage({
         <section className="space-y-6">
           <SectionHeading
             eyebrow="WhatsApp"
-            title="Atividade por vendedor"
-            description="Geral (fora de negócio), prospecção fria (campanhas), prospecção manual (1ª mensagem sua pra um lead novo) e conversas de negócio — as 3 primeiras nunca compartilham mensagem entre si; conversas de negócio é a exceção que repete o que já apareceu em prospecção manual (ver nota completa no fim da seção)."
+            title="Resultado por consultor"
+            description="Envios, respostas e conversão no período."
           />
-
-          <div className="space-y-3">
-            {sellerWhatsappCards
-              // Consultor vê só o próprio card; supervisor e gerente/dono veem toda a equipe
-              .filter((w) => isManager || isSupervisor || w.userId === userId)
-              .map((w) => (
-              <div key={w.userId} className="card p-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2.5">
-                    <Avatar name={w.name} size="sm" />
-                    <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{w.name}</h3>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    {/* Métrica de resultado (venda fechada), não de atividade — por isso fica
-                        no cabeçalho do card, fora dos painéis abaixo (que são só volume de
-                        mensagem por categoria). Ela soma contato de qualquer categoria, então
-                        dentro de um painel específico ia parecer que só aquela categoria conta. */}
-                    <span className="inline-flex items-baseline gap-1.5 text-sm" title="% dos contatos abordados organicamente que fecharam negócio no período">
-                      <span className="font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">{w.conversionRate}%</span>
-                      <span className="text-xs text-neutral-400 dark:text-neutral-500">conversão em venda</span>
-                    </span>
-                    <span className="h-4 w-px shrink-0 bg-neutral-200 dark:bg-neutral-800" />
-                    <span
-                      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                        w.connected
-                          ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400"
-                          : "bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400"
-                      }`}
-                    >
-                      <span className={`h-1.5 w-1.5 rounded-full ${w.connected ? "bg-emerald-500" : "bg-neutral-400"}`} />
-                      {w.connected ? "Conectado" : "Desconectado"}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="mt-3 flex flex-wrap gap-2.5">
-                  <SellerStatPanel title="Geral" dot="neutral">
-                    <MiniStat value={w.sent} label="enviadas" />
-                    <MiniStat value={`${w.replyRate}%`} label="resposta" />
-                  </SellerStatPanel>
-
-                  {w.campaignSent > 0 && (
-                    <SellerStatPanel title="Prospecção fria" dot="violet">
-                      <MiniStat value={w.campaignSent} label="enviadas" />
-                      <MiniStat value={`${w.campaignReplyRate}%`} label="resposta" />
-                      <MiniStat
-                        value={w.possibleColdDeals}
-                        label={w.possibleColdDeals === 1 ? "possível negociação" : "possíveis negociações"}
-                      />
-                    </SellerStatPanel>
-                  )}
-
-                  {w.manualProspectSent > 0 && (
-                    <SellerStatPanel title="Prospecção manual" dot="amber">
-                      <MiniStat value={w.manualProspectSent} label="enviadas" />
-                      <MiniStat value={`${w.manualProspectReplyRate}%`} label="resposta" />
-                    </SellerStatPanel>
-                  )}
-
-                  {w.deal && (
-                    <SellerStatPanel title="Conversas de negócio" dot="emerald">
-                      <MiniStat value={w.deal.conversations} label="conversas" />
-                      <MiniStat value={w.deal.responseRate === null ? "—" : `${w.deal.responseRate}%`} label="resposta" />
-                      {w.deal.avgFirstResponseMs !== null && (
-                        <MiniStat value={formatDuration(w.deal.avgFirstResponseMs)} label="1ª resposta" />
-                      )}
-                      {w.deal.avgDurationMs !== null && <MiniStat value={formatDuration(w.deal.avgDurationMs)} label="duração" />}
-                      <MiniStat
-                        value={w.deal.messagesPerDay.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}
-                        label="msgs/dia"
-                      />
-                    </SellerStatPanel>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
+          <WhatsappSellerRanking
+            sellers={sellerWhatsappCards.filter((w) => isManager || isSupervisor || w.userId === userId)}
+          />
 
           {whatsappInstances.length > 0 && (
             <div className="card overflow-x-auto p-6">
@@ -1297,50 +1236,6 @@ function ConversionBadge({ rate }: { rate: number }) {
     <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular-nums ${tone}`}>
       <Percent className="h-3 w-3" strokeWidth={2.5} />
       {rate}% conversão
-    </span>
-  );
-}
-
-const PANEL_DOT: Record<"neutral" | "emerald" | "violet" | "amber", string> = {
-  neutral: "bg-neutral-400 dark:bg-neutral-500",
-  emerald: "bg-emerald-500",
-  violet: "bg-violet-500",
-  amber: "bg-amber-500",
-};
-
-/**
- * Agrupa as estatísticas de uma categoria (Geral / Prospecção fria /
- * Prospecção manual / Conversas de negócio) num bloco próprio — a cor entra
- * só como um "chip" ao lado do título (identidade da categoria), nunca
- * tingindo o número: um texto colorido é mais difícil de ler e a mesma cor
- * usada em várias categorias diferentes deixa de significar algo único.
- */
-function SellerStatPanel({
-  title,
-  dot,
-  children,
-}: {
-  title: string;
-  dot: "neutral" | "emerald" | "violet" | "amber";
-  children: ReactNode;
-}) {
-  return (
-    <div className="min-w-[168px] flex-1 basis-[168px] rounded-lg border border-neutral-100 bg-neutral-50/60 p-3 dark:border-neutral-800 dark:bg-neutral-800/40">
-      <div className="mb-2 flex items-center gap-1.5">
-        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${PANEL_DOT[dot]}`} />
-        <p className="text-[11px] font-semibold tracking-wide text-neutral-400 uppercase dark:text-neutral-500">{title}</p>
-      </div>
-      <div className="flex flex-wrap gap-x-4 gap-y-1.5">{children}</div>
-    </div>
-  );
-}
-
-/** "234 enviadas" — número em destaque seguido do rótulo, dentro de um SellerStatPanel. */
-function MiniStat({ value, label }: { value: string | number; label: string }) {
-  return (
-    <span className="inline-flex items-baseline gap-1.5 text-sm">
-      <span className="font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">{value}</span>
-      <span className="text-neutral-500 dark:text-neutral-400">{label}</span>
     </span>
   );
 }

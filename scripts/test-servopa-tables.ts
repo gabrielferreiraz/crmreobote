@@ -12,6 +12,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { parseAssembly, parseCount, parseMoney, parsePercent, normalizeGroup, ServopaParseError } from "../lib/servopa-tables/parse.ts";
 import { applyAdjustment, computeRow, effectiveAdmRate, fromUnits, toUnits, type PricedRow } from "../lib/servopa-tables/adjust.ts";
+import { computeHalfInstallment, groupHasDifferentHalfInstallment } from "../lib/servopa-tables/half-installment.ts";
 import {
   assertServopaReductionIsSafe,
   ServopaSnapshotValidationError,
@@ -93,6 +94,36 @@ test("desconto de 1,5 p.p. recalcula só mensal, parcela e total (seguro intacto
 
 test("ajuste sem fundo de reserva conhecido não chuta", () => {
   assert.throws(() => applyAdjustment({ admRatePercent: "13.0000", adjustmentPoints: "-1.0000", termMonths: 120, reserveFundPercent: null }, [a1]));
+});
+
+test("meia parcela dos grupos 21xx: ADM cobrada inteira, só crédito+fundo vira meia", () => {
+  // Crédito 100.000, prazo 100, ADM 10%, fundo 2% — números redondos para conferir na mão.
+  // ADM mensal = (100.000 × 10%)/100 = 100,00 (guardado, NÃO divide por 2).
+  // Base = 100.000 + (100.000 × 2%) = 102.000 → meia = 51.000 → mensal = 510,00.
+  // Parcela = 100,00 + 510,00 = 610,00.
+  const half = computeHalfInstallment({ creditValue: "100000.00", termMonths: 100, admRatePercent: "10.0000", reserveFundPercent: "2.0000" });
+  assert.equal(half, "610.00");
+
+  // Nunca é só "a parcela normal dividida por 2" (isso daria 560,00, não 610,00).
+  const normal = computeRow<PricedRow>(
+    { category: "A1", description: "", creditValue: "100000.00", termMonths: 100, monthlyPercent: "0", installment: "0", insurance: "0.00", observation: null, total: "0" },
+    "10.0000",
+    "2.0000",
+  );
+  assert.equal(normal.installment, "1120.00");
+  assert.notEqual(half, fromUnits(Math.round(toUnits(normal.installment, 2) / 2), 2));
+});
+
+test("meia parcela: sem fundo de reserva do grupo não dá para calcular", () => {
+  assert.equal(computeHalfInstallment({ creditValue: "100000.00", termMonths: 100, admRatePercent: "10.0000", reserveFundPercent: null }), null);
+});
+
+test("grupo 21xx: só os que começam com 21 têm a meia parcela diferente", () => {
+  assert.equal(groupHasDifferentHalfInstallment("2103"), true);
+  assert.equal(groupHasDifferentHalfInstallment("21"), true);
+  assert.equal(groupHasDifferentHalfInstallment(" 2150 "), true);
+  assert.equal(groupHasDifferentHalfInstallment("1568"), false);
+  assert.equal(groupHasDifferentHalfInstallment("1210"), false);
 });
 
 test("coleta real: a regra reproduz TODAS as linhas publicadas pela Servopa", { skip: !hasFixtures }, () => {

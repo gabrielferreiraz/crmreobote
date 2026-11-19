@@ -22,9 +22,13 @@ export default async function CampanhasPage() {
       scopePromise.then((scope) => listCampaigns(organizationId, scope)),
       // Só o Dono monta campanha no WhatsApp de outra pessoa (regra reforçada
       // em lib/campaigns/build.ts) — os demais só veem o próprio número.
+      // Mostra também os desconectados: dá pra MONTAR a campanha com qualquer
+      // WhatsApp cadastrado, só não dá pra RODAR até ele reconectar (o aviso
+      // fica no formulário e, de novo, se tentar iniciar — ver
+      // app/api/campaigns/[id]/route.ts).
       prisma.whatsAppInstance.findMany({
-        where: { organizationId, kind: "PERSONAL", status: "CONNECTED", ...(isOwner ? {} : { personalOwnerId: userId }) },
-        select: { id: true, personalOwner: { select: { name: true } } },
+        where: { organizationId, kind: "PERSONAL", ...(isOwner ? {} : { personalOwnerId: userId }) },
+        select: { id: true, status: true, personalOwner: { select: { name: true } } },
       }),
       // Picker de script na criação de campanha respeita a mesma
       // visibilidade da biblioteca (ver app/(dashboard)/whatsapp/scripts/page.tsx).
@@ -66,7 +70,9 @@ export default async function CampanhasPage() {
             scheduledAt: c.scheduledAt?.toISOString() ?? null,
           }))}
           instances={instancesRaw.flatMap((instance) =>
-            instance.personalOwner ? [{ id: instance.id, label: instance.personalOwner.name }] : [],
+            instance.personalOwner
+              ? [{ id: instance.id, label: instance.personalOwner.name, connected: instance.status === "CONNECTED" }]
+              : [],
           )}
         />
       </div>

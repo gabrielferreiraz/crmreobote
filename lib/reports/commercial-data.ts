@@ -36,6 +36,7 @@ import { defaultTrendWindow, buildDailyBuckets, findBucket } from "@/lib/reports
 import { isCompareMode, resolveComparePeriod } from "@/lib/reports/period-compare";
 import { dealTagWhere, normalizeReportTags } from "@/lib/reports/tags";
 import { normalizeReportPeople } from "@/lib/reports/people-filter";
+import { aggregateFunnelMovements } from "@/lib/reports/funnel-movements";
 import type { Session } from "next-auth";
 
 export async function getCommercialReportData(params: {
@@ -313,6 +314,12 @@ export async function getCommercialReportData(params: {
   // filtro, cai pros últimos 6 meses (senão "Tudo" viraria um gráfico com
   // anos de histórico espremidos, ilegível).
   const { trendStart, trendEnd } = defaultTrendWindow(rangeFrom, rangeTo);
+  // Janela acumulada do ano (01/01 até hoje, em Brasília) para a visão "Mês" do gráfico Valor ganho.
+  const nowBrazil = getBrazilParts(new Date());
+  const ytdStart = brazilDateStringToUTC(`${nowBrazil.year}-01-01`);
+  const ytdEnd = brazilEndOfDayUTC(brazilDateKey(new Date()));
+  const trendQueryStart = loadFunnel && ytdStart < trendStart ? ytdStart : trendStart;
+  const trendQueryEnd = loadFunnel && ytdEnd > trendEnd ? ytdEnd : trendEnd;
 
   // UserDailyActivity.date é string "YYYY-MM-DD" em Brasília — usa a mesma
   // janela trendStart/trendEnd do gráfico de evolução (convertida pra chave
@@ -323,6 +330,8 @@ export async function getCommercialReportData(params: {
 
   const [
     stageValues,
+    funnelMovementActivities,
+    funnelClosedByStage,
     openByOwner,
     wonByOwner,
     lostByOwner,
@@ -352,6 +361,41 @@ export async function getCommercialReportData(params: {
           },
           _count: true,
           _sum: { value: true },
+        })
+      : Promise.resolve([]),
+    activePipeline && loadFunnel
+      ? prisma.activity.findMany({
+          where: {
+            organizationId,
+            type: "SYSTEM",
+            OR: [
+              { body: { contains: "moveu o negócio de" } },
+              { body: { contains: "moveu o negócio do funil" } },
+              { body: { contains: "redistribuiu o negócio" } },
+            ],
+            ...dateWhere("createdAt"),
+            deal: { is: {
+              organizationId,
+              pipelineId: activePipeline.id,
+              ...scopeWhere(effectiveScope),
+              ...tagFilter,
+            } },
+          },
+          select: { dealId: true, body: true },
+        })
+      : Promise.resolve([]),
+    activePipeline && loadFunnel
+      ? prisma.deal.groupBy({
+          by: ["status", "stageId"],
+          where: {
+            organizationId,
+            pipelineId: activePipeline.id,
+            status: { in: ["WON", "LOST"] },
+            ...scopeWhere(effectiveScope),
+            ...dateWhere("closedAt"),
+            ...tagFilter,
+          },
+          _count: true,
         })
       : Promise.resolve([]),
     prisma.deal.groupBy({
@@ -445,7 +489,7 @@ export async function getCommercialReportData(params: {
       _count: true,
     }) : Promise.resolve([]),
     (loadSummary || loadFunnel) ? prisma.deal.findMany({
-      where: { organizationId, status: "WON", closedAt: { gte: trendStart, lte: trendEnd }, ...scopeWhere(effectiveScope), ...dealFilter },
+      where: { organizationId, status: "WON", closedAt: { gte: trendQueryStart, lte: trendQueryEnd }, ...scopeWhere(effectiveScope), ...dealFilter },
       select: { closedAt: true, value: true },
     }) : Promise.resolve([]),
     // Faturamento por tipo de crédito — imóvel e veículo têm ticket e ciclo
@@ -625,6 +669,8 @@ export async function getCommercialReportData(params: {
     .sort((a, b) => b.value - a.value);
   const creditTypeTotalValue = creditTypeBreakdown.reduce((sum, c) => sum + c.value, 0);
 
+  const stageMovementCounts = aggregateFunnelMovements(activePipeline?.stages ?? [], funnelMovementActivities);
+  const closedStageCounts = new Map(funnelClosedByStage.map((row) => [`${row.status}:${row.stageId}`, row._count]));
   const stageData = (activePipeline?.stages ?? []).map((stage) => {
     const match = stageValues.find((s) => s.stageId === stage.id);
     return {
@@ -633,6 +679,9 @@ export async function getCommercialReportData(params: {
       color: stage.color,
       count: match?._count ?? 0,
       value: match?._sum.value ? Number(match._sum.value) : 0,
+      advanced: stageMovementCounts[stage.id]?.advanced ?? 0,
+      won: closedStageCounts.get(`WON:${stage.id}`) ?? 0,
+      lost: closedStageCounts.get(`LOST:${stage.id}`) ?? 0,
     };
   });
 
@@ -848,8 +897,8 @@ export async function getCommercialReportData(params: {
   // é isso que esse card precisa destacar primeiro (valor em negrito,
   // contagem só como contexto embaixo — antes era o contrário).
   const dealsClosedRanking: LeaderboardEntry[] = ownerStats
-    .filter((o) => activeMemberIds.has(o.id) && o.wonCount > 0)
-    .sort((a, b) => b.wonValue - a.wonValue || b.wonCount - a.wonCount)
+    .filter((o) => activeMemberIds.has(o.id))
+    .sort((a, b) => b.wonValue - a.wonValue || b.wonCount - a.wonCount || a.name.localeCompare(b.name, "pt-BR"))
     .map((o) => ({
       id: o.id,
       name: o.name,
@@ -1207,6 +1256,18 @@ export async function getCommercialReportData(params: {
     if (bucket) bucket.value += deal.value ? Number(deal.value) : 0;
   }
   const revenueTrendDaily = revenueTrendDailyBuckets.map((b) => ({ year: b.year, month: b.month, day: b.day!, value: b.value }));
+
+  // Série acumulada do ano (Jan → mês atual) reaproveitando a mesma consulta wonDealsForTrend.
+  const revenueTrendYtdBuckets = loadFunnel ? buildDailyBuckets(ytdStart, ytdEnd) : [];
+  if (loadFunnel) {
+    for (const deal of wonDealsForTrend) {
+      if (!deal.closedAt) continue;
+      const parts = getBrazilParts(deal.closedAt);
+      const bucket = findBucket(revenueTrendYtdBuckets, true, parts);
+      if (bucket) bucket.value += deal.value ? Number(deal.value) : 0;
+    }
+  }
+  const revenueTrendYtdDaily = revenueTrendYtdBuckets.map((b) => ({ year: b.year, month: b.month, day: b.day!, value: b.value }));
 
   const statusSlices = [
     { label: "Ganhos", value: wonCount, color: "#059669" },
@@ -2070,6 +2131,7 @@ export async function getCommercialReportData(params: {
     teamActivityList,
     teamRanking,
     revenueTrendDaily,
+    revenueTrendYtdDaily,
     statusSlices,
     lossBreakdown,
     maxLossCount,

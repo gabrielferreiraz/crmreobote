@@ -91,6 +91,7 @@ export default async function TabelaPage({ params }: { params: Promise<{ id: str
                 <th className="px-4 py-2.5 text-right font-medium">Valor do bem</th>
                 <th className="px-4 py-2.5 text-right font-medium">Contribuição mensal</th>
                 <th className="px-4 py-2.5 text-right font-medium">Parcela</th>
+                {table.hasHalfInstallment && <th className="px-4 py-2.5 text-right font-medium">Meia parcela</th>}
                 <th className="px-4 py-2.5 text-right font-medium">Seguro</th>
                 <th className="py-2.5 pl-4 text-right font-medium">Total</th>
               </tr>
@@ -102,6 +103,11 @@ export default async function TabelaPage({ params }: { params: Promise<{ id: str
                   <td className="px-4 py-3.5 text-right text-base font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">{formatBRL(r.creditValue)}</td>
                   <td className="px-4 py-3.5 text-right tabular-nums text-neutral-500 dark:text-neutral-400">{formatPercent(r.monthlyPercent)}</td>
                   <td className="px-4 py-3.5 text-right tabular-nums text-neutral-700 dark:text-neutral-200">{formatBRL(r.installment)}</td>
+                  {table.hasHalfInstallment && (
+                    <td className="px-4 py-3.5 text-right tabular-nums text-neutral-700 dark:text-neutral-200">
+                      {r.halfInstallment ? formatBRL(r.halfInstallment) : "—"}
+                    </td>
+                  )}
                   <td className="px-4 py-3.5 text-right tabular-nums text-neutral-500 dark:text-neutral-400">{formatBRL(r.insurance)}</td>
                   <td className="py-3.5 pl-4 text-right text-base font-semibold tabular-nums text-brand">{formatBRL(r.total)}</td>
                 </tr>

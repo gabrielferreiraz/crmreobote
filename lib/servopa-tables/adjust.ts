@@ -38,7 +38,7 @@ export function fromUnits(units: number, scale: number): string {
 }
 
 /** Divisão inteira arredondando metade pra cima (n ≥ 0, d > 0). */
-function divRound(n: number, d: number): number {
+export function divRound(n: number, d: number): number {
   return Math.floor((2 * n + d) / (2 * d));
 }
 

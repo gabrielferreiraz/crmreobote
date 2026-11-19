@@ -8,10 +8,15 @@
 import { prisma } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant-context";
 import { applyAdjustment, toUnits, type PricedRow } from "@/lib/servopa-tables/adjust";
+import { computeHalfInstallment, groupHasDifferentHalfInstallment } from "@/lib/servopa-tables/half-installment";
 import { hasServopaPanelCredentials } from "@/lib/servopa-tables/panel-credentials";
 import { MAX_SERVOPA_WORKERS, SERVOPA_MACHINE_ERROR_CODES, SERVOPA_MAX_ATTEMPTS } from "@/lib/servopa-tables/queue-contract";
 
-export type ServopaTableRowView = PricedRow & { position: number };
+export type ServopaTableRowView = PricedRow & {
+  position: number;
+  /** "Meia parcela" própria dos grupos 21xx (ver half-installment.ts); null nos demais grupos. */
+  halfInstallment: string | null;
+};
 
 export type ServopaTableView = {
   id: string;
@@ -35,6 +40,8 @@ export type ServopaTableView = {
   contemplationText: string;
   /** Linhas como devem aparecer (já com o ajuste). */
   rows: ServopaTableRowView[];
+  /** Grupo 21xx: mostra a coluna "Meia parcela" ao lado da parcela normal (ver half-installment.ts). */
+  hasHalfInstallment: boolean;
   lastChangedAt: Date;
 };
 
@@ -105,6 +112,13 @@ function toView(t: DbTable): ServopaTableView {
     { admRatePercent: t.admRatePercent.toFixed(4), adjustmentPoints: t.adjustmentPoints.toFixed(4), termMonths: t.termMonths, reserveFundPercent: fund },
     rows,
   );
+  const hasHalfInstallment = groupHasDifferentHalfInstallment(t.group.number);
+  const rowsWithHalf: ServopaTableRowView[] = adjusted.rows.map((r) => ({
+    ...r,
+    halfInstallment: hasHalfInstallment
+      ? computeHalfInstallment({ creditValue: r.creditValue, termMonths: r.termMonths, admRatePercent: adjusted.admRatePercent, reserveFundPercent: fund })
+      : null,
+  }));
   return {
     id: t.id,
     groupNumber: t.group.number,
@@ -121,7 +135,8 @@ function toView(t: DbTable): ServopaTableView {
     nextAssemblyNumber: t.group.nextAssemblyNumber,
     nextAssemblyAt: t.group.nextAssemblyAt,
     contemplationText: t.group.contemplationText,
-    rows: adjusted.rows,
+    rows: rowsWithHalf,
+    hasHalfInstallment,
     lastChangedAt: t.lastChangedAt,
   };
 }
