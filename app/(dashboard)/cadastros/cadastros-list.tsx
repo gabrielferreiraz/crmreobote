@@ -369,7 +369,7 @@ export function CadastrosList({ rows, doneTotal, signature, consultants, adminis
                     : row.docsPurged
                       ? "Prazo de retenção encerrado"
                       : row.docs === 0 && row.state !== "done"
-                        ? "Solicite ao consultor"
+                        ? "Sem documentos enviados"
                         : left != null
                           ? left <= 0
                             ? "Baixar hoje"

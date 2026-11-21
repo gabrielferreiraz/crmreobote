@@ -233,6 +233,7 @@ type Deal = {
   /** Nome dela, pra mostrar nos Dados do negócio depois do ganho (só leitura — quem corrige é o Financeiro, na venda). */
   administrator?: { name: string } | null;
   createdAt: string | Date;
+  updatedAt: string | Date;
   startedAt: string | Date;
   closedAt: string | Date | null;
   expectedCloseAt: string | Date | null;
@@ -2033,13 +2034,15 @@ export function DealDetail({
                       minute: "2-digit",
                     })}
                   />
-                  <EditableRow
-                    label="Conclusão prevista"
-                    value={toDateInputValue(deal.expectedCloseAt)}
-                    displayValue={deal.expectedCloseAt ? new Date(deal.expectedCloseAt).toLocaleDateString("pt-BR") : "—"}
-                    type="date"
-                    editable={canEditDetails}
-                    onSave={(v) => saveDealField("expectedCloseAt", v)}
+                  <Row
+                    label="Última atualização"
+                    value={new Date(deal.updatedAt).toLocaleString("pt-BR", {
+                      day: "2-digit",
+                      month: "2-digit",
+                      year: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
                   />
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-neutral-500 dark:text-neutral-400">Tipo de crédito</span>
@@ -2485,10 +2488,7 @@ export function DealDetail({
               {split && <DealSplitSection key={splitKey} dealId={deal.id} members={members} split={split} />}
               <Row label="Criado em" value={new Date(deal.createdAt).toLocaleDateString("pt-BR")} />
               <Row label="Início" value={new Date(deal.startedAt).toLocaleDateString("pt-BR")} />
-              <Row
-                label="Conclusão prevista"
-                value={deal.expectedCloseAt ? new Date(deal.expectedCloseAt).toLocaleDateString("pt-BR") : "—"}
-              />
+              <Row label="Última atualização" value={new Date(deal.updatedAt).toLocaleDateString("pt-BR")} />
               <div className="flex items-center justify-between gap-2">
                 <span className="text-neutral-500 dark:text-neutral-400">Tipo de crédito</span>
                 <Select

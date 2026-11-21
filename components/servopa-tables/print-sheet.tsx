@@ -89,27 +89,24 @@ export function ServopaPrintSheet({ table, campaign }: { table: ServopaTableView
           <colgroup>
             {table.hasHalfInstallment ? (
               <>
-                <col className="w-[7%]" />
-                <col className="w-[18%]" />
-                <col className="w-[22%]" />
-                <col className="w-[19%]" />
-                <col className="w-[19%]" />
-                <col className="w-[15%]" />
+                <col className="w-[9%]" />
+                <col className="w-[28%]" />
+                <col className="w-[23%]" />
+                <col className="w-[23%]" />
+                <col className="w-[17%]" />
               </>
             ) : (
               <>
-                <col className="w-[8%]" />
-                <col className="w-[22%]" />
-                <col className="w-[26%]" />
-                <col className="w-[24%]" />
-                <col className="w-[20%]" />
+                <col className="w-[10%]" />
+                <col className="w-[35%]" />
+                <col className="w-[30%]" />
+                <col className="w-[25%]" />
               </>
             )}
           </colgroup>
           <thead>
             <tr className="bg-[#c8c8c8] text-center text-[13px] font-bold">
               <th className="px-1 py-[2.2mm]">Cat.</th>
-              <th className="px-1 py-[2.2mm]">Contribuição mensal</th>
               <th className="px-1 py-[2.2mm]">Valor do bem</th>
               <th className="px-1 py-[2.2mm]">Parcela</th>
               {table.hasHalfInstallment && <th className="px-1 py-[2.2mm]">Meia parcela</th>}
@@ -120,7 +117,6 @@ export function ServopaPrintSheet({ table, campaign }: { table: ServopaTableView
             {[...table.rows].sort((a, b) => Number(a.creditValue) - Number(b.creditValue) || a.position - b.position).map((r) => (
               <tr key={r.category} className="servopa-row border-b border-neutral-900 text-center">
                 <td className="whitespace-nowrap px-1 py-[2mm]">{r.category}</td>
-                <td className="whitespace-nowrap px-1 py-[2mm] tabular-nums">{formatPercent(r.monthlyPercent)}</td>
                 <td className="whitespace-nowrap px-1 py-[2mm] tabular-nums">{formatBRL(r.creditValue)}</td>
                 <td className="whitespace-nowrap px-1 py-[2mm] tabular-nums">{formatBRL(r.installment)}</td>
                 {table.hasHalfInstallment && (

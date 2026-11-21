@@ -294,16 +294,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (typeof body?.quotaRegistered !== "boolean") return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
 
     const done = body.quotaRegistered;
-    if (done) {
-      // A cota só vale como cadastrada com grupo (do consultor), cota e dígito (do administrativo) salvos.
-      const saved = await prisma.dealRegistration.findUnique({ where: { dealId: id }, select: { groupNumber: true, quotaNumber: true, quotaDigit: true } });
-      if (!saved?.groupNumber?.trim()) {
-        return NextResponse.json({ error: "Falta o grupo: o consultor informa no cadastro do Ganho. Peça a ele nesta tela." }, { status: 400 });
-      }
-      if (!saved.quotaNumber?.trim() || !saved.quotaDigit?.trim()) {
-        return NextResponse.json({ error: "Preencha a cota e o dígito e salve antes de marcar a cota como cadastrada." }, { status: 400 });
-      }
-    }
+    // O administrativo decide "cadastrado" ou não por conta própria — não exige
+    // grupo/cota/dígito completos nem empurra pro fluxo de pedir ao consultor
+    // (pedido explícito: nada de solicitação formal pra marcar isto).
     const stamp = { quotaRegisteredAt: done ? new Date() : null, quotaRegisteredById: done ? access.userId : null };
     await prisma.dealRegistration.upsert({
       where: { dealId: id },

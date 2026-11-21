@@ -217,7 +217,6 @@ export function CadastroWorkspace(props: WorkspaceProps) {
     setQuota(initialQuota);
     setSavedQuota(initialQuota);
   }
-  const quotaFilled = Boolean(quota.groupNumber.trim() && quota.quotaNumber.trim() && quota.quotaDigit.trim());
   const [busy, setBusy] = useState(false);
   const [quotaSaved, setQuotaSaved] = useState(false);
   const [viewing, setViewing] = useState<Doc | null>(null);
@@ -356,15 +355,9 @@ export function CadastroWorkspace(props: WorkspaceProps) {
     const done = !quotaAt;
     if (done) {
       if (holderNameDirty && !(await saveHolderName())) return;
-      if (!quotaFilled) {
-        setActionError(
-          !quota.groupNumber.trim()
-            ? "Falta o grupo: o consultor informa no cadastro do Ganho. Peça a ele pelo botão ao lado da cota."
-            : "Preencha a cota e o dígito antes de marcar a cota como cadastrada.",
-        );
-        document.getElementById("cota-da-venda")?.scrollIntoView({ behavior: "smooth", block: "center" });
-        return;
-      }
+      // O administrativo decide "cadastrado" ou não por conta própria — não trava
+      // esperando grupo/cota/dígito completos nem empurra pro fluxo de "pedir ao
+      // consultor" (pedido explícito: nada de exigir solicitação formal aqui).
       // O que foi digitado e ainda não foi salvo entra junto: nada se perde ao marcar.
       if (quotaDirty && !(await saveQuota())) return;
     }
