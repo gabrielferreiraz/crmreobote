@@ -30,6 +30,7 @@ export async function loadContactImportContext(
         source: true,
         company: true,
         email: true,
+        tags: true,
         zipCode: true,
         address: true,
         addressNumber: true,

@@ -192,8 +192,14 @@ export type ExistingContactMatch = {
    * vez de só pular. Nunca inclui telefone/WhatsApp (é a própria CHAVE da
    * duplicidade, nunca diverge no sentido que importa aqui) nem
    * responsável (tem o próprio fluxo de Assumir/Solicitar, já é outra
-   * decisão). Vazio = nada divergente, não precisa oferecer "Atualizar". */
+   * decisão) nem nome (pedido explícito: importação nunca troca o nome de
+   * um contato já cadastrado). Vazio = nada divergente, não precisa
+   * oferecer "Atualizar". */
   divergentFields: { field: DivergentField; label: string; oldValue: string | null; newValue: string }[];
+  /** Tags da planilha que o contato AINDA não tem — nunca remove uma tag
+   * existente, só acrescenta (mesmo espírito de "célula vazia nunca apaga"
+   * dos demais campos, mas tag é lista, não substitui: duas listas se somam). */
+  tagsToAdd: string[];
 };
 
 export type DivergentField = "jobTitle" | "source" | "company" | "email" | AddressField;
@@ -269,8 +275,13 @@ export type NewContactWrite = {
  * Telefone/WhatsApp nunca aparecem aqui: são a própria chave que identificou
  * a duplicidade. Responsável também não — tem o fluxo próprio de
  * Atribuir/Pedir, que é uma decisão de dono de lead, não de dado cadastral.
+ * Nome também não entra nunca (ver ExistingContactMatch).
+ *
+ * `tagsToAdd` é à parte de `data` (lista, não substitui um valor — ver
+ * tagsToAdd em ExistingContactMatch): quem grava faz um `push`, nunca
+ * sobrescreve a lista de tags do contato.
  */
-export type ContactUpdateWrite = { id: string; data: Partial<Record<DivergentField, string>> };
+export type ContactUpdateWrite = { id: string; data: Partial<Record<DivergentField, string>>; tagsToAdd: string[] };
 
 export type MemberInput = { userId: string; name: string; email: string };
 
@@ -357,6 +368,8 @@ export type ExistingContactInput = {
   source: string | null;
   company: string | null;
   email: string | null;
+  /** Tags que o contato já tem — usado só pra calcular tagsToAdd (nunca remove uma tag existente). */
+  tags: string[];
 } & Record<AddressField, string | null>;
 
 const DIVERGENT_FIELD_LABELS: Record<DivergentField, string> = {
@@ -393,6 +406,19 @@ function buildDivergentFields(
   return candidates
     .filter((c): c is typeof c & { newValue: string } => !!c.newValue && c.newValue.trim() !== (c.oldValue ?? "").trim())
     .map((c) => ({ field: c.field, label: DIVERGENT_FIELD_LABELS[c.field], oldValue: c.oldValue, newValue: c.newValue }));
+}
+
+/** Tags da planilha que o contato ainda não tem (sem acento/caixa — "vip" e "VIP" são a mesma). */
+function buildTagsToAdd(existingTags: string[], newTags: string[]): string[] {
+  const seen = new Set(existingTags.map((t) => valueKey(t)));
+  const toAdd: string[] = [];
+  for (const t of newTags) {
+    const key = valueKey(t);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    toAdd.push(t);
+  }
+  return toAdd;
 }
 
 /** Sem acento, minúsculo, espaços colapsados — "  Produtor  RURAL" e "produtor rural" são o mesmo valor. */
@@ -667,6 +693,16 @@ export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
       pending: pendingOrUndefined,
     };
 
+    // Calculado AQUI (antes do corte pra linha duplicada abaixo) porque tanto
+    // contato novo quanto contato já existente precisam da mesma lista de tags.
+    const tagsRaw = cell(row, "tags");
+    const tags = tagsRaw
+      ? tagsRaw
+          .split(/[,;]/)
+          .map((t) => t.trim())
+          .filter(Boolean)
+      : [];
+
     const claimant = findClaim(phoneNormalized) ?? findClaim(whatsappNormalized);
     if (claimant) {
       duplicateContacts += 1;
@@ -682,11 +718,17 @@ export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
               responsavelName: claimant.responsavelName,
               responsavelActive: claimant.responsavelActive,
               divergentFields: buildDivergentFields(claimant, { jobTitle: jobTitle.value, source: source.value, company, email, ...address }),
+              tagsToAdd: buildTagsToAdd(claimant.tags, tags),
             };
-      if (existingContact && existingContact.divergentFields.length > 0 && !updatesByContactId.has(existingContact.id)) {
+      if (
+        existingContact &&
+        (existingContact.divergentFields.length > 0 || existingContact.tagsToAdd.length > 0) &&
+        !updatesByContactId.has(existingContact.id)
+      ) {
         updatesByContactId.set(existingContact.id, {
           id: existingContact.id,
           data: Object.fromEntries(existingContact.divergentFields.map((f) => [f.field, f.newValue])),
+          tagsToAdd: existingContact.tagsToAdd,
         });
       }
       rows.push({ ...resolvedRow, willImport: false, issues, existingContact });
@@ -729,14 +771,6 @@ export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
       addressWarnings += 1;
       issues.push(...addressIssues);
     }
-
-    const tagsRaw = cell(row, "tags");
-    const tags = tagsRaw
-      ? tagsRaw
-          .split(/[,;]/)
-          .map((t) => t.trim())
-          .filter(Boolean)
-      : [];
 
     toCreate += 1;
     rows.push({ ...resolvedRow, willImport: true, issues });

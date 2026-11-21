@@ -7,7 +7,7 @@ import { linkOrphanThreadsForOrganization } from "@/lib/whatsapp/threads";
 import { rateLimitOrResponse, getClientIp } from "@/lib/rate-limit";
 import { parseValueMappings, resolveImportPlan, type ContactImportField, type ValueMappings } from "@/lib/contacts/import-resolve";
 import { loadContactImportContext } from "@/lib/contacts/import-context";
-import { getDealScope, contactScopeWhere } from "@/lib/team-scope";
+import { getDealScope } from "@/lib/team-scope";
 import { sanitizeCell } from "@/lib/csv-sanitize";
 import { logAudit } from "@/lib/audit-log";
 import { readFormData, bodyErrorResponse, BODY_LIMITS } from "@/lib/read-body";
@@ -227,22 +227,39 @@ export async function POST(req: Request) {
     //    importação que de fato criou tudo, e provavelmente importaria de
     //    novo (duplicando trabalho de conferência). Reporta e segue.
     let updateFailed: string | null = null;
-    const contactUpdates = plan.writes!.contactUpdates.filter((u) => Object.keys(u.data).length > 0);
+    const contactUpdates = plan.writes!.contactUpdates.filter((u) => Object.keys(u.data).length > 0 || u.tagsToAdd.length > 0);
     if (contactUpdates.length > 0) {
       // Mesmo escopo por papel que PUT /api/contacts/[id] já aplica no botão
       // "Atualizar contato" da prévia (consultor não edita lead de outro
       // consultor) — sem isto, importar uma lista grande viraria um jeito de
-      // sobrescrever cargo/origem/endereço da carteira inteira da empresa
-      // passando por cima do dono de cada lead. Dono/gerente têm escopo
-      // "all" e seguem atualizando tudo, como já fazem no resto do sistema.
-      // Contato SEM responsável fica de fora pra quem tem escopo limitado:
-      // o PUT individual "assume" o lead nesse caso, e uma importação não
-      // pode reivindicar lead de ninguém em silêncio (isso é o fluxo
-      // Atribuir/Pedir, decisão à parte, ver DuplicateTableRow).
+      // sobrescrever cargo/origem/endereço/tag da carteira inteira da
+      // empresa passando por cima do dono de cada lead. Dono/gerente têm
+      // escopo "all" e seguem atualizando tudo, como já fazem no resto do
+      // sistema.
+      //
+      // Pedido explícito (20/11): contato SEM responsável, ou cujo
+      // responsável SAIU da empresa, está "liberado" — mesma regra de quem
+      // pode assumir direto na prévia (canClaim, ver contact-import-dialog.tsx)
+      // — então TAMBÉM atualiza, mesmo fora do escopo de quem importou.
+      // Isto é só dado cadastral (cargo/origem/empresa/e-mail/endereço/tag):
+      // nunca muda o responsável nem o nome — quem "assume" o lead de
+      // verdade continua sendo o fluxo próprio de Atribuir/Pedir.
       const scope = await getDealScope(organizationId, userId, session?.user.role);
-      const scopeWhere = contactScopeWhere(scope);
-      const byPayload = new Map<string, { data: Record<string, string | boolean>; ids: string[] }>();
-      for (const u of contactUpdates) {
+      const existingById = new Map<string, { responsavelId: string | null; responsavelActive: boolean }>();
+      for (const r of plan.rows) {
+        if (r.existingContact) existingById.set(r.existingContact.id, r.existingContact);
+      }
+      const isEligible = (id: string): boolean => {
+        if (scope.type === "all") return true;
+        const existing = existingById.get(id);
+        if (!existing) return false;
+        if (existing.responsavelId && scope.ownerIds.includes(existing.responsavelId)) return true;
+        return !existing.responsavelId || !existing.responsavelActive;
+      };
+      const eligibleUpdates = contactUpdates.filter((u) => isEligible(u.id));
+
+      const byPayload = new Map<string, { data: Record<string, string | boolean>; tagsToAdd: string[]; ids: string[] }>();
+      for (const u of eligibleUpdates) {
         // sanitizeCell nos campos de texto livre — mesma proteção do INSERT
         // acima: célula "=HYPERLINK(...)" da planilha não pode virar fórmula
         // viva quando alguém exportar esses contatos depois.
@@ -251,12 +268,14 @@ export async function POST(req: Request) {
         );
         // Cargo vindo da planilha encerra o "contato incompleto" criado pela Central.
         if (typeof data.jobTitle === "string" && data.jobTitle.trim()) data.needsEnrichment = false;
+        const tagsToAdd = u.tagsToAdd.map(sanitizeCell);
         // Ordem das chaves é estável (divergentFields sempre segue a ordem de
-        // DIVERGENT_FIELD_LABELS), então o JSON serve de chave de grupo.
-        const key = JSON.stringify(data);
+        // DIVERGENT_FIELD_LABELS, tagsToAdd sempre a ordem da planilha), então
+        // o JSON serve de chave de grupo.
+        const key = JSON.stringify({ data, tagsToAdd });
         const group = byPayload.get(key);
         if (group) group.ids.push(u.id);
-        else byPayload.set(key, { data, ids: [u.id] });
+        else byPayload.set(key, { data, tagsToAdd, ids: [u.id] });
       }
 
       try {
@@ -265,12 +284,12 @@ export async function POST(req: Request) {
             const updated = await prisma.contact.updateMany({
               // organizationId junto do id — o `prisma` normal já aplica RLS,
               // mas o filtro explícito é a mesma cinta-e-suspensório que todo
-              // updateMany desta base usa. scopeWhere é o filtro de papel (ver
-              // acima); como ele também devolve uma chave própria, os dois
-              // convivem no mesmo objeto sem se sobrescrever (chaves
-              // diferentes: id vs responsavelId).
-              where: { organizationId, id: { in: group.ids.slice(start, start + CONTACT_IMPORT_WRITE_CHUNK_SIZE) }, ...scopeWhere },
-              data: group.data,
+              // updateMany desta base usa. O escopo/elegibilidade (ver
+              // isEligible acima) já decidiu QUAIS ids chegam até aqui.
+              where: { organizationId, id: { in: group.ids.slice(start, start + CONTACT_IMPORT_WRITE_CHUNK_SIZE) } },
+              // tags nunca é substituída — só cresce (push), nunca some uma
+              // tag que o contato já tinha.
+              data: { ...group.data, ...(group.tagsToAdd.length > 0 ? { tags: { push: group.tagsToAdd } } : {}) },
             });
             updatedExisting += updated.count;
           }
