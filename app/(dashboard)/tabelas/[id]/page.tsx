@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import type { Metadata } from "next";
-import { ArrowLeft, Printer } from "lucide-react";
+import { Printer } from "lucide-react";
 import { getServopaTablesAccess } from "@/lib/servopa-tables/access";
 import { getServopaTable } from "@/lib/servopa-tables/queries";
 import { toUnits } from "@/lib/servopa-tables/adjust";
 import { splitContemplationText } from "@/lib/servopa-tables/contemplation";
 import { formatBRL, formatDateBR, formatPercent, SEGMENT_LABEL } from "@/lib/servopa-tables/format";
+import { BackToTablesLink } from "./back-link";
 
 export const dynamic = "force-dynamic";
 
@@ -38,10 +39,7 @@ export default async function TabelaPage({ params }: { params: Promise<{ id: str
   return (
     <div className="space-y-8">
       <div>
-        <Link href="/tabelas" className="inline-flex items-center gap-1.5 text-sm text-neutral-500 transition-colors hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100">
-          <ArrowLeft className="h-3.5 w-3.5" strokeWidth={2} aria-hidden="true" />
-          Todas as tabelas
-        </Link>
+        <BackToTablesLink />
 
         <div className="mt-5 flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
           <div>
