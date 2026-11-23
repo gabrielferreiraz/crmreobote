@@ -241,6 +241,14 @@ function InsightIcon({ type, className }: { type: Insight["type"]; className: st
 
 // ─── Delta Badge ────────────────────────────────────────────────────────────
 
+/** "R$ 1.234,00" pra `format="currency"`, "62%" pra `format="percent"`,
+ * "1.234" (separador de milhar, sem casa decimal) pra `format="count"`. */
+function formatDeltaValue(value: number, format: "currency" | "count" | "percent"): string {
+  if (format === "currency") return formatCurrency(value);
+  if (format === "percent") return `${Math.round(value)}%`;
+  return Math.round(value).toLocaleString("pt-BR");
+}
+
 /**
  * Exibe "↑ 18%" ou "↓ 5%" ao lado de um valor de KPI, comparado com
  * `previous` (o mesmo número no período de comparação escolhido — ver
@@ -253,12 +261,19 @@ function InsightIcon({ type, className }: { type: Insight["type"]; className: st
  * "menos é melhor"), `invert` passa a mostrar verde quando desce e vermelho
  * quando sobe. Sem isso, "Perdidos subiu 20%" apareceria em verde como se
  * fosse uma boa notícia.
+ *
+ * Pedido explícito: o número ANTERIOR de verdade (não só a %) sempre visível
+ * ao lado — antes só dava pra ver no title (tooltip, não existe no toque/
+ * celular), então não dava pra conferir de cabeça se a conta bate. Mesma
+ * razão o período exato (compareLabel) continua no tooltip E agora também
+ * como texto, pra nunca restar dúvida de COM QUAL período está comparando.
  */
 export function DeltaBadge({
   current,
   previous,
   compareLabel,
   invert = false,
+  format = "count",
 }: {
   current: number;
   previous: number | null;
@@ -269,6 +284,10 @@ export function DeltaBadge({
   compareLabel?: string;
   /** true pra métricas onde subir é RUIM (ver comentário acima) — inverte só a cor, nunca a seta. */
   invert?: boolean;
+  /** Como formatar o número anterior exibido ao lado da % — "count" (padrão,
+   * inteiro com separador de milhar), "currency" (R$) ou "percent" (já é uma
+   * taxa 0-100, ex.: winRate). */
+  format?: "currency" | "count" | "percent";
 }) {
   if (previous === null || previous === 0) return null;
   const delta = ((current - previous) / previous) * 100;
@@ -276,17 +295,24 @@ export function DeltaBadge({
 
   const up = delta > 0;
   const good = invert ? !up : up;
+  const title = compareLabel
+    ? `Comparando com o período selecionado: ${compareLabel} (era ${formatDeltaValue(previous, format)})`
+    : `Era ${formatDeltaValue(previous, format)}`;
   return (
-    <span
-      title={compareLabel ? `Comparando com o período selecionado: ${compareLabel}` : undefined}
-      className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular-nums ${
-        good
-          ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400"
-          : "bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400"
-      }`}
-    >
-      {up ? <TrendingUp className="h-3 w-3" strokeWidth={2.5} /> : <TrendingDown className="h-3 w-3" strokeWidth={2.5} />}
-      {Math.round(Math.abs(delta))}%
+    <span className="inline-flex items-center gap-1.5" title={title}>
+      <span
+        className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular-nums ${
+          good
+            ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400"
+            : "bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400"
+        }`}
+      >
+        {up ? <TrendingUp className="h-3 w-3" strokeWidth={2.5} /> : <TrendingDown className="h-3 w-3" strokeWidth={2.5} />}
+        {Math.round(Math.abs(delta))}%
+      </span>
+      <span className="whitespace-nowrap text-[11px] text-neutral-400 dark:text-neutral-500">
+        antes {formatDeltaValue(previous, format)}
+      </span>
     </span>
   );
 }

@@ -604,7 +604,7 @@ export default async function RelatoriosPage({
                   </span>
                   <span className="inline-flex items-center gap-1.5 text-neutral-600 dark:text-neutral-300">
                     Conversão
-                    <DeltaBadge current={winRate} previous={compareData.winRate} compareLabel={compareData.rangeLabel} />
+                    <DeltaBadge current={winRate} previous={compareData.winRate} compareLabel={compareData.rangeLabel} format="percent" />
                   </span>
                 </div>
               </div>
@@ -625,7 +625,7 @@ export default async function RelatoriosPage({
               value={formatCurrency(wonTotalValue)}
               hint={`${wonCount} negócio${wonCount === 1 ? "" : "s"} fechado${wonCount === 1 ? "" : "s"} no período`}
               emphasize
-              delta={<DeltaBadge current={wonTotalValue} previous={compareData?.wonTotalValue ?? null} compareLabel={compareData?.rangeLabel} />}
+              delta={<DeltaBadge current={wonTotalValue} previous={compareData?.wonTotalValue ?? null} compareLabel={compareData?.rangeLabel} format="currency" />}
               className="lg:col-span-2"
             />
             {/* Pedido explícito: card próprio ao lado de "Vendas líquidas" —
@@ -639,13 +639,13 @@ export default async function RelatoriosPage({
               label="Vendas brutas"
               value={formatCurrency(wonGrossTotalValue)}
               hint={`${wonCount} negócio${wonCount === 1 ? "" : "s"} fechado${wonCount === 1 ? "" : "s"} no período`}
-              delta={<DeltaBadge current={wonGrossTotalValue} previous={compareData?.wonGrossTotalValue ?? null} compareLabel={compareData?.rangeLabel} />}
+              delta={<DeltaBadge current={wonGrossTotalValue} previous={compareData?.wonGrossTotalValue ?? null} compareLabel={compareData?.rangeLabel} format="currency" />}
               className="lg:col-span-2"
             />
             <Stat
               label="Ticket médio"
               value={wonCount > 0 ? formatCurrency(avgWonValue) : "—"}
-              delta={<DeltaBadge current={avgWonValue} previous={compareData?.avgWonValue ?? null} compareLabel={compareData?.rangeLabel} />}
+              delta={<DeltaBadge current={avgWonValue} previous={compareData?.avgWonValue ?? null} compareLabel={compareData?.rangeLabel} format="currency" />}
               className="lg:col-span-2"
             />
             <Stat
@@ -713,21 +713,21 @@ export default async function RelatoriosPage({
             <dt className="text-sm text-neutral-500 dark:text-neutral-400">Vendas líquidas</dt>
             <dd className="mt-1 flex flex-wrap items-center gap-2 break-words text-xl font-semibold tabular-nums text-emerald-700 sm:text-2xl dark:text-emerald-400">
               {formatCurrency(wonTotalValue)}
-              <DeltaBadge current={wonTotalValue} previous={compareData?.wonTotalValue ?? null} compareLabel={compareData?.rangeLabel} />
+              <DeltaBadge current={wonTotalValue} previous={compareData?.wonTotalValue ?? null} compareLabel={compareData?.rangeLabel} format="currency" />
             </dd>
           </div>
           <div className="min-w-0 border-t border-neutral-200 px-1 py-4 sm:border-t-0 sm:px-5 dark:border-neutral-800">
             <dt className="text-sm text-neutral-500 dark:text-neutral-400">Vendas brutas</dt>
             <dd className="mt-1 flex flex-wrap items-center gap-2 break-words text-xl font-semibold tabular-nums text-neutral-900 sm:text-2xl dark:text-neutral-100">
               {formatCurrency(wonGrossTotalValue)}
-              <DeltaBadge current={wonGrossTotalValue} previous={compareData?.wonGrossTotalValue ?? null} compareLabel={compareData?.rangeLabel} />
+              <DeltaBadge current={wonGrossTotalValue} previous={compareData?.wonGrossTotalValue ?? null} compareLabel={compareData?.rangeLabel} format="currency" />
             </dd>
           </div>
           <div className="min-w-0 border-t border-neutral-200 px-1 py-4 sm:border-t-0 sm:px-5 dark:border-neutral-800">
             <dt className="text-sm text-neutral-500 dark:text-neutral-400">Ticket médio</dt>
             <dd className="mt-1 flex flex-wrap items-center gap-2 break-words text-xl font-semibold tabular-nums text-neutral-900 sm:text-2xl dark:text-neutral-100">
               {wonCount > 0 ? formatCurrency(avgWonValue) : "—"}
-              <DeltaBadge current={avgWonValue} previous={compareData?.avgWonValue ?? null} compareLabel={compareData?.rangeLabel} />
+              <DeltaBadge current={avgWonValue} previous={compareData?.avgWonValue ?? null} compareLabel={compareData?.rangeLabel} format="currency" />
             </dd>
           </div>
         </dl>
@@ -777,7 +777,7 @@ export default async function RelatoriosPage({
                         <span className="inline-flex items-center gap-1.5">
                           {formatCurrency(c.value)}
                           {c.compareValue != null && (
-                            <DeltaBadge current={c.value} previous={c.compareValue} compareLabel={compareData?.rangeLabel} />
+                            <DeltaBadge current={c.value} previous={c.compareValue} compareLabel={compareData?.rangeLabel} format="currency" />
                           )}
                         </span>
                       </td>
@@ -848,6 +848,7 @@ export default async function RelatoriosPage({
                       current={wonTotalValue}
                       previous={compareData.wonTotalValue}
                       compareLabel={compareData.rangeLabel}
+                      format="currency"
                     />
                   )}
                   <span className="inline-flex items-center rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold tabular-nums text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400">
