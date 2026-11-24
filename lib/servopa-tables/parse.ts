@@ -133,12 +133,10 @@ export function normalizeGroup(scraped: ScrapedGroup, list?: ScrapedListRow | nu
     groupType: info(raw, /tipo de grupo/i),
     drawType: info(raw, /tipo de sorteio/i),
     embeddedBidMaxPercent: optional(info(raw, /lance embutido/i), parsePercent),
-    // Coluna "Lance" da LISTA (não da página do grupo) — resultado real da
-    // última assembleia, bem diferente de embeddedBidMaxPercent acima (regra
-    // publicada, não resultado). optional() nunca derruba a coleta se o
-    // texto não for um percentual reconhecível (ex.: grupo sorteado, sem
-    // lance na rodada) — só fica nulo.
-    bidOfferedPercent: list ? optional(list.lance, parsePercent) : null,
+    // Coluna "Contemplados" da LISTA (não da página do grupo) — total
+    // acumulado do grupo. optional() nunca derruba a coleta se o texto não
+    // for um número reconhecível — só fica nulo.
+    contemplatedCount: list ? optional(list.contemplados, parseCount) : null,
     membersCount: optional(info(raw, /n.mero de consorciados/i), parseCount),
     contemplationText: scraped.preMessage.trim(),
     rawInfo: raw,

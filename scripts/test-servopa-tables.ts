@@ -166,7 +166,7 @@ function snapshotGroup(number: string, segment: NormalizedGroup["segment"], vaca
     groupType: null,
     drawType: null,
     embeddedBidMaxPercent: null,
-    bidOfferedPercent: null,
+    contemplatedCount: null,
     membersCount: null,
     contemplationText: "",
     rawInfo: {},

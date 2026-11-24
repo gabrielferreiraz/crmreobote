@@ -38,8 +38,8 @@ export type ServopaTableView = {
   nextAssemblyNumber: string | null;
   nextAssemblyAt: Date | null;
   contemplationText: string;
-  /** Faixa de lances já vistos vencendo nas assembleias deste grupo (ver ServopaGroup.bidOffered{Min,Max}Percent); null até a primeira coleta com um lance legível. */
-  bidOfferedRange: { min: string; max: string } | null;
+  /** "Contemplados" da listagem — total acumulado do grupo (sorteio + lance); null se a Servopa não publicou. */
+  contemplatedCount: number | null;
   /** Linhas como devem aparecer (já com o ajuste). */
   rows: ServopaTableRowView[];
   /** Grupo 21xx: mostra a coluna "Meia parcela" ao lado da parcela normal (ver half-installment.ts). */
@@ -59,7 +59,7 @@ export type ServopaTableListView = Pick<
   | "reserveFundPercent"
   | "vacancies"
   | "nextAssemblyAt"
-  | "bidOfferedRange"
+  | "contemplatedCount"
 > & {
   creditRange: { min: string; max: string };
   installmentRange: { min: string; max: string };
@@ -82,8 +82,7 @@ type DbTable = {
     reserveFundPercent: { toFixed(n: number): string } | null;
     vacancies: number | null;
     contemplationText: string;
-    bidOfferedMinPercent: { toFixed(n: number): string } | null;
-    bidOfferedMaxPercent: { toFixed(n: number): string } | null;
+    contemplatedCount: number | null;
   };
   rows: {
     position: number;
@@ -140,10 +139,7 @@ function toView(t: DbTable): ServopaTableView {
     nextAssemblyNumber: t.group.nextAssemblyNumber,
     nextAssemblyAt: t.group.nextAssemblyAt,
     contemplationText: t.group.contemplationText,
-    bidOfferedRange:
-      t.group.bidOfferedMinPercent && t.group.bidOfferedMaxPercent
-        ? { min: t.group.bidOfferedMinPercent.toFixed(4), max: t.group.bidOfferedMaxPercent.toFixed(4) }
-        : null,
+    contemplatedCount: t.group.contemplatedCount,
     rows: rowsWithHalf,
     hasHalfInstallment,
     lastChangedAt: t.lastChangedAt,
@@ -178,7 +174,7 @@ function toListView(t: DbTable): ServopaTableListView {
     reserveFundPercent: table.reserveFundPercent,
     vacancies: table.vacancies,
     nextAssemblyAt: table.nextAssemblyAt,
-    bidOfferedRange: table.bidOfferedRange,
+    contemplatedCount: table.contemplatedCount,
     creditRange: rangeOf(table.rows, "creditValue"),
     installmentRange: rangeOf(table.rows, "installment"),
   };
@@ -195,8 +191,7 @@ const include = {
       nextAssemblyAt: true,
       reserveFundPercent: true,
       contemplationText: true,
-      bidOfferedMinPercent: true,
-      bidOfferedMaxPercent: true,
+      contemplatedCount: true,
     },
   },
   rows: { orderBy: { position: "asc" as const } },

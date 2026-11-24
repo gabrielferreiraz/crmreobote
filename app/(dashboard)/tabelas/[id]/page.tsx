@@ -75,10 +75,8 @@ export default async function TabelaPage({ params }: { params: Promise<{ id: str
         <Fact label="Vagas" note={low ? "Poucas vagas" : undefined}>
           <span className={low ? "text-amber-600 dark:text-amber-400" : ""}>{table.vacancies === null ? "—" : table.vacancies}</span>
         </Fact>
-        <Fact label="Faixa de lances ofertados" note="Mín./máx. já vistos nas assembleias deste grupo">
-          {table.bidOfferedRange
-            ? `${formatPercent(table.bidOfferedRange.min, { trim: true })} a ${formatPercent(table.bidOfferedRange.max, { trim: true })}`
-            : "—"}
+        <Fact label="Total de contemplados" note="Sorteio + lance, acumulado no grupo">
+          {table.contemplatedCount === null ? "—" : table.contemplatedCount}
         </Fact>
       </dl>
 

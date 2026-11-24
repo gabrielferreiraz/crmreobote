@@ -1670,16 +1670,13 @@ model ServopaGroup {
   groupType             String?
   drawType              String?
   embeddedBidMaxPercent Decimal?       @db.Decimal(7, 4)
-  // Faixa (mínimo/máximo) dos lances que já saíram vencedores nas
-  // assembleias deste grupo, vista na coluna "Lance" da LISTAGEM
-  // (/vendas/grupos) — nunca confundir com embeddedBidMaxPercent acima, que é
-  // a regra do grupo (limite publicado), não um resultado real de assembleia.
-  // Só alarga (nunca "corrige" pra um valor mais estreito); nulo até a
-  // primeira coleta que trouxer um lance legível (ver lib/servopa-tables/
-  // parse.ts e sync-engine.ts). Objetivo: dar uma ideia de range pro
-  // consultor, não uma previsão — pedido do Dono, 11/2026.
-  bidOfferedMinPercent  Decimal?       @db.Decimal(7, 4)
-  bidOfferedMaxPercent  Decimal?       @db.Decimal(7, 4)
+  // "Contemplados" da coluna da LISTAGEM (/vendas/grupos) — total acumulado
+  // de contemplações do grupo (sorteio + lance somados), não um resultado de
+  // uma assembleia isolada. Trocou lugar de uma faixa de % de lance (pedido
+  // 11/2026): a coluna "Lance" da listagem saiu sempre 0,00% na coleta real
+  // (não é o resultado por assembleia — esse só aparece num popup "Sobre a
+  // Assembleia" que o robô ainda não lê), então não dava pra confiar nela.
+  contemplatedCount     Int?
   membersCount          Int?
   // Texto da "ordem de contemplação"/regras do grupo, como a Servopa publica.
   contemplationText     String         @default("") @db.Text
