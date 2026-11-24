@@ -4,14 +4,14 @@ self.addEventListener("push", (event) => {
   try {
     data = event.data.json();
   } catch {
-    data = { title: "CRM", body: event.data.text() };
+    data = { title: "Amplitude", body: event.data.text() };
   }
 
-  const title = data.title || "CRM";
+  const title = data.title || "Amplitude";
   const options = {
     body: data.body || "",
-    icon: "/icons/192",
-    badge: "/icons/192",
+    icon: "/pwa-192.png",
+    badge: "/pwa-192.png",
     data: { url: data.url || "/", reminderId: data.reminderId || null },
   };
   if (data.tag) {

@@ -27,7 +27,7 @@ export async function POST(req: Request) {
 
   const result = await sendEmail({
     to,
-    subject: "Teste de e-mail — CRM Reobote",
+    subject: "Teste de e-mail — Amplitude",
     html: `<p>Se você está lendo isso, o envio de e-mail via SMTP (${process.env.SMTP_HOST ?? "não configurado"}) está funcionando.</p>`,
   });
 

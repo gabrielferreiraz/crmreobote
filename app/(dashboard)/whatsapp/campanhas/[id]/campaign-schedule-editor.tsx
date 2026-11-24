@@ -24,12 +24,15 @@ export function CampaignScheduleEditor({
   allowedWeekdays,
   windowStartHour,
   windowEndHour,
+  dailyCap,
   editable,
 }: {
   id: string;
   allowedWeekdays: number[];
   windowStartHour: number;
   windowEndHour: number;
+  /** Máximo de envios por dia; null = sem limite. */
+  dailyCap: number | null;
   /** Só quem gerencia a campanha, e só enquanto ela não concluiu. */
   editable: boolean;
 }) {
@@ -38,10 +41,11 @@ export function CampaignScheduleEditor({
   const [days, setDays] = useState(allowedWeekdays);
   const [start, setStart] = useState(String(windowStartHour));
   const [end, setEnd] = useState(String(windowEndHour));
+  const [cap, setCap] = useState(dailyCap != null ? String(dailyCap) : "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const summary = `Das ${windowStartHour}h às ${windowEndHour}h · ${allowedWeekdays.map((d) => WEEKDAYS[d]?.label).join(", ")}`;
+  const summary = `Das ${windowStartHour}h às ${windowEndHour}h · ${allowedWeekdays.map((d) => WEEKDAYS[d]?.label).join(", ")} · ${dailyCap != null ? `até ${dailyCap} por dia` : "sem limite diário"}`;
 
   function open() {
     setDays(allowedWeekdays);
@@ -57,13 +61,15 @@ export function CampaignScheduleEditor({
     if (days.length === 0) return setError("Escolha ao menos um dia da semana.");
     if (!Number.isInteger(s) || !Number.isInteger(e) || s < 0 || s > 23 || e < 0 || e > 23) return setError("O horário precisa estar entre 0h e 23h.");
     if (e <= s) return setError("O horário final precisa ser depois do inicial.");
+    const capValue = cap.trim() === "" ? null : Number(cap);
+    if (capValue !== null && (!Number.isInteger(capValue) || capValue < 1 || capValue > 10000)) return setError("O limite diário precisa ser um número inteiro entre 1 e 10000 (ou deixe em branco para sem limite).");
 
     setSaving(true);
     setError(null);
     const res = await fetch(`/api/campaigns/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ allowedWeekdays: days, windowStartHour: s, windowEndHour: e }),
+      body: JSON.stringify({ allowedWeekdays: days, windowStartHour: s, windowEndHour: e, dailyCap: capValue }),
     }).catch(() => null);
     setSaving(false);
     if (!res) return setError("Sem conexão. Tente de novo.");
@@ -99,6 +105,12 @@ export function CampaignScheduleEditor({
             <span>às</span>
             <input type="number" min={0} max={23} value={end} onChange={(e) => setEnd(e.target.value)} className="field-input w-20 px-2 py-1 text-center" aria-label="Hora final" />
             <span>h (horário de Brasília)</span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 text-sm text-neutral-600 dark:text-neutral-400">
+            <span>Enviar no máximo</span>
+            <input type="number" min={1} max={10000} value={cap} onChange={(e) => setCap(e.target.value)} placeholder="sem limite" className="field-input w-28 px-2 py-1 text-center" aria-label="Limite de envios por dia" />
+            <span>mensagens por dia (em branco = sem limite)</span>
           </div>
 
           <div className="flex flex-wrap gap-1.5">

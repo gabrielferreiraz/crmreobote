@@ -22,5 +22,5 @@ export default NextAuth(authConfig).auth;
 // bloqueado pelo navegador) e o tema escuro volta a piscar branco antes de
 // carregar exatamente pra quem ainda não entrou.
 export const config = {
-  matcher: ["/((?!api|_next/static|_next/image|favicon.ico|icon.svg|manifest.webmanifest|sw.js|theme-init.js).*)"],
+  matcher: ["/((?!api|_next/static|_next/image|favicon.ico|icon.svg|icon.png|apple-icon|pwa-|logo-crm.png|manifest.webmanifest|sw.js|theme-init.js).*)"],
 };

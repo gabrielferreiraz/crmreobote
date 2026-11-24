@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { CrmLogo } from "@/components/crm-logo";
 import { createPortal } from "react-dom";
 import { Eye, X } from "lucide-react";
 import { AcademyOnboardingCard } from "@/components/academy/academy-onboarding-card";
@@ -26,8 +27,8 @@ export function AcademyOnboardingPreview({ name, onClose }: { name: string; onCl
     <div className="academy-page-enter fixed inset-0 z-[200] flex min-h-dvh flex-col overflow-y-auto bg-neutral-100 text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100" role="dialog" aria-modal="true" aria-label="Prévia do primeiro acesso">
       <header className="academy-header-enter flex min-h-14 shrink-0 flex-wrap items-center justify-between gap-3 border-b border-neutral-200 bg-white px-4 py-2 dark:border-neutral-800 dark:bg-neutral-950 sm:px-8">
         <div className="flex items-center gap-2.5">
-          <span className="flex h-7 w-7 items-center justify-center rounded-md bg-brand text-sm font-bold text-white">C</span>
-          <span className="text-sm font-semibold">CRM Reobote</span>
+          <CrmLogo size={28} className="rounded-md" />
+          <span className="text-sm font-semibold">Amplitude</span>
           <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">Prévia</span>
         </div>
 

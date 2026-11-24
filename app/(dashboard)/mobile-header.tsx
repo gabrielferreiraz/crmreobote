@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { CrmLogo } from "@/components/crm-logo";
 import { usePathname } from "next/navigation";
 import { CommandPalette } from "@/components/command-palette";
 import { NotificationBell } from "@/components/notification-bell";
@@ -41,10 +42,8 @@ export function MobileHeader({
   return (
     <header className="surface-glass relative z-30 flex h-14 shrink-0 items-center gap-2 border-x-0 border-t-0 px-4 lg:hidden">
       <Link href="/" className="flex shrink-0 items-center gap-2">
-        <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand text-sm font-bold text-white dark:text-white">
-          C
-        </div>
-        <span className="text-[15px] font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">CRM</span>
+        <CrmLogo size={28} />
+        <span className="text-[15px] font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Amplitude</span>
       </Link>
 
       {/* Current section name */}

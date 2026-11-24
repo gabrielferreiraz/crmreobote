@@ -81,7 +81,7 @@ export async function POST(
             <p style="font-size: 14px; line-height: 20px;">Olá,</p>
             <p style="font-size: 14px; line-height: 20px;">Informamos que a senha do usuário <strong>${targetName}</strong> (${targetEmail}) foi alterada por <strong>${actorName}</strong>.</p>
             <hr style="border: 0; border-top: 1px solid #e5e5e5; margin: 20px 0;" />
-            <p style="font-size: 12px; color: #737373;">Este é um e-mail automático do sistema de segurança do CRM Reobote. Se esta alteração não foi solicitada ou reconhecida por você, entre em contato imediatamente com o suporte ou realize uma auditoria de acessos.</p>
+            <p style="font-size: 12px; color: #737373;">Este é um e-mail automático do sistema de segurança do Amplitude. Se esta alteração não foi solicitada ou reconhecida por você, entre em contato imediatamente com o suporte ou realize uma auditoria de acessos.</p>
           </div>
         `,
       }).catch((err) => console.error("[reset-password] falha ao enviar notificação por e-mail", err));

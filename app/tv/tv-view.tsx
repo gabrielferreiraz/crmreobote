@@ -873,8 +873,8 @@ export function TvView({
             className="group/ads relative h-full w-full overflow-hidden bg-neutral-950"
             style={{
               borderRadius: "var(--tv-radius-lg)",
-              border: "1px solid rgba(139, 141, 243, 0.25)",
-              boxShadow: "0 0 0 1px rgba(139, 141, 243, 0.08), 0 30px 70px -25px rgba(90, 91, 230, 0.45)",
+              border: "1px solid rgba(77, 163, 255, 0.25)",
+              boxShadow: "0 0 0 1px rgba(77, 163, 255, 0.08), 0 30px 70px -25px rgba(0, 102, 245, 0.45)",
             }}
           >
             {adSlideCount > 0 ? (

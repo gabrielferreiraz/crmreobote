@@ -29,11 +29,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "CRM",
+  title: "Amplitude",
   description: "CRM para equipes de vendas de consórcio",
   appleWebApp: {
     capable: true,
-    title: "CRM",
+    title: "Amplitude",
     statusBarStyle: "black-translucent",
   },
 };
@@ -48,7 +48,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   viewportFit: "cover",
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#5a5be6" },
+    { media: "(prefers-color-scheme: light)", color: "#0066f5" },
     { media: "(prefers-color-scheme: dark)", color: "#0a0a0a" },
   ],
 };

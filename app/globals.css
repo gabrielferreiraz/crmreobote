@@ -16,21 +16,21 @@
 :root {
   --background: #f9fafb;
   --foreground: #111827;
-  --brand: #5a5be6;
-  --brand-hover: #4f50d8;
-  --brand-active: #3f40c2;
-  --brand-light: #efeffd;
-  --brand-light-hover: #e4e4fc;
-  --brand-subtle: rgba(90, 91, 230, 0.08);
-  --brand-gradient: linear-gradient(135deg, #7274f0 0%, #4f50d8 55%, #3f40c2 100%);
-  --brand-gradient-hero: linear-gradient(140deg, #7476f2 0%, #5152da 50%, #3b3cbe 100%);
+  --brand: #0066f5;
+  --brand-hover: #0057d6;
+  --brand-active: #0047b3;
+  --brand-light: #eaf3ff;
+  --brand-light-hover: #dcebff;
+  --brand-subtle: rgba(0, 102, 245, 0.08);
+  --brand-gradient: linear-gradient(135deg, #2f8bff 0%, #0057d6 55%, #0047b3 100%);
+  --brand-gradient-hero: linear-gradient(140deg, #3a92ff 0%, #005ee0 50%, #003fa3 100%);
   /* Cards escuros (ex.: "Exige ação" do Início) — mesmo valor nos dois temas
      de propósito, já nasce escuro, não precisa de variante. Era um degradê
      cinza-chumbo neutro (quase preto); pedido explícito trocou pra um azul-
      marinho na MESMA família de matiz do --brand acima (não um azul solto
      importado de outro lugar), só escurecido/dessaturado pra funcionar como
      fundo de card em vez de acento. */
-  --brand-gradient-dark: linear-gradient(150deg, #232a52 0%, #171a3a 55%, #0e0f24 100%);
+  --brand-gradient-dark: linear-gradient(150deg, #0f2447 0%, #0a1a36 55%, #060e20 100%);
   /* Fundo-pai do CRM inteiro (ver `body` abaixo) — bem sutil de propósito
      (pedido explícito): mesmo tom de --background, só com uma variação de
      luminosidade mínima na diagonal, nunca uma cor nova. Não é pra "chamar
@@ -43,15 +43,15 @@
   --background: #0a0a0a;
   --foreground: #f5f5f5;
   /* Mesma relação de sempre entre claro/escuro (clareia e dessatura um pouco
-     pro roxo não "gritar" em cima de fundo escuro) — só migrada pro tom novo. */
-  --brand: #8b8df3;
-  --brand-hover: #a3a5f6;
-  --brand-active: #bebff9;
-  --brand-light: rgba(139, 141, 243, 0.14);
-  --brand-light-hover: rgba(139, 141, 243, 0.2);
-  --brand-subtle: rgba(139, 141, 243, 0.07);
-  --brand-gradient: linear-gradient(135deg, #7274f0 0%, #4f50d8 55%, #3f40c2 100%);
-  --brand-gradient-hero: linear-gradient(140deg, #7476f2 0%, #5152da 50%, #3b3cbe 100%);
+     pro azul não "gritar" em cima de fundo escuro) — só migrada pro tom novo. */
+  --brand: #4da3ff;
+  --brand-hover: #70b6ff;
+  --brand-active: #9bcaff;
+  --brand-light: rgba(77, 163, 255, 0.14);
+  --brand-light-hover: rgba(77, 163, 255, 0.2);
+  --brand-subtle: rgba(77, 163, 255, 0.07);
+  --brand-gradient: linear-gradient(135deg, #2f8bff 0%, #0057d6 55%, #0047b3 100%);
+  --brand-gradient-hero: linear-gradient(140deg, #3a92ff 0%, #005ee0 50%, #003fa3 100%);
   --brand-gradient-dark: linear-gradient(150deg, #23262f 0%, #15171f 60%, #101219 100%);
   /* Mesma ideia do :root acima, com a paleta escura — parte do #0a0a0a de
      sempre, só clareia/escurece uma sombra na diagonal. */
@@ -1508,7 +1508,7 @@ input[type="radio"] {
   z-index: -1;
   pointer-events: none;
   background:
-    radial-gradient(760px 420px at 12% -6%, rgba(90, 91, 230, 0.2), transparent 62%),
+    radial-gradient(760px 420px at 12% -6%, rgba(0, 102, 245, 0.2), transparent 62%),
     radial-gradient(620px 380px at 92% 0%, rgba(14, 165, 165, 0.13), transparent 60%),
     radial-gradient(900px 520px at 70% 108%, rgba(139, 92, 246, 0.14), transparent 62%),
     linear-gradient(180deg, #f7f7fc 0%, #eff0f8 55%, #ebedf6 100%);
@@ -1523,7 +1523,7 @@ input[type="radio"] {
      preta — não um preto chapado, pra os cards de vidro (fundo translúcido
      escuro) ainda lerem como "vidro sobre algo", não "vidro sobre nada". */
   background:
-    radial-gradient(760px 420px at 12% -6%, rgba(90, 91, 230, 0.16), transparent 62%),
+    radial-gradient(760px 420px at 12% -6%, rgba(0, 102, 245, 0.16), transparent 62%),
     radial-gradient(620px 380px at 92% 0%, rgba(14, 165, 165, 0.1), transparent 60%),
     radial-gradient(900px 520px at 70% 108%, rgba(139, 92, 246, 0.12), transparent 62%),
     linear-gradient(180deg, #101218 0%, #0b0c10 55%, #08090c 100%);
@@ -1548,7 +1548,7 @@ input[type="radio"] {
   z-index: -1;
   pointer-events: none;
   background:
-    radial-gradient(900px 520px at 8% -8%, rgba(90, 91, 230, 0.22), transparent 62%),
+    radial-gradient(900px 520px at 8% -8%, rgba(0, 102, 245, 0.22), transparent 62%),
     radial-gradient(760px 460px at 96% 4%, rgba(14, 165, 165, 0.12), transparent 60%),
     radial-gradient(1000px 600px at 60% 112%, rgba(139, 92, 246, 0.16), transparent 62%),
     linear-gradient(180deg, #101218 0%, #0b0c10 55%, #08090c 100%);
@@ -2407,11 +2407,11 @@ input[type="radio"] {
 
 @keyframes proof-glow {
   0% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-brand, #4f46e5) 35%, transparent);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-brand, #0066f5) 35%, transparent);
   }
 
   100% {
-    box-shadow: 0 0 0 14px color-mix(in srgb, var(--color-brand, #4f46e5) 0%, transparent);
+    box-shadow: 0 0 0 14px color-mix(in srgb, var(--color-brand, #0066f5) 0%, transparent);
   }
 }
 
@@ -2488,7 +2488,7 @@ input[type="radio"] {
 /* Cadastros ao vivo: linha que acabou de chegar (entra deslizando) ou de mudar (brilho que apaga) e o aviso de novidades. */
 @keyframes cadastro-flash {
   0% {
-    background-color: color-mix(in srgb, var(--color-brand, #4f46e5) 16%, transparent);
+    background-color: color-mix(in srgb, var(--color-brand, #0066f5) 16%, transparent);
   }
 
   100% {

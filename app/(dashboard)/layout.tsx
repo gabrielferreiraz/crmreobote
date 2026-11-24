@@ -1,4 +1,5 @@
 import { auth, signOut } from "@/lib/auth";
+import { CrmLogo } from "@/components/crm-logo";
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import Link from "next/link";
@@ -156,10 +157,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
       <header className="surface-glass relative z-30 hidden h-14 shrink-0 items-center gap-6 border-x-0 border-t-0 px-6 lg:flex">
         <Link href="/" className="flex shrink-0 items-center gap-2">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand text-sm font-bold text-white dark:text-white">
-            C
-          </div>
-          <span className="text-[15px] font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">CRM</span>
+          <CrmLogo size={28} />
+          <span className="text-[15px] font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Amplitude</span>
         </Link>
 
         <AdaptiveHeaderRow

@@ -198,11 +198,12 @@ export default async function CampaignDetailPage({
         )}
 
         <CampaignScheduleEditor
-          key={`${campaign.windowStartHour}-${campaign.windowEndHour}-${campaign.allowedWeekdays.join("")}`}
+          key={`${campaign.windowStartHour}-${campaign.windowEndHour}-${campaign.allowedWeekdays.join("")}-${campaign.dailyCap ?? "x"}`}
           id={campaign.id}
           allowedWeekdays={campaign.allowedWeekdays}
           windowStartHour={campaign.windowStartHour}
           windowEndHour={campaign.windowEndHour}
+          dailyCap={campaign.dailyCap}
           editable={campaign.canManage && campaign.status !== "DONE"}
         />
 

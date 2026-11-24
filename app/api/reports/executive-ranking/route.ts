@@ -38,7 +38,7 @@ export async function GET(request: Request) {
   );
 
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = "CRM Reobote";
+  workbook.creator = "Amplitude";
   workbook.created = new Date();
   workbook.modified = new Date();
   workbook.subject = `Ranking executivo de vendedores — ${years[0]} a ${years.at(-1)}`;
@@ -168,7 +168,7 @@ export async function GET(request: Request) {
     }
   }
   sheet.views = [{ state: "frozen", xSplit: 3, ySplit: HEADER_ROW, topLeftCell: `D${firstDataRow}` }];
-  sheet.headerFooter.oddFooter = "&LCRM Reobote&CConfidencial&R&P de &N";
+  sheet.headerFooter.oddFooter = "&LAmplitude&CConfidencial&R&P de &N";
 
   const buffer = await workbook.xlsx.writeBuffer();
   return new NextResponse(buffer as ArrayBuffer, {
