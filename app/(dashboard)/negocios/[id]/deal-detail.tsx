@@ -603,7 +603,6 @@ export function DealDetail({
   split,
   coOwnerOnly = false,
   currentUserRole,
-  isSalesConsultant,
   currentUserId,
   proposals,
   defaultProposalDescription,
@@ -632,7 +631,6 @@ export function DealDetail({
   coOwnerOnly?: boolean;
   /** Excluir tarefa (Videochamada/Visita/etc.) é restrito ao Dono da organização — ver DELETE /api/tasks/[id]. */
   currentUserRole?: string;
-  isSalesConsultant: boolean;
   currentUserId: string;
   /** Propostas comerciais deste negócio (mais nova primeiro) — ver components/proposals/proposals-card.tsx. */
   proposals: ProposalDTO[];
@@ -1926,7 +1924,6 @@ export function DealDetail({
                   value={deal.value}
                   grossValue={deal.grossValue}
                   editable={canEditDetails}
-                  lockNetManualEdit={isSalesConsultant}
                   onSaveValue={saveDealValue}
                   onSaveGrossValue={saveDealGrossValue}
                 />
@@ -2415,7 +2412,6 @@ export function DealDetail({
               value={deal.value}
               grossValue={deal.grossValue}
               editable={canEditDetails}
-              lockNetManualEdit={isSalesConsultant}
               onSaveValue={saveDealValue}
               onSaveGrossValue={saveDealGrossValue}
             />
@@ -3016,14 +3012,12 @@ function FinancialValuesCard({
   value,
   grossValue,
   editable,
-  lockNetManualEdit,
   onSaveValue,
   onSaveGrossValue,
 }: {
   value: number | null;
   grossValue: number | null;
   editable: boolean;
-  lockNetManualEdit: boolean;
   onSaveValue: (v: string) => Promise<{ ok: boolean; error?: string }>;
   onSaveGrossValue: (v: string) => Promise<{ ok: boolean; error?: string }>;
 }) {
@@ -3055,7 +3049,7 @@ function FinancialValuesCard({
           <ValueItem
             label="Valor Líquido"
             value={value}
-            editable={editable && !lockNetManualEdit}
+            editable={editable}
             onSave={onSaveValue}
             suggestedValue={editable ? suggestedNet : null}
             suggestionApplied={alreadyApplied}

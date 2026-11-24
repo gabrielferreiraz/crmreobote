@@ -58,8 +58,6 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
   const { id } = await params;
 
   return runWithTenant(organizationId, async () => {
-    const membership = await getCurrentMembership();
-    const isSalesConsultant = membership?.area === "VENDAS" && membership.role === "MEMBER";
     const scope = await getSharedScope(organizationId, userId, session!.user.role, "shareDeals");
     const dealRaw = await prisma.deal.findFirst({
       where: { id, organizationId, ...dealScopeWhere(scope) },
@@ -293,7 +291,6 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
           isWhatsAppConnected={!!whatsappThread}
           sendAsAlternate={sendAsAlternate}
           canEditDetails={canEditDetails}
-          isSalesConsultant={isSalesConsultant}
           split={split}
           coOwnerOnly={coOwnerOnly}
           currentUserRole={session!.user.role}
