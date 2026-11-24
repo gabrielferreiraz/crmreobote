@@ -45,7 +45,7 @@ export async function sendEmail(params: {
   html: string;
 }): Promise<{ ok: boolean; error?: string }> {
   const fromEmail = process.env.SMTP_FROM_EMAIL ?? process.env.SMTP_USER;
-  const fromName = process.env.SMTP_FROM_NAME ?? "CRM Reobote";
+  const fromName = process.env.SMTP_FROM_NAME ?? "Amplitude";
 
   try {
     await getTransporter().sendMail({

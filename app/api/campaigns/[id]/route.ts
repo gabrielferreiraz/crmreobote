@@ -106,6 +106,57 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     });
     if (!existing) return NextResponse.json({ error: "Não encontrada" }, { status: 404 });
 
+    // Horário de envio (dias da semana + faixa de horas): editável também com a
+    // campanha rodando ou pausada — é só QUANDO os envios saem, não o que sai nem
+    // pra quem. O motor lê esses campos do banco a cada rodada, então a mudança
+    // vale para os próximos envios. Campanha concluída não tem mais o que enviar.
+    const isScheduleOnly =
+      bodyKeys.length > 0 && bodyKeys.every((key) => key === "allowedWeekdays" || key === "windowStartHour" || key === "windowEndHour" || key === "dailyCap");
+    if (isScheduleOnly) {
+      if (existing.status === "DONE") {
+        return NextResponse.json({ error: "Campanha concluída não tem mais envios a agendar." }, { status: 400 });
+      }
+      const { allowedWeekdays, windowStartHour, windowEndHour, dailyCap } = body as {
+        dailyCap?: unknown;
+        allowedWeekdays?: unknown;
+        windowStartHour?: unknown;
+        windowEndHour?: unknown;
+      };
+      const days = allowedWeekdays ?? existing.allowedWeekdays;
+      const start = windowStartHour ?? existing.windowStartHour;
+      const end = windowEndHour ?? existing.windowEndHour;
+      if (!Array.isArray(days) || days.length === 0 || days.some((d) => !Number.isInteger(d) || d < 0 || d > 6)) {
+        return NextResponse.json({ error: "Escolha ao menos um dia da semana para enviar" }, { status: 400 });
+      }
+      if (!Number.isInteger(start) || (start as number) < 0 || (start as number) > 23 || !Number.isInteger(end) || (end as number) < 0 || (end as number) > 23) {
+        return NextResponse.json({ error: "O horário precisa estar entre 0h e 23h" }, { status: 400 });
+      }
+      if ((end as number) <= (start as number)) {
+        return NextResponse.json({ error: "O horário final precisa ser depois do inicial" }, { status: 400 });
+      }
+      // Limite de envios por dia (null = sem limite). Ausente no corpo = não mexe.
+      if (dailyCap !== undefined && dailyCap !== null && (!Number.isInteger(dailyCap) || (dailyCap as number) < 1 || (dailyCap as number) > 10_000)) {
+        return NextResponse.json({ error: "O limite diário precisa ser um número inteiro entre 1 e 10000" }, { status: 400 });
+      }
+      const weekdays = [...new Set(days as number[])].sort((a, b) => a - b);
+      await prisma.campaign.update({
+        where: { id },
+        data: {
+          allowedWeekdays: weekdays,
+          windowStartHour: start as number,
+          windowEndHour: end as number,
+          ...(dailyCap !== undefined ? { dailyCap: dailyCap as number | null } : {}),
+        },
+      });
+      return NextResponse.json({
+        ok: true,
+        allowedWeekdays: weekdays,
+        windowStartHour: start,
+        windowEndHour: end,
+        dailyCap: dailyCap === undefined ? existing.dailyCap : dailyCap,
+      });
+    }
+
     // Edição completa (nome, público, scripts, agenda...) só é permitida
     // enquanto a campanha nunca começou a rodar — depois disso, duplicar é o
     // caminho pra mudar algo (ver /api/campaigns/[id]/duplicate).

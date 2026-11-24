@@ -1,4 +1,5 @@
 import { ThemeToggle } from "@/components/theme-toggle";
+import { CrmLogo } from "@/components/crm-logo";
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   // Sem bg- próprio de propósito — deixa o degradê sutil do <body> (ver
@@ -23,7 +24,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/15 text-lg font-bold text-white">
               C
             </div>
-            <span className="text-xl font-semibold tracking-tight text-white">CRM</span>
+            <span className="text-xl font-semibold tracking-tight text-white">Amplitude</span>
           </div>
 
           <div className="space-y-3">
@@ -55,10 +56,8 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
           <div className="w-full max-w-[420px]">
             {/* Mobile logo */}
             <div className="mb-8 flex items-center justify-center gap-2 lg:hidden">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand text-sm font-bold text-white">
-                C
-              </div>
-              <span className="text-lg font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">CRM</span>
+              <CrmLogo size={36} className="rounded-xl" />
+              <span className="text-lg font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Amplitude</span>
             </div>
             
             <div className="card p-8 sm:p-10 shadow-sm border border-neutral-200 dark:border-neutral-800">

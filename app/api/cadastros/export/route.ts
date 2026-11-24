@@ -123,7 +123,7 @@ export async function GET(request: Request) {
   }));
 
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = "CRM";
+  workbook.creator = "Amplitude";
   workbook.created = new Date();
   const sheet = workbook.addWorksheet("Cadastros");
   sheet.columns = [

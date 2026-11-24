@@ -5,7 +5,7 @@ import { CodeBlock } from "./code-block";
 import { DocsSidebar, DocsMobileNav } from "./docs-nav";
 
 export const metadata: Metadata = {
-  title: "Documentação da API — CRM",
+  title: "Documentação da API — Amplitude",
   description: "Autenticação, endpoints de ingestão e webhooks de saída para integrações externas.",
 };
 
@@ -37,7 +37,7 @@ export default function DocsPage() {
             <div className="flex h-7 w-7 items-center justify-center rounded-md bg-neutral-900 text-xs font-semibold text-white dark:bg-white dark:text-neutral-900">
               C
             </div>
-            <span className="text-sm font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">CRM</span>
+            <span className="text-sm font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Amplitude</span>
             <span className="text-sm text-neutral-400 dark:text-neutral-500">/ Documentação da API</span>
           </div>
           <div className="flex items-center gap-3">

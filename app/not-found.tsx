@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { CrmLogo } from "@/components/crm-logo";
 import { Compass } from "lucide-react";
 
 export default function NotFound() {
@@ -6,10 +7,8 @@ export default function NotFound() {
     <div className="flex min-h-screen items-center justify-center bg-neutral-50 dark:bg-neutral-950 px-4">
       <div className="w-full max-w-sm text-center">
         <div className="mb-6 flex items-center justify-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand text-sm font-bold text-white">
-            C
-          </div>
-          <span className="text-lg font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">CRM</span>
+          <CrmLogo size={32} className="rounded-xl" />
+          <span className="text-lg font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Amplitude</span>
         </div>
 
         <div className="card p-8 shadow-sm">

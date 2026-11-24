@@ -11,6 +11,7 @@ import { getSharedScope } from "@/lib/share-groups";
 import { RecipientsTable } from "./recipients-table";
 import { CampaignMetricsChart } from "./metrics-chart";
 import { CampaignActions } from "./campaign-actions";
+import { CampaignScheduleEditor } from "./campaign-schedule-editor";
 import { NextSendCountdown } from "./next-send-countdown";
 import { CampaignScriptsPanel } from "./campaign-scripts-panel";
 import type { CampaignQueueData } from "./campaign-queue";
@@ -195,6 +196,16 @@ export default async function CampaignDetailPage({
             </span>
           </div>
         )}
+
+        <CampaignScheduleEditor
+          key={`${campaign.windowStartHour}-${campaign.windowEndHour}-${campaign.allowedWeekdays.join("")}-${campaign.dailyCap ?? "x"}`}
+          id={campaign.id}
+          allowedWeekdays={campaign.allowedWeekdays}
+          windowStartHour={campaign.windowStartHour}
+          windowEndHour={campaign.windowEndHour}
+          dailyCap={campaign.dailyCap}
+          editable={campaign.canManage && campaign.status !== "DONE"}
+        />
 
         <section id="visao-geral" className="scroll-mt-16 overflow-hidden rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950" aria-label="Progresso da campanha">
           <div className="p-4 sm:p-5">

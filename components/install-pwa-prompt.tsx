@@ -109,7 +109,7 @@ export function InstallPwaPrompt() {
         className="surface-glass flex items-center gap-3 rounded-xl p-3 shadow-xl"
         style={{ animation: "modal-panel-in 200ms ease-out" }}
       >
-        <img src="/icons/192" alt="" className="h-10 w-10 shrink-0 rounded-xl" />
+        <img src="/pwa-192.png" alt="" className="h-10 w-10 shrink-0 rounded-xl" />
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Instalar app web</p>
           <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">
