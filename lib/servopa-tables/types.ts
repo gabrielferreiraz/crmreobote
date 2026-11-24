@@ -74,6 +74,9 @@ export type NormalizedGroup = {
   groupType: string | null;
   drawType: string | null;
   embeddedBidMaxPercent: string | null;
+  /** Lance desta coleta (coluna "Lance" da lista) — o sync-engine funde isto
+   * na faixa mín/máx guardada em ServopaGroup; não é um campo de banco em si. */
+  bidOfferedPercent: string | null;
   membersCount: number | null;
   contemplationText: string;
   rawInfo: Record<string, string>;

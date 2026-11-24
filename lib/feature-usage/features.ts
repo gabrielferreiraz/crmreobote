@@ -33,6 +33,7 @@ export const FEATURE_LABELS = {
   "pipeline.massa.mensagem": "Pipeline · massa: enviar mensagem",
   "pipeline.card.arrastar": "Pipeline · arrastar card entre etapas",
   "pipeline.card.arquivar": "Pipeline · arquivar negócio pelo botão direito",
+  "pipeline.card.menu-botao-direito": "Pipeline · abrir menu do botão direito no card",
   "pipeline.massa.arquivar": "Pipeline · arquivar negócios em massa",
   "pipeline.visao.lista": "Pipeline · trocar pra visão Lista",
   "pipeline.negocio.novo": "Pipeline · criar negócio",
@@ -103,6 +104,9 @@ export const FEATURE_LABELS = {
   "ajuda.topico": "Central de ajuda · abrir um tópico",
   "ajuda.ir": "Central de ajuda · ir direto pra tela",
   "ajuda.tour": "Central de ajuda · iniciar tour guiado",
+
+  // Equipes — transferir a carteira de um consultor pra outro (ex.: quem saiu)
+  "equipes.carteira.transferir": "Equipes · transferir carteira de clientes",
 } as const;
 
 export type FeatureKey = keyof typeof FEATURE_LABELS;

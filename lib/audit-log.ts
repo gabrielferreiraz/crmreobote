@@ -127,7 +127,11 @@ export type AuditAction =
   | "LISTA_50_CAMPAIGN_CHANGED"
   // Transferência explícita de responsável de contato via API externa
   // (PATCH /api/v1/contacts/:id/owner — ver lib/lead-claim.ts pra regra).
-  | "CONTACT_OWNER_TRANSFERRED";
+  | "CONTACT_OWNER_TRANSFERRED"
+  // Passar a carteira de um consultor (que saiu, por exemplo) pra outro —
+  // clientes, negócios em andamento, tarefas e andamentos dos negócios
+  // transferidos (ver POST /api/org/members/[userId]/portfolio).
+  | "PORTFOLIO_TRANSFERRED";
 
 /**
  * Registra um evento de auditoria — nunca deve quebrar a ação real que está

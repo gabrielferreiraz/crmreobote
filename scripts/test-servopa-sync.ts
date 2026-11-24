@@ -260,6 +260,7 @@ function group(number: string, segment: NormalizedGroup["segment"], vacancies: n
     groupType: null,
     drawType: null,
     embeddedBidMaxPercent: null,
+    bidOfferedPercent: null,
     membersCount: null,
     contemplationText: "",
     rawInfo: {},

@@ -146,6 +146,10 @@ export function MembersTable({
   const [error, setError] = useState<string | null>(null);
   const [memberToRemove, setMemberToRemove] = useState<Member | null>(null);
   const [memberToDeactivate, setMemberToDeactivate] = useState<Member | null>(null);
+  // Depois de desativar alguém de Vendas, oferece o atalho pra "Passar
+  // carteira de clientes" (Equipes) — pedido explícito: senão a carteira
+  // some de vista (ninguém lembra de ir transferir depois).
+  const [deactivatedVendas, setDeactivatedVendas] = useState<Member | null>(null);
   const [memberToReset, setMemberToReset] = useState<Member | null>(null);
   const [newPassword, setNewPassword] = useState("");
   const [resetLoading, setResetLoading] = useState(false);
@@ -291,6 +295,7 @@ export function MembersTable({
       body: JSON.stringify({ active }),
     });
     if (res.ok) router.refresh();
+    return res.ok;
   }
 
   async function setCanManageProcesses(userId: string, canManageProcesses: boolean) {
@@ -971,14 +976,51 @@ export function MembersTable({
       {memberToDeactivate && (
         <ConfirmDialog
           title={`Desativar ${memberToDeactivate.user.name}?`}
-          description="A pessoa perde acesso imediatamente (sessões ativas são encerradas) e a foto de perfil é apagada. Ela fica na aba de inativos e pode ser reativada depois."
+          description={
+            "A pessoa perde acesso imediatamente (sessões ativas são encerradas) e a foto de perfil é apagada. Ela fica na aba de inativos e pode ser reativada depois." +
+            (memberToDeactivate.area === "VENDAS"
+              ? " Os clientes e negócios dela continuam no nome dela até alguém passar a carteira adiante."
+              : "")
+          }
           confirmLabel="Desativar"
           onClose={() => setMemberToDeactivate(null)}
           onConfirm={async () => {
-            await setActive(memberToDeactivate.user.id, false);
+            const ok = await setActive(memberToDeactivate.user.id, false);
+            if (ok && memberToDeactivate.area === "VENDAS") setDeactivatedVendas(memberToDeactivate);
             setMemberToDeactivate(null);
           }}
         />
+      )}
+
+      {deactivatedVendas && (
+        <Modal onClose={() => setDeactivatedVendas(null)} maxWidth="max-w-md">
+          <div className="flex gap-4">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-50 dark:bg-amber-500/15">
+              <UserX className="h-5 w-5 text-amber-600 dark:text-amber-400" strokeWidth={2} />
+            </div>
+            <div className="mt-0.5 flex-1">
+              <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
+                Passar a carteira de {deactivatedVendas.user.name}?
+              </h2>
+              <p className="mt-2 text-sm leading-relaxed text-neutral-500 dark:text-neutral-400">
+                Os clientes e negócios em andamento dela continuam no nome dela. Em Equipes dá pra escolher pra quem
+                vão — tarefas e andamentos dos negócios transferidos seguem junto.
+              </p>
+            </div>
+          </div>
+          <div className="mt-6 flex justify-end gap-3">
+            <button type="button" onClick={() => setDeactivatedVendas(null)} className="btn-secondary">
+              Agora não
+            </button>
+            <Link
+              href={`/configuracoes/equipes?from=${deactivatedVendas.user.id}#passar-carteira`}
+              className="btn-primary"
+              onClick={() => setDeactivatedVendas(null)}
+            >
+              Passar carteira
+            </Link>
+          </div>
+        </Modal>
       )}
 
       {memberToReset && (

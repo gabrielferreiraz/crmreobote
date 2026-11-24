@@ -70,6 +70,27 @@ function rowsData(organizationId: string, tableId: string, t: NormalizedTable) {
   return t.rows.map((r) => ({ organizationId, tableId, ...r }));
 }
 
+/**
+ * Funde o lance desta coleta na faixa mín/máx já guardada — nunca estreita,
+ * só alarga ou mantém. Compara por Number() só pra decidir qual dos dois
+ * extremos vence (4 casas decimais, sem acúmulo de erro relevante); o valor
+ * GRAVADO é sempre um dos dois textos originais (o novo ou o que já estava),
+ * nunca recalculado — mesma regra de ouro de nunca "corrigir" o que a
+ * Servopa publicou.
+ */
+function mergeBidRange(
+  currentMin: Prisma.Decimal | null,
+  currentMax: Prisma.Decimal | null,
+  observed: string | null,
+): { bidOfferedMinPercent: Prisma.Decimal | string | null; bidOfferedMaxPercent: Prisma.Decimal | string | null } {
+  if (observed === null) return { bidOfferedMinPercent: currentMin, bidOfferedMaxPercent: currentMax };
+  const value = Number(observed);
+  return {
+    bidOfferedMinPercent: currentMin === null || value < Number(currentMin) ? observed : currentMin,
+    bidOfferedMaxPercent: currentMax === null || value > Number(currentMax) ? observed : currentMax,
+  };
+}
+
 export async function syncServopaSnapshotWithDependencies(
   opts: SyncOptions,
   dependencies: { transaction: SyncTransaction; setTenant: SetTenant },
@@ -128,6 +149,8 @@ export async function syncServopaSnapshotWithDependencies(
         vacancies: true,
         active: true,
         contentHash: true,
+        bidOfferedMinPercent: true,
+        bidOfferedMaxPercent: true,
         tables: { select: { id: true, admRatePercent: true, contentHash: true, active: true } },
       },
     });
@@ -158,7 +181,15 @@ export async function syncServopaSnapshotWithDependencies(
 
           if (!found) {
             const created = await tx.servopaGroup.create({
-              data: { organizationId, number: g.number, ...groupData(g), firstSeenAt: now, lastSeenAt: now, lastChangedAt: now },
+              data: {
+                organizationId,
+                number: g.number,
+                ...groupData(g),
+                ...mergeBidRange(null, null, g.bidOfferedPercent),
+                firstSeenAt: now,
+                lastSeenAt: now,
+                lastChangedAt: now,
+              },
               select: { id: true },
             });
             seenGroupIds.push(created.id);
@@ -180,7 +211,13 @@ export async function syncServopaSnapshotWithDependencies(
           if (found.contentHash !== g.contentHash || !found.active) {
             await tx.servopaGroup.update({
               where: { id: found.id },
-              data: { ...groupData(g), active: true, lastSeenAt: now, ...(found.contentHash !== g.contentHash ? { lastChangedAt: now } : {}) },
+              data: {
+                ...groupData(g),
+                ...mergeBidRange(found.bidOfferedMinPercent, found.bidOfferedMaxPercent, g.bidOfferedPercent),
+                active: true,
+                lastSeenAt: now,
+                ...(found.contentHash !== g.contentHash ? { lastChangedAt: now } : {}),
+              },
             });
             if (found.contentHash !== g.contentHash) summary.groups.updated++;
           } else summary.groups.unchanged++;

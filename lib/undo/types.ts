@@ -76,7 +76,11 @@ export type TaskBulkMovePayload = {
  * estado novo, então refazer é aplicar esse estado único de volta em todos.
  */
 export type BulkUpdateGroup = {
-  model: "deal" | "contact";
+  // "task"/"activity" entraram junto com a transferência de carteira (ver
+  // POST /api/org/members/[userId]/portfolio): tarefa/andamento de um negócio
+  // transferido muda de dono junto, e revertBulkUpdate já é genérico o
+  // bastante (despacha por `tx[model]`) pra cobrir os dois sem handler novo.
+  model: "deal" | "contact" | "task" | "activity";
   /** Estado pra onde este grupo volta ao desfazer (o que ele era antes da ação). */
   previousValues: Record<string, unknown>;
   entityIds: string[];

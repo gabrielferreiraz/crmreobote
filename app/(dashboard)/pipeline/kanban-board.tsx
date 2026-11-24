@@ -107,6 +107,7 @@ const KANBAN_STAGE_PAGE_SIZE = 60;
 // ideia, só que ali é a carga inicial do servidor).
 const KANBAN_INITIAL_CAP = 400;
 const SEARCH_DEBOUNCE_MS = 300;
+const RIGHT_CLICK_HINT_DISMISSED_KEY = "pipeline-right-click-hint-dismissed";
 // Precisa bater EXATAMENTE com os valores iniciais dos useState de
 // search/ownerFilter/sourceFilter/jobTitleFilter/noValueOnly/sort logo
 // abaixo — é contra isso que o filtro restaurado do localStorage é
@@ -223,6 +224,30 @@ export function KanbanBoard({
   // card vive numa coluna com scroll e overflow escondido, onde um menu
   // posicionado por dentro ficaria cortado justamente nas bordas.
   const [cardMenu, setCardMenu] = useState<{ x: number; y: number; stageId: string; dealId: string; dealName: string } | null>(null);
+  // Dica "Novidade" apontando pro menu do botão direito — a função já existe
+  // (arquivar, mudar etapa, mensagem em massa...) mas quase ninguém clica com
+  // o botão direito num card espontaneamente. Mostra uma vez por navegador
+  // (localStorage, mesmo padrão de components/install-pwa-prompt.tsx) e some
+  // sozinha assim que a pessoa de fato abrir o menu (ver openCardMenu abaixo)
+  // — nesse ponto ela já descobriu, insistir viraria propaganda chata.
+  const [showRightClickHint, setShowRightClickHint] = useState(false);
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(RIGHT_CLICK_HINT_DISMISSED_KEY)) return;
+    } catch {
+      // localStorage indisponível — segue e mostra mesmo assim (pior caso: reaparece em outra visita)
+    }
+    const timeout = setTimeout(() => setShowRightClickHint(true), 1200);
+    return () => clearTimeout(timeout);
+  }, []);
+  const dismissRightClickHint = useCallback(() => {
+    setShowRightClickHint(false);
+    try {
+      localStorage.setItem(RIGHT_CLICK_HINT_DISMISSED_KEY, "1");
+    } catch {
+      // sem localStorage, só não persiste — não quebra o dismiss desta sessão
+    }
+  }, []);
   const [requiredFieldsPrompt, setRequiredFieldsPrompt] = useState<{
     dealIds: string[];
     targetStageId: string;
@@ -877,7 +902,9 @@ export function KanbanBoard({
 
   const openCardMenu = useCallback((e: React.MouseEvent, stageId: string, deal: Deal) => {
     setCardMenu({ x: e.clientX, y: e.clientY, stageId, dealId: deal.id, dealName: deal.name });
-  }, []);
+    trackUse("pipeline.card.menu-botao-direito");
+    dismissRightClickHint();
+  }, [dismissRightClickHint]);
 
   /**
    * Fecha o menu ao clicar fora, ao rolar com a roda ou no Esc.
@@ -1325,6 +1352,40 @@ export function KanbanBoard({
           ) : null}
         </DragOverlay>
       </DndContext>
+
+      {/* Dica "Novidade" do menu do botão direito — ver showRightClickHint
+          acima. Canto inferior esquerdo: o direito já é do FAB mobile e da
+          Central de ajuda (ver respectivos comentários). Some sozinha ao
+          abrir o menu de verdade; "X" marca como vista pra sempre. */}
+      {showRightClickHint && !cardMenu && (
+        <div
+          role="status"
+          className="surface-glass-panel fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] left-4 z-40 w-[calc(100%-2rem)] max-w-xs rounded-2xl p-3.5 shadow-2xl ring-1 ring-black/5 lg:bottom-4 dark:ring-white/10"
+          style={{ animation: "panel-pop-in 380ms var(--ease-spring)" }}
+        >
+          <div className="flex items-start gap-2.5">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand dark:bg-brand/20 dark:text-brand-200">
+              <MousePointerClick className="h-4 w-4" strokeWidth={2.25} />
+            </div>
+            <div className="min-w-0 space-y-0.5">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-brand">Novidade</p>
+              <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">Clique com o botão direito num negócio</p>
+              <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                Abre um menu de ações rápidas: mudar de etapa, arquivar, enviar mensagem e mais — sem precisar entrar no negócio.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={dismissRightClickHint}
+              className="icon-btn -mt-1 -mr-1 shrink-0 !p-1 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200"
+              title="Entendi, não mostrar de novo"
+              aria-label="Fechar dica"
+            >
+              <X className="h-3.5 w-3.5" strokeWidth={2.2} />
+            </button>
+          </div>
+        </div>
+      )}
 
       {cardMenu && (
         <div

@@ -63,7 +63,7 @@ export default async function TabelaPage({ params }: { params: Promise<{ id: str
         </div>
       </div>
 
-      <dl className="grid grid-cols-2 gap-x-5 border-y border-neutral-200 sm:grid-cols-5 dark:border-neutral-800">
+      <dl className="grid grid-cols-2 gap-x-5 border-y border-neutral-200 sm:grid-cols-6 dark:border-neutral-800">
         <Fact label="Taxa de ADM" note={adjusted ? `Servopa: ${formatPercent(table.admOriginal, { trim: true })}` : undefined}>
           {formatPercent(table.admEffective, { trim: true })}
         </Fact>
@@ -74,6 +74,11 @@ export default async function TabelaPage({ params }: { params: Promise<{ id: str
         <Fact label="Vencimento">{table.dueDay ? `Dia ${table.dueDay}` : "—"}</Fact>
         <Fact label="Vagas" note={low ? "Poucas vagas" : undefined}>
           <span className={low ? "text-amber-600 dark:text-amber-400" : ""}>{table.vacancies === null ? "—" : table.vacancies}</span>
+        </Fact>
+        <Fact label="Faixa de lances ofertados" note="Mín./máx. já vistos nas assembleias deste grupo">
+          {table.bidOfferedRange
+            ? `${formatPercent(table.bidOfferedRange.min, { trim: true })} a ${formatPercent(table.bidOfferedRange.max, { trim: true })}`
+            : "—"}
         </Fact>
       </dl>
 

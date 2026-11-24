@@ -7,9 +7,20 @@ import { getDealScope } from "@/lib/team-scope";
 import { canManageShareGroups } from "@/lib/share-groups";
 import { TeamManager } from "./team-manager";
 import { ShareGroupManager } from "./share-group-manager";
+import { PortfolioTransferManager } from "./portfolio-transfer-manager";
 
-export default async function EquipesSettingsPage() {
+export default async function EquipesSettingsPage({
+  searchParams,
+}: {
+  // ?from=<userId> — atalho de "Desativar" (ver members-table.tsx), que já
+  // chega aqui perguntando se o Dono/Gerente quer passar a carteira de quem
+  // acabou de desativar. Preseleciona a origem em PortfolioTransferManager,
+  // nunca confia no valor (o próprio componente só aceita se bater com um
+  // candidato que o escopo do ator já autoriza).
+  searchParams: Promise<{ from?: string }>;
+}) {
   const session = await auth();
+  const { from: preselectFromUserId } = await searchParams;
   // Supervisor entra aqui também (diferente de antes, só Dono/Gerente) —
   // precisa alcançar o compartilhamento entre consultores pra própria
   // equipe (ver seção abaixo). A própria gestão de Equipes continua restrita
@@ -26,7 +37,7 @@ export default async function EquipesSettingsPage() {
 
   return runWithTenant(organizationId, async () => {
     // Nenhuma depende da outra — rodam em paralelo.
-    const [teamsRaw, members, shareGroups, scope] = await Promise.all([
+    const [teamsRaw, members, allMembers, shareGroups, scope] = await Promise.all([
       prisma.team.findMany({
         where: { organizationId },
         orderBy: { createdAt: "asc" },
@@ -38,6 +49,16 @@ export default async function EquipesSettingsPage() {
       }),
       prisma.organizationUser.findMany({
         where: { organizationId, active: true },
+        orderBy: { createdAt: "asc" },
+        include: { user: { select: { id: true, name: true, email: true } } },
+      }),
+      // Igual a `members`, mas SEM o filtro active: true — "Passar carteira
+      // de clientes" (ver PortfolioTransferManager abaixo) precisa oferecer
+      // o consultor que JÁ SAIU (desativado) como origem, senão a tela fica
+      // inútil pro caso de uso real dela. Só pra origem: destino continua
+      // restrito a quem está ativo (eligibleMembers), ver abaixo.
+      prisma.organizationUser.findMany({
+        where: { organizationId },
         orderBy: { createdAt: "asc" },
         include: { user: { select: { id: true, name: true, email: true } } },
       }),
@@ -76,6 +97,11 @@ export default async function EquipesSettingsPage() {
       scope.type === "all"
         ? members.map((m) => m.user)
         : members.filter((m) => scope.ownerIds.includes(m.userId)).map((m) => m.user);
+
+    const transferOrigins =
+      scope.type === "all"
+        ? allMembers.map((m) => ({ ...m.user, active: m.active }))
+        : allMembers.filter((m) => scope.ownerIds.includes(m.userId)).map((m) => ({ ...m.user, active: m.active }));
 
     return (
       // max-w-4xl (não mais 2xl) — pedido explícito: os cards de equipe
@@ -116,6 +142,14 @@ export default async function EquipesSettingsPage() {
             eligibleMembers={eligibleMembers}
             currentUserId={userId}
             isOwner={isOwner}
+          />
+        </div>
+
+        <div id="passar-carteira" className="space-y-4 border-t border-neutral-200 pt-6 dark:border-neutral-800">
+          <PortfolioTransferManager
+            fromCandidates={transferOrigins}
+            toCandidates={eligibleMembers}
+            preselectFromUserId={preselectFromUserId}
           />
         </div>
       </div>

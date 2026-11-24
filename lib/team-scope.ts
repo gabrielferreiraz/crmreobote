@@ -5,15 +5,20 @@ export type DealScope = { type: "all" } | { type: "owners"; ownerIds: string[] }
 /**
  * Donos (OWNER) sempre enxergam tudo. Gerentes (MANAGER) enxergam a união
  * das equipes que o Dono atribuiu a eles (Team.managerId — podem
- * supervisionar várias equipes/supervisores ao mesmo tempo). Supervisores
- * (SUPERVISOR) enxergam só a própria equipe (Team.leaderId). Consultores
- * (MEMBER) só enxergam os próprios negócios.
+ * supervisionar várias equipes/supervisores ao mesmo tempo) MAIS qualquer
+ * consultor sem equipe nenhuma (teamId null — pedido explícito do Dono,
+ * 11/2026: sem isso o consultor "encalhado" fica invisível pra todo Gerente,
+ * e os números de Início/Relatório nunca batem com o Pipeline de verdade).
+ * Supervisores (SUPERVISOR) enxergam só a própria equipe (Team.leaderId).
+ * Consultores (MEMBER) só enxergam os próprios negócios.
  *
- * Sem equipe atribuída/liderada, Gerente e Supervisor caem no fallback mais
- * RESTRITO (só os próprios negócios) — nunca no mais aberto. Isso é
- * deliberado: o desenho anterior (ADMIN sem equipe = vê tudo) era uma folha
- * de segurança desnecessária, já que "sem equipe" não deveria significar
- * "acesso total" por padrão.
+ * Sem equipe liderada, Supervisor cai no fallback mais RESTRITO (só os
+ * próprios negócios) — nunca no mais aberto. Isso é deliberado: o desenho
+ * anterior (ADMIN sem equipe = vê tudo) era uma folha de segurança
+ * desnecessária, já que "sem equipe" não deveria significar "acesso total"
+ * por padrão. Gerente sem NENHUMA equipe atribuída ainda assim vê os
+ * consultores sem equipe (mesma regra acima) — só não ganha o que pertence a
+ * equipe de outro Gerente.
  */
 export async function getDealScope(
   organizationId: string,
@@ -23,11 +28,20 @@ export async function getDealScope(
   if (role === "OWNER") return { type: "all" };
 
   if (role === "MANAGER") {
-    const teams = await prisma.team.findMany({
-      where: { organizationId, managerId: userId },
-      include: { members: { select: { userId: true } } },
-    });
-    if (teams.length === 0) return { type: "owners", ownerIds: [userId] };
+    const [teams, unassigned] = await Promise.all([
+      prisma.team.findMany({
+        where: { organizationId, managerId: userId },
+        include: { members: { select: { userId: true } } },
+      }),
+      // Consultor sem equipe nenhuma (teamId null) não pertence à equipe de
+      // ninguém, então nunca entrava no escopo de nenhum Gerente — pedido
+      // explícito do Dono (11/2026): Gerente vê todo mundo, mesmo quem ainda
+      // não foi encaixado numa equipe.
+      prisma.organizationUser.findMany({
+        where: { organizationId, teamId: null },
+        select: { userId: true },
+      }),
+    ]);
     const ownerIds = new Set(teams.flatMap((t) => t.members.map((m) => m.userId)));
     // O líder (Supervisor) de cada equipe não é necessariamente um "membro"
     // dela (Team.leaderId e OrganizationUser.teamId são independentes) —
@@ -36,6 +50,7 @@ export async function getDealScope(
     for (const t of teams) {
       if (t.leaderId) ownerIds.add(t.leaderId);
     }
+    for (const u of unassigned) ownerIds.add(u.userId);
     ownerIds.add(userId);
     return { type: "owners", ownerIds: Array.from(ownerIds) };
   }
