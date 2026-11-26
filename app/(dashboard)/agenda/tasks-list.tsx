@@ -252,6 +252,25 @@ export function TasksList({
     return { ok: true };
   }
 
+  // Concluir em massa pelo menu do botão direito da grade do mês (ver
+  // "Selecionar" + context menu em task-calendar.tsx) — mesmo padrão de
+  // bulkMoveTasks acima, servidor é a verdade, sem estado otimista.
+  async function bulkCompleteTasks(taskIds: string[]): Promise<{ ok: boolean; error?: string }> {
+    const res = await fetch("/api/tasks/bulk-complete", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ taskIds }),
+    });
+    const data = await res.json().catch(() => ({}));
+    router.refresh();
+    if (!res.ok) return { ok: false, error: data.error ?? "Não foi possível concluir a(s) tarefa(s)" };
+    if (data.skipped > 0 && data.skippedReason) {
+      return { ok: false, error: `${data.completed} concluída${data.completed === 1 ? "" : "s"} · ${data.skipped} fora: ${data.skippedReason}` };
+    }
+    pushUndoToast(data.undo);
+    return { ok: true };
+  }
+
   return (
     <div className="space-y-6">
       <GoogleCalendarBanner
@@ -418,6 +437,7 @@ export function TasksList({
               onToggle={toggleComplete}
               onDelete={deleteTask}
               onBulkMove={bulkMoveTasks}
+              onBulkComplete={bulkCompleteTasks}
               canDelete={canDelete}
               showOwner={showOwner}
               googleEvents={showGoogleEvents ? googleCalendar.events : []}

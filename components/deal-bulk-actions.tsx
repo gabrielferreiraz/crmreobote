@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { GitBranch, Layers, User, Send, CheckCircle2, XCircle, Tag, CalendarPlus, X, Archive } from "lucide-react";
+import { GitBranch, Layers, User, Send, CheckCircle2, XCircle, Tag, CalendarPlus, ListChecks, X, Archive } from "lucide-react";
 import { SelectionBar } from "@/components/selection-bar";
 import { BulkActionPopover } from "@/components/bulk-action-popover";
 import { SelectPopoverBody } from "@/components/select-popover-body";
@@ -240,6 +240,17 @@ export function DealBulkActions({
         >
           <CalendarPlus className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
           Marcar tarefa
+        </button>
+
+        <button
+          type="button"
+          onClick={() => apply({ action: "completeTasks" }, "pipeline.massa.concluir-tarefas")}
+          disabled={busy}
+          className={itemClass()}
+          title="Conclui as tarefas em aberto desses negócios (Videochamada/Visita ficam de fora — concluem com o resultado)"
+        >
+          <ListChecks className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+          Concluir tarefas
         </button>
 
         <button

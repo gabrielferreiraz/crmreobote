@@ -31,6 +31,7 @@ export const FEATURE_LABELS = {
   "pipeline.massa.ganho": "Pipeline · massa: marcar ganho",
   "pipeline.massa.perdido": "Pipeline · massa: marcar perdido",
   "pipeline.massa.mensagem": "Pipeline · massa: enviar mensagem",
+  "pipeline.massa.concluir-tarefas": "Pipeline · massa: concluir tarefas",
   "pipeline.card.arrastar": "Pipeline · arrastar card entre etapas",
   "pipeline.card.arquivar": "Pipeline · arquivar negócio pelo botão direito",
   "pipeline.card.menu-botao-direito": "Pipeline · abrir menu do botão direito no card",

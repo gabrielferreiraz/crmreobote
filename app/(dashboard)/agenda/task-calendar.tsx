@@ -88,6 +88,7 @@ export function TaskCalendar({
   onToggle,
   onDelete,
   onBulkMove,
+  onBulkComplete,
   canDelete,
   showOwner,
   googleEvents = [],
@@ -102,6 +103,10 @@ export function TaskCalendar({
    * arrastáveis (nenhum chamador hoje deixa de passar, mas assim nenhum
    * outro uso futuro deste componente quebra por causa disso). */
   onBulkMove?: (taskIds: string[], newDate: string) => Promise<{ ok: boolean; error?: string }>;
+  /** Concluir a seleção inteira de uma vez (menu do botão direito, só com
+   * "Selecionar" ativo — ver dayMenu abaixo). Mesmo opcional que onBulkMove
+   * e pelo mesmo motivo. */
+  onBulkComplete?: (taskIds: string[]) => Promise<{ ok: boolean; error?: string }>;
   /** Qualquer papel com acesso à tarefa pode excluir — ver TaskDetailModal. */
   canDelete?: boolean;
   showOwner: boolean;
@@ -123,6 +128,8 @@ export function TaskCalendar({
   const [selectMode, setSelectMode] = useState(false);
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
   const [activeDrag, setActiveDrag] = useState<{ task: Task; count: number } | null>(null);
+  // Usado tanto pra falha de arraste quanto de "Concluir" em massa (menu do
+  // botão direito, ver dayMenu abaixo) — mesmo aviso flutuante nos dois casos.
   const [moveError, setMoveError] = useState<string | null>(null);
   // Some sozinho depois de um tempo — sem isso, uma falha de arraste ficava
   // no canto da tela pra sempre até a pessoa tentar arrastar de novo (nem dá
@@ -132,6 +139,34 @@ export function TaskCalendar({
     const timeout = setTimeout(() => setMoveError(null), 6000);
     return () => clearTimeout(timeout);
   }, [moveError]);
+  // Menu do botão direito num dia (só com "Selecionar" ativo, ver o botão
+  // "Selecionar" mais abaixo): "selecionar todos deste dia" e, com alguma
+  // tarefa já marcada, "concluir" a seleção inteira de uma vez — pedido
+  // explícito ("arrastar normalmente, e finalizar também todos de uma vez").
+  // Mesmo desenho do cardMenu do Kanban (ver kanban-board.tsx): posição fixa
+  // nas coordenadas do clique, fechado por clique fora/Esc/roda do mouse.
+  const [dayMenu, setDayMenu] = useState<{ x: number; y: number; day: Date } | null>(null);
+  useEffect(() => {
+    if (!dayMenu) return;
+    function onPointerDown(e: MouseEvent) {
+      if ((e.target as HTMLElement).closest("[data-day-menu]")) return;
+      setDayMenu(null);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setDayMenu(null);
+    }
+    function onWheel() {
+      setDayMenu(null);
+    }
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("wheel", onWheel, { passive: true });
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("wheel", onWheel);
+    };
+  }, [dayMenu]);
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 6 } }),
@@ -226,6 +261,46 @@ export function TaskCalendar({
     });
   }
 
+  /** IDs selecionáveis de um dia — concluída nunca entra (mesma regra do
+   * checkbox de cada TaskPill, ver canSelect em DayCell/TaskPill abaixo). */
+  function selectableIdsForDay(day: Date): string[] {
+    return (tasksByDay.get(day.toDateString()) ?? []).filter((t) => !t.completedAt).map((t) => t.id);
+  }
+
+  /** "Selecionar todos deste dia" do menu do botão direito — alterna: marca
+   * todo mundo se faltar algum, desmarca todo mundo se já estava tudo
+   * marcado (não fecha o menu, pra já poder clicar "Concluir" em seguida). */
+  function toggleSelectAllInDay(day: Date) {
+    const ids = selectableIdsForDay(day);
+    if (ids.length === 0) return;
+    setSelectedTaskIds((prev) => {
+      const allSelected = ids.every((id) => prev.has(id));
+      const next = new Set(prev);
+      for (const id of ids) {
+        if (allSelected) next.delete(id);
+        else next.add(id);
+      }
+      return next;
+    });
+  }
+
+  /** "Concluir N selecionadas" do menu do botão direito — mesma ação de
+   * "Concluir tarefas" do Pipeline (components/deal-bulk-actions.tsx), só
+   * que operando direto nos ids de TAREFA já marcados aqui. */
+  async function completeSelected() {
+    if (!onBulkComplete || selectedTaskIds.size === 0) return;
+    const ids = Array.from(selectedTaskIds);
+    setDayMenu(null);
+    setMoveError(null);
+    const result = await onBulkComplete(ids);
+    if (!result.ok) {
+      setMoveError(result.error ?? "Não foi possível concluir a(s) tarefa(s)");
+      return;
+    }
+    setSelectedTaskIds(new Set());
+    setSelectMode(false);
+  }
+
   function handleDragStart(event: DragStartEvent) {
     const task = (event.active.data.current as { task?: Task } | undefined)?.task;
     if (!task) return;
@@ -296,13 +371,18 @@ export function TaskCalendar({
               onClick={() => {
                 setSelectMode((v) => !v);
                 setSelectedTaskIds(new Set());
+                setDayMenu(null);
               }}
               className={`ml-1 rounded-md border px-2.5 py-1 text-xs font-medium transition-all ${
                 selectMode
                   ? "border-transparent bg-neutral-800 text-white dark:bg-neutral-200 dark:text-neutral-900"
                   : "border-transparent bg-neutral-100 text-neutral-500 hover:bg-neutral-200 hover:text-neutral-700 dark:bg-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800"
               }`}
-              title={selectMode ? "Cancelar seleção" : "Selecionar várias tarefas pra arrastar juntas"}
+              title={
+                selectMode
+                  ? "Cancelar seleção"
+                  : "Selecionar várias tarefas pra arrastar juntas — ou, com o botão direito num dia, concluir todas de uma vez"
+              }
             >
               {selectMode ? "Cancelar" : "Selecionar"}
             </button>
@@ -365,6 +445,14 @@ export function TaskCalendar({
             selectedTaskIds={selectedTaskIds}
             onToggleTaskSelect={toggleTaskSelection}
             onOpenDay={() => setSelectedDay(day)}
+            onContextMenu={
+              selectMode
+                ? (e) => {
+                    e.preventDefault();
+                    setDayMenu({ x: e.clientX, y: e.clientY, day });
+                  }
+                : undefined
+            }
             onOpenTask={(t) => setSelectedTask(t)}
             onOpenGoogleEvent={(e) => setSelectedGoogleEvent(e)}
             onToggleTask={handleToggleTask}
@@ -375,6 +463,47 @@ export function TaskCalendar({
           />
         ))}
       </div>
+
+      {dayMenu && (() => {
+        const dayIds = selectableIdsForDay(dayMenu.day);
+        const allSelected = dayIds.length > 0 && dayIds.every((id) => selectedTaskIds.has(id));
+        return (
+          <div
+            data-day-menu=""
+            role="menu"
+            aria-label={`Ações do dia ${dayMenu.day.getDate()}`}
+            style={{
+              left: Math.min(dayMenu.x, Math.max(8, window.innerWidth - 248)),
+              top: Math.min(dayMenu.y, Math.max(8, window.innerHeight - 160)),
+            }}
+            className="animate-pop-in fixed z-50 min-w-[232px] rounded-md border border-neutral-200 bg-white py-1 text-sm shadow-lg dark:border-neutral-700 dark:bg-neutral-900"
+          >
+            <button
+              type="button"
+              disabled={dayIds.length === 0}
+              onClick={() => toggleSelectAllInDay(dayMenu.day)}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-neutral-700 hover:bg-neutral-100 disabled:opacity-50 dark:text-neutral-200 dark:hover:bg-neutral-800"
+            >
+              <CircleCheck className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+              {allSelected ? "Desmarcar" : "Selecionar"} todos deste dia
+              {dayIds.length > 0 ? ` (${dayIds.length})` : ""}
+            </button>
+            {selectedTaskIds.size > 0 && onBulkComplete && (
+              <>
+                <div className="my-1 border-t border-neutral-200 dark:border-neutral-800" />
+                <button
+                  type="button"
+                  onClick={() => void completeSelected()}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left font-medium text-emerald-600 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-500/10"
+                >
+                  <CheckSquare className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+                  Concluir {selectedTaskIds.size} selecionada{selectedTaskIds.size === 1 ? "" : "s"}
+                </button>
+              </>
+            )}
+          </div>
+        );
+      })()}
 
       {selectedDay && (
         <Modal onClose={closeSelectedDay} maxWidth="max-w-4xl" panelClassName="!overflow-hidden !p-0 !pb-0">
@@ -1119,6 +1248,7 @@ function DayCell({
   selectedTaskIds,
   onToggleTaskSelect,
   onOpenDay,
+  onContextMenu,
   onOpenTask,
   onOpenGoogleEvent,
   onToggleTask,
@@ -1139,6 +1269,9 @@ function DayCell({
   selectedTaskIds: Set<string>;
   onToggleTaskSelect: (id: string) => void;
   onOpenDay: () => void;
+  /** Menu "selecionar/concluir todos deste dia" — só passado (não undefined)
+   * com "Selecionar" ativo, ver TaskCalendar. */
+  onContextMenu?: (e: React.MouseEvent) => void;
   onOpenTask: (task: Task) => void;
   onOpenGoogleEvent: (event: GoogleEvent) => void;
   /** Concluir/reabrir direto do preview de hover — mesma trava de resultado
@@ -1168,6 +1301,7 @@ function DayCell({
     <div
       ref={setNodeRef}
       onClick={onOpenDay}
+      onContextMenu={onContextMenu}
       className={`min-h-[138px] cursor-pointer p-2 transition-colors 2xl:min-h-[150px] ${
         isOver
           ? "bg-brand-light dark:bg-brand/15"

@@ -36,10 +36,15 @@ export function BulkCreateTasksDialog({
   const [scope, setScope] = useState<"all" | "custom">("all");
   const [type, setType] = useState<TaskType>("CALL");
   const [dueAt, setDueAt] = useState(tomorrowAtNine);
+  // dueAt começa amanhã (futuro) — só muda pra true no onChange do campo de
+  // data, nunca recalculado aqui no render (react-hooks/purity não deixa
+  // Date.now() rodar durante a renderização).
+  const [isPastDue, setIsPastDue] = useState(false);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [markCompleted, setMarkCompleted] = useState(false);
   const [scheduleMessage, setScheduleMessage] = useState(false);
   const [messageMode, setMessageMode] = useState<"script" | "custom">("script");
   const [scripts, setScripts] = useState<ScriptOption[] | null>(null);
@@ -73,7 +78,15 @@ export function BulkCreateTasksDialog({
   const previewText = messageMode === "script"
     ? selectedScript?.steps[0]?.text ?? ""
     : message;
-  const canCreate = !scheduleMessage || (messageMode === "script" ? !!selectedScript : !!message.trim());
+  // Videochamada/Visita só concluem com um resultado (Realizada/Não compareceu
+  // etc., ver MeetingOutcomeDialog) — aqui é só "já fiz", sem perguntar o
+  // resultado, então não oferece a caixa pra esses dois tipos.
+  const canMarkCompleted = isPastDue && type !== "VIDEO_CALL" && type !== "VISIT";
+  // Campanha de WhatsApp é um ENVIO programado pro horário da tarefa — não
+  // existe "programar envio no passado", então com prazo já passado a opção
+  // some (ver JSX abaixo) e aqui ela também para de contar.
+  const effectiveScheduleMessage = scheduleMessage && !isPastDue;
+  const canCreate = !effectiveScheduleMessage || (messageMode === "script" ? !!selectedScript : !!message.trim());
 
   useEffect(() => {
     if (!scheduleMessage || scripts !== null) return;
@@ -114,7 +127,8 @@ export function BulkCreateTasksDialog({
           dealIds: effectiveIds,
           type,
           dueAt,
-          ...(scheduleMessage ? {
+          ...(canMarkCompleted && markCompleted ? { completed: true } : {}),
+          ...(effectiveScheduleMessage ? {
             whatsappCampaign: {
               scheduledAt: dueAt,
               ...(messageMode === "script" ? { scriptId } : { message }),
@@ -195,7 +209,13 @@ export function BulkCreateTasksDialog({
               <button
                 key={value}
                 type="button"
-                onClick={() => setType(value)}
+                onClick={() => {
+                  setType(value);
+                  // Entrando/saindo de Videochamada/Visita com data já
+                  // passada: a caixa "já fiz" acompanha (só esses dois tipos
+                  // não a mostram, ver canMarkCompleted acima).
+                  setMarkCompleted(isPastDue && value !== "VIDEO_CALL" && value !== "VISIT");
+                }}
                 className={`flex h-10 items-center gap-2 rounded-md border px-3 text-sm font-medium transition-colors ${
                   active
                     ? "border-indigo-500 bg-indigo-50 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-200"
@@ -211,10 +231,44 @@ export function BulkCreateTasksDialog({
 
         <label className="block space-y-1.5">
           <span className="text-sm font-medium text-neutral-800 dark:text-neutral-200">Data e horário</span>
-          <input type="datetime-local" value={dueAt} onChange={(event) => setDueAt(event.target.value)} className="field-input" />
+          <input
+            type="datetime-local"
+            value={dueAt}
+            onChange={(event) => {
+              const value = event.target.value;
+              setDueAt(value);
+              const past = !!value && new Date(value).getTime() < Date.now();
+              setIsPastDue(past);
+              // Data passada = a pessoa já fez isso — a caixa já nasce
+              // marcada (consultor só desmarca se quiser, não precisa
+              // lembrar de marcar). Volta a desmarcar se a data deixa de
+              // ser passada (criando uma tarefa futura de verdade).
+              setMarkCompleted(past && type !== "VIDEO_CALL" && type !== "VISIT");
+            }}
+            className="field-input"
+          />
         </label>
 
-        {type === "WHATSAPP" && (
+        {canMarkCompleted && (
+          <label className="flex cursor-pointer items-start gap-2.5 rounded-md border border-neutral-200 p-3 text-sm dark:border-neutral-800">
+            <input
+              type="checkbox"
+              checked={markCompleted}
+              onChange={(event) => setMarkCompleted(event.target.checked)}
+              className="mt-0.5 accent-indigo-600"
+            />
+            <span>
+              <span className="block font-medium text-neutral-800 dark:text-neutral-200">
+                Marcar como concluída
+              </span>
+              <span className="block text-xs text-neutral-500">
+                A pessoa já fez isso nessa data passada — a tarefa já nasce concluída, sem aparecer como pendente ou atrasada.
+              </span>
+            </span>
+          </label>
+        )}
+
+        {type === "WHATSAPP" && !isPastDue && (
           <section className="space-y-3 border-t border-neutral-200 pt-4 dark:border-neutral-800">
             <label className="flex cursor-pointer items-center gap-2.5 text-sm font-medium text-neutral-800 dark:text-neutral-200">
               <input type="checkbox" checked={scheduleMessage} onChange={(event) => setScheduleMessage(event.target.checked)} className="accent-indigo-600" />

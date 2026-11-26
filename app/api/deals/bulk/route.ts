@@ -63,7 +63,7 @@ export const dynamic = "force-dynamic";
 
 const MAX_DEALS_PER_BULK = 10000;
 
-type BulkAction = "move" | "status" | "owner" | "source" | "archive";
+type BulkAction = "move" | "status" | "owner" | "source" | "archive" | "completeTasks";
 
 type Body = {
   dealIds?: string[];
@@ -164,7 +164,14 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   }
-  if (action !== "move" && action !== "status" && action !== "owner" && action !== "source" && action !== "archive") {
+  if (
+    action !== "move" &&
+    action !== "status" &&
+    action !== "owner" &&
+    action !== "source" &&
+    action !== "archive" &&
+    action !== "completeTasks"
+  ) {
     return NextResponse.json({ error: "Ação inválida" }, { status: 400 });
   }
 
@@ -209,6 +216,8 @@ export async function POST(req: Request) {
           userId,
           actorName: access.session?.user?.name ?? "Usuário",
         });
+      case "completeTasks":
+        return bulkCompleteTasks({ body, scopedWhere, organizationId, userId });
     }
   });
 }
@@ -770,6 +779,54 @@ async function bulkArchive({
   recordUserChange(organizationId, userId).catch((err) => console.error("[user-activity] falha ao registrar alteração", err));
 
   return NextResponse.json({ updated: changed.length, skipped, skippedReason: skipped > 0 ? skippedReason : null, undo });
+}
+
+/**
+ * Concluir AGORA as tarefas em aberto dos negócios selecionados — distinto
+ * de "Marcar tarefa" (que CRIA uma tarefa nova, inclusive com data passada
+ * e já concluída, ver POST /api/tasks/bulk). Aqui é o inverso: os negócios
+ * já têm tarefa pendente (ligação, e-mail, etc.) e o consultor confirma de
+ * uma vez "já fiz todas essas".
+ *
+ * Videochamada/Visita ficam de fora: só concluem com um resultado (ver
+ * PATCH /api/tasks/[id], "Informe o resultado da videochamada/visita antes
+ * de concluir") que esta ação em massa não pergunta — essas continuam
+ * pendentes e entram no "skipped".
+ */
+async function bulkCompleteTasks({ scopedWhere, organizationId, userId }: Ctx) {
+  const deals = await prisma.deal.findMany({ where: scopedWhere, select: { id: true } });
+  if (deals.length === 0) return NextResponse.json({ error: "Nenhum negócio encontrado" }, { status: 404 });
+
+  const tasks = await prisma.task.findMany({
+    where: { organizationId, dealId: { in: deals.map((d) => d.id) }, completedAt: null },
+    select: { id: true, type: true },
+  });
+  if (tasks.length === 0) {
+    return NextResponse.json({ error: "Nenhuma tarefa pendente entre os negócios selecionados." }, { status: 404 });
+  }
+
+  const completable = tasks.filter((t) => t.type !== "VIDEO_CALL" && t.type !== "VISIT");
+  const skipped = tasks.length - completable.length;
+  const skippedReason = skipped > 0 ? "Videochamada e Visita concluem com o resultado da tarefa — abra cada uma." : null;
+  if (completable.length === 0) {
+    return NextResponse.json({ updated: 0, skipped, skippedReason });
+  }
+
+  const ids = completable.map((t) => t.id);
+  await prisma.task.updateMany({ where: { id: { in: ids } }, data: { completedAt: new Date() } });
+
+  const undo = await recordBulkUndo({
+    organizationId,
+    userId,
+    groups: [{ model: "task", previousValues: { completedAt: null }, entityIds: ids }],
+    original: plural(completable.length, "tarefa concluída", "tarefas concluídas"),
+    afterRevert:
+      completable.length === 1 ? "1 tarefa voltou a ficar pendente" : `${completable.length} tarefas voltaram a ficar pendentes`,
+  });
+
+  recordUserChange(organizationId, userId).catch((err) => console.error("[user-activity] falha ao registrar alteração", err));
+
+  return NextResponse.json({ updated: completable.length, skipped, skippedReason, undo });
 }
 
 async function recordBulkUndo(params: {

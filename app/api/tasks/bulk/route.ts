@@ -27,6 +27,8 @@ type Body = {
   dealIds?: string[];
   type?: string;
   dueAt?: string;
+  /** "Já fiz isso" — só com dueAt no passado (ver validação abaixo). */
+  completed?: boolean;
   whatsappCampaign?: { scriptId?: string; message?: string; scheduledAt?: string };
 };
 
@@ -79,6 +81,21 @@ export async function POST(request: Request) {
     }
     const type = body.type as $Enums.TaskType;
     const label = TYPE_LABELS[type];
+
+    // "Já fiz isso": só faz sentido pra data passada (senão a tarefa nasceria
+    // concluída sem ninguém ter feito nada ainda) e nunca pra Videochamada/
+    // Visita — esses dois só concluem com um resultado (ver PATCH /api/tasks/
+    // [id]: "Informe o resultado da videochamada/visita antes de concluir"),
+    // que este fluxo em lote não pergunta.
+    const markCompleted = body.completed === true;
+    if (markCompleted) {
+      if (dueAt.getTime() > Date.now()) {
+        return NextResponse.json({ error: "Só é possível marcar como concluída uma tarefa com data no passado." }, { status: 400 });
+      }
+      if (type === "VIDEO_CALL" || type === "VISIT") {
+        return NextResponse.json({ error: "Videochamada e Visita concluem com o resultado da tarefa, não aqui." }, { status: 400 });
+      }
+    }
 
     let scheduledAt: Date | null = null;
     let messageTemplates: Prisma.InputJsonValue | null = null;
@@ -190,6 +207,10 @@ export async function POST(request: Request) {
         type,
         title: `${label} com ${deal.contact.name}`,
         dueAt,
+        // Mesma data da tarefa (não "agora") — os relatórios contam atividade
+        // por completedAt (ver lib/reports/commercial-data.ts), então marcar
+        // "agora" faria essa ligação de ontem contar no dia de hoje.
+        completedAt: markCompleted ? dueAt : undefined,
         activityId: activityIds.get(deal.id),
       }));
       await tx.task.createMany({ data: tasks });
