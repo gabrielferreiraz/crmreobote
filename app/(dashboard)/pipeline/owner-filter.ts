@@ -21,6 +21,11 @@ export type OwnerFilterMember = { id: string; teamId: string | null; active: boo
 
 const TEAM_PREFIX = "team:";
 
+/** Opção "Só negócios divididos" do filtro Responsável: não filtra por pessoa,
+ * vira o parâmetro `splitOnly=1` (ver buildDealsWhere). */
+export const SPLIT_FILTER_VALUE = "split";
+export const SPLIT_FILTER_OPTION = { value: SPLIT_FILTER_VALUE, label: "Só negócios divididos" };
+
 export function teamFilterValue(teamId: string): string {
   return `${TEAM_PREFIX}${teamId}`;
 }
@@ -55,7 +60,7 @@ export function resolveOwnerIdParam(
   members: OwnerFilterMember[],
   impossibleId: string,
 ): string | null {
-  if (!ownerFilter) {
+  if (!ownerFilter || ownerFilter === SPLIT_FILTER_VALUE) {
     if (!ownerStatusFilter) return null;
     const ids = members.filter((m) => (ownerStatusFilter === "active" ? m.active : !m.active)).map((m) => m.id);
     return ids.length > 0 ? ids.join(",") : impossibleId;

@@ -205,11 +205,10 @@ export function DealSplitSection({
                 type="button"
                 onClick={() => update(rows[0].userId, co)}
                 aria-pressed={active}
-                className={`rounded-full border px-2.5 py-1 text-xs font-medium tabular-nums transition-colors ${
-                  active
-                    ? "border-brand bg-brand-light text-brand dark:bg-[var(--brand-subtle)]"
-                    : "border-neutral-200 text-neutral-600 hover:border-neutral-300 dark:border-neutral-700 dark:text-neutral-300"
-                }`}
+                className={`rounded-full border px-2.5 py-1 text-xs font-medium tabular-nums transition-colors ${active
+                  ? "border-brand bg-brand-light text-brand dark:bg-[var(--brand-subtle)]"
+                  : "border-neutral-200 text-neutral-600 hover:border-neutral-300 dark:border-neutral-700 dark:text-neutral-300"
+                  }`}
               >
                 {100 - co}/{co}
               </button>

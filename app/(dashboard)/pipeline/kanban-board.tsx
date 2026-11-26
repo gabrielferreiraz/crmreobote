@@ -30,7 +30,7 @@ import { Select } from "@/components/select";
 import { usePersistedFilters } from "@/lib/use-persisted-filters";
 import { sortSelfFirst } from "@/lib/sort-self-first";
 import { sortAlpha, sortActiveThenAlpha } from "@/lib/sort-alpha";
-import { teamFilterOptions, resolveOwnerIdParam, type TeamOption } from "./owner-filter";
+import { teamFilterOptions, resolveOwnerIdParam, SPLIT_FILTER_VALUE, SPLIT_FILTER_OPTION, type TeamOption } from "./owner-filter";
 import { classifyTaskUrgency, type TaskUrgency } from "@/lib/task-urgency";
 import type { PipelineQuickFilter } from "./pipeline-filters";
 import { PipelineQuickFilterNotice } from "./pipeline-quick-filter-buttons";
@@ -66,6 +66,8 @@ export type Deal = {
   stage: { id: string; name: string; color: string | null };
   contact: { id: string; name: string; source: string | null; jobTitle: string | null };
   owner: { id: string; name: string; photoUrl: string | null };
+  /** Co-responsáveis do negócio dividido. Ausente em negócio recém-criado na tela. */
+  coOwners?: { id: string; name: string }[];
   nextActivity: string | null;
   taskTypes: string[];
   /** Prazo da mesma tarefa pendente que já vira nextActivity — alimenta a
@@ -581,6 +583,7 @@ export function KanbanBoard({
     // app/api/deals/route.ts), então uma equipe inteira vira essa lista.
     const ownerIdParam = resolveOwnerIdParam(filters.ownerFilter, filters.ownerStatusFilter, members, IMPOSSIBLE_OWNER_ID);
     if (ownerIdParam !== null) params.set("ownerId", ownerIdParam);
+    if (filters.ownerFilter === SPLIT_FILTER_VALUE) params.set("splitOnly", "1");
     if (filters.sourceFilter) params.set("source", filters.sourceFilter);
     if (filters.jobTitleFilter) params.set("jobTitle", filters.jobTitleFilter);
     if (filters.noValueOnly) params.set("noValue", "1");
@@ -1080,6 +1083,7 @@ export function KanbanBoard({
               className="w-full py-1.5 text-sm"
               options={[
                 { value: "", label: "Todos os responsáveis" },
+                SPLIT_FILTER_OPTION,
                 ...teamFilterOptions(teams),
                 ...orderedMembers.map((m) => ({
                   value: m.id,

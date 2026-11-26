@@ -30,7 +30,7 @@ export function AcademyOnboardingCard({
       </p>
       <p className="mt-2 text-sm leading-6 text-neutral-500 dark:text-neutral-400">
         {started
-          ? "Seu progresso está salvo. O CRM será liberado quando você chegar ao módulo da plataforma."
+          ? "Seu progresso está salvo. O Amplitude será liberado quando você chegar ao módulo da plataforma."
           : "Comece pelo treinamento. Ao chegar ao módulo de CRM, seu acesso será liberado automaticamente."}
       </p>
 

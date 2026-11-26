@@ -10,6 +10,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { getCurrentMembership } from "@/lib/current-membership";
 import { canBypassRegistration } from "@/lib/deal-registration/rules";
 import { dealScopeWhere } from "@/lib/deals/split";
+import { findDealNeighbors } from "@/lib/deals/neighbors";
 import { computeDealShares } from "@/lib/deals/split-shares";
 import { getSharedScope } from "@/lib/share-groups";
 import { listProposalsForDeal } from "@/lib/proposals/queries";
@@ -276,10 +277,17 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
       }),
     };
 
+    // Setas de anterior/próximo (mesma etapa do Kanban).
+    const { prevDealId, nextDealId } = await findDealNeighbors({ organizationId, scope, deal: dealRaw });
+
     return (
       <Suspense fallback={null}>
         <DealDetail
+          // Trocar de negócio pelas setas zera nota digitada, abas e janelas abertas.
+          key={dealRaw.id}
           deal={deal}
+          prevDealId={prevDealId}
+          nextDealId={nextDealId}
           members={members}
           lossReasons={lossReasons}
           customFields={customFields}

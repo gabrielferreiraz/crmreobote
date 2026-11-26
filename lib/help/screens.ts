@@ -63,7 +63,7 @@ const SCREENS: { match: (pathname: string) => boolean; screen: HelpScreen }[] = 
     match: (p) => p.startsWith("/whatsapp/conversas"),
     screen: {
       title: "Conversas",
-      purpose: "Atendimento pelo WhatsApp sem sair do CRM, já ligado ao cliente.",
+      purpose: "Atendimento pelo WhatsApp sem sair do Amplitude, já ligado ao cliente.",
       topicIds: ["conversas", "scripts", "atalhos"],
     },
   },
@@ -103,7 +103,7 @@ const SCREENS: { match: (pathname: string) => boolean; screen: HelpScreen }[] = 
     match: (p) => p.startsWith("/automacoes"),
     screen: {
       title: "Automações",
-      purpose: "Regras que o CRM executa sozinho quando algo acontece.",
+      purpose: "Regras que o Amplitude executa sozinho quando algo acontece.",
       topicIds: ["automacoes", "scripts"],
     },
   },

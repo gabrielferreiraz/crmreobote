@@ -24,7 +24,7 @@ import { countBulkFailures } from "@/lib/bulk-fetch";
 import { usePersistedFilters } from "@/lib/use-persisted-filters";
 import { sortSelfFirst } from "@/lib/sort-self-first";
 import { sortAlpha, sortActiveThenAlpha } from "@/lib/sort-alpha";
-import { teamFilterOptions, resolveOwnerIdParam, type TeamOption } from "./owner-filter";
+import { teamFilterOptions, resolveOwnerIdParam, SPLIT_FILTER_VALUE, SPLIT_FILTER_OPTION, type TeamOption } from "./owner-filter";
 import { saveBulkSendDraft, type BulkSendDraft } from "@/lib/pipeline-bulk-send-draft";
 import { ESTADOS_BR } from "@/lib/contacts/constants";
 import type { Deal } from "./kanban-board";
@@ -74,6 +74,11 @@ type MemberOption = { id: string; name: string; active: boolean; teamId: string 
 type Stage = { id: string; name: string; color: string | null };
 type PipelineOption = { id: string; name: string; stages: { id: string; name: string }[] };
 type Sums = { wonSum: number; lostSum: number; totalSum: number };
+
+/** Negócio dividido mostra todos os responsáveis: "Principal / Co-responsável". */
+function ownerNames(deal: Deal): string {
+  return [deal.owner.name, ...(deal.coOwners ?? []).map((c) => c.name)].join(" / ");
+}
 
 const STATUS_LABELS: Record<Deal["status"], string> = {
   OPEN: "Em andamento",
@@ -281,6 +286,7 @@ export function DealsList({
     // ver ./owner-filter.ts (mesma função em kanban-board.tsx).
     const ownerIdParam = resolveOwnerIdParam(ownerFilter, ownerStatusFilter, members, IMPOSSIBLE_OWNER_ID);
     if (ownerIdParam !== null) params.set("ownerId", ownerIdParam);
+    if (ownerFilter === SPLIT_FILTER_VALUE) params.set("splitOnly", "1");
     if (stageFilter) params.set("stageId", stageFilter);
     if (lossReasonFilter) params.set("lossReasonId", lossReasonFilter);
     if (jobTitleFilter) params.set("jobTitle", jobTitleFilter);
@@ -790,6 +796,7 @@ export function DealsList({
               className="w-full py-1.5 text-sm"
               options={[
                 { value: "", label: "Todos os responsáveis" },
+                SPLIT_FILTER_OPTION,
                 ...teamFilterOptions(teams),
                 ...orderedMembers.map((m) => ({
                   value: m.id,
@@ -1077,7 +1084,7 @@ export function DealsList({
                 <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-neutral-500 dark:text-neutral-400">
                   <span className="flex items-center gap-1.5">
                     <Avatar name={deal.owner.name} src={deal.owner.photoUrl} size="xs" />
-                    {deal.owner.name}
+                    {ownerNames(deal)}
                   </span>
                   <span>
                     {new Date(deal.status === "OPEN" ? deal.createdAt : (deal.closedAt ?? deal.createdAt)).toLocaleDateString("pt-BR")}
@@ -1162,6 +1169,7 @@ export function DealsList({
                         onChange={(v) => { setOwnerFilter(v); setPage(1); }}
                         allLabel="Todos os responsáveis"
                         options={[
+                          SPLIT_FILTER_OPTION,
                           ...teamFilterOptions(teams),
                           ...orderedMembers.map((m) => ({
                             value: m.id,
@@ -1251,7 +1259,7 @@ export function DealsList({
                     <td className="px-3 py-1.5 whitespace-nowrap text-neutral-500 dark:text-neutral-400">
                       <span className="flex items-center gap-1.5">
                         <Avatar name={deal.owner.name} src={deal.owner.photoUrl} size="xs" />
-                        {deal.owner.name}
+                        {ownerNames(deal)}
                       </span>
                     </td>
                     <td className="px-3 py-1.5 whitespace-nowrap text-neutral-500 dark:text-neutral-400">{deal.nextActivity ?? "—"}</td>

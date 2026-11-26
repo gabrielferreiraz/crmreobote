@@ -81,6 +81,7 @@ export async function GET(req: Request) {
       status: status ?? undefined,
       q,
       ownerIds,
+      splitOnly: searchParams.get("splitOnly") === "1",
       stageId,
       lossReasonId,
       jobTitle,

@@ -49,7 +49,7 @@ export default async function UsoDoCrmPage({ searchParams }: { searchParams: Pro
       <div>
         <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">
           <BarChart3 className="h-5 w-5 text-neutral-400" strokeWidth={2} />
-          Uso do CRM
+          Uso do Amplitude
         </h1>
         <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
           Conta ações concluídas, não cliques em botão — abrir um menu e fechar sem escolher nada não entra. Só o Dono vê
@@ -80,7 +80,7 @@ export default async function UsoDoCrmPage({ searchParams }: { searchParams: Pro
           <div>
             <p className="font-medium text-neutral-800 dark:text-neutral-200">Ainda sem dados neste período</p>
             <p className="mt-0.5">
-              Os números aparecem conforme a equipe for usando o CRM — o envio acontece a cada 30 segundos, junto do sinal
+              Os números aparecem conforme a equipe for usando o Amplitude — o envio acontece a cada 30 segundos, junto do sinal
               de presença que já existia. Ações novas só passam a contar depois que o sistema for atualizado.
             </p>
           </div>

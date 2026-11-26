@@ -115,6 +115,7 @@ export async function GET(req: Request) {
     status: (searchParams.get("status") as "OPEN" | "WON" | "LOST" | null) ?? undefined,
     q: searchParams.get("q") ?? undefined,
     ownerIds: ownerIdParam ? ownerIdParam.split(",").filter(Boolean) : undefined,
+    splitOnly: searchParams.get("splitOnly") === "1",
     stageId: searchParams.get("stageId") ?? undefined,
     lossReasonId: searchParams.get("lossReasonId") ?? undefined,
     jobTitle: searchParams.get("jobTitle") ?? undefined,
