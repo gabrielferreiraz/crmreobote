@@ -77,9 +77,6 @@ export async function POST(request: Request) {
     if (Number.isNaN(dueAt.getTime())) {
       return NextResponse.json({ error: "Data ou horário inválido." }, { status: 400 });
     }
-    if (dueAt.getTime() <= Date.now()) {
-      return NextResponse.json({ error: "Escolha uma data e um horário futuros." }, { status: 400 });
-    }
     const type = body.type as $Enums.TaskType;
     const label = TYPE_LABELS[type];
 

@@ -72,6 +72,7 @@ export function CentralView({
   const desktop = useDesktopViewport();
   const [tab, setTab] = useState<Tab>("mine");
   const [search, setSearch] = useState("");
+  const [consultant, setConsultant] = useState("");
   const [items, setItems] = useState<CentralItem[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [central, setCentral] = useState<CentralState | null>(null);
@@ -86,6 +87,7 @@ export function CentralView({
   // render, e cada carga nova aborta a anterior (aba trocada no meio).
   const tabRef = useRef<Tab>("mine");
   const searchRef = useRef("");
+  const consultantRef = useRef("");
   const selectedIdRef = useRef<string | null>(initialThreadId);
   const visibleIdsRef = useRef<Set<string>>(new Set());
   const usersLoadedRef = useRef(false);
@@ -99,6 +101,9 @@ export function CentralView({
     inFlightRef.current = controller;
     const params = new URLSearchParams({ tab: tabRef.current });
     if (searchRef.current.trim()) params.set("search", searchRef.current.trim());
+    if (consultantRef.current && (tabRef.current === "team" || tabRef.current === "closed")) {
+      params.set("assignee", consultantRef.current);
+    }
     if (selectedIdRef.current) params.set("selected", selectedIdRef.current);
     if (!usersLoadedRef.current && canManageQueue) params.set("withUsers", "1");
 
@@ -162,6 +167,15 @@ export function CentralView({
     if (next === tabRef.current) return;
     tabRef.current = next;
     setTab(next);
+    consultantRef.current = "";
+    setConsultant("");
+    setItems(null);
+    void load();
+  }
+
+  function changeConsultant(value: string) {
+    consultantRef.current = value;
+    setConsultant(value);
     setItems(null);
     void load();
   }
@@ -314,6 +328,21 @@ export function CentralView({
             className="field-input w-full pl-8"
           />
         </div>
+        {(tab === "team" || tab === "closed") && canManageQueue && assignableUsers.length > 0 && (
+          <select
+            value={consultant}
+            onChange={(event) => changeConsultant(event.target.value)}
+            className="field-input mt-2 w-full py-1.5 text-xs"
+            aria-label="Filtrar por consultor"
+          >
+            <option value="">Todos os consultores</option>
+            {assignableUsers.map((user) => (
+              <option key={user.id} value={user.id}>
+                {user.id === currentUserId ? `${user.name} (você)` : user.name}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {loadError && items === null ? (

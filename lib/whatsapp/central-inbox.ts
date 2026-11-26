@@ -4,7 +4,17 @@ import { canReadCentralThread, centralAssigneeIds, type CentralAccess } from "@/
 
 export type CentralInboxTab = "mine" | "team" | "unassigned" | "closed";
 
-function tabWhere(tab: CentralInboxTab, access: CentralAccess): Prisma.WhatsAppThreadWhereInput {
+/**
+ * Filtro opcional "por consultor" nas abas Equipe/Encerrados — sempre dentro
+ * do alcance de quem está vendo (mesma hierarquia do DealScope: consultor só
+ * o seu, supervisor a equipe, gerente todas as equipes, dono todo mundo).
+ * Pedir alguém fora do alcance não derruba a tela — só devolve lista vazia.
+ */
+function assigneeFilterAllowed(visibleIds: string[] | null, assigneeId: string): boolean {
+  return visibleIds === null || visibleIds.includes(assigneeId);
+}
+
+function tabWhere(tab: CentralInboxTab, access: CentralAccess, filterAssigneeId?: string): Prisma.WhatsAppThreadWhereInput {
   const visibleIds = centralAssigneeIds(access);
 
   if (tab === "mine") return { inboxStatus: "OPEN", assigneeId: access.userId };
@@ -13,12 +23,20 @@ function tabWhere(tab: CentralInboxTab, access: CentralAccess): Prisma.WhatsAppT
   }
   if (tab === "team") {
     if (!access.canManageQueue) return { id: "__forbidden__" };
+    if (filterAssigneeId) {
+      if (!assigneeFilterAllowed(visibleIds, filterAssigneeId)) return { id: "__forbidden__" };
+      return { inboxStatus: "OPEN", assigneeId: filterAssigneeId };
+    }
     return {
       inboxStatus: "OPEN",
       assigneeId: visibleIds === null
         ? { not: access.userId }
         : { in: visibleIds.filter((id) => id !== access.userId) },
     };
+  }
+  if (filterAssigneeId) {
+    if (!assigneeFilterAllowed(visibleIds, filterAssigneeId)) return { id: "__forbidden__" };
+    return { inboxStatus: "CLOSED", assigneeId: filterAssigneeId };
   }
   return {
     inboxStatus: "CLOSED",
@@ -107,6 +125,8 @@ export async function listCentralInbox(params: {
   organizationId: string;
   access: CentralAccess;
   tab: CentralInboxTab;
+  /** Filtro "por consultor" (Equipe/Encerrados) — ver assigneeFilterAllowed. */
+  assigneeId?: string;
   search?: string;
   take?: number;
 }): Promise<CentralInboxItem[]> {
@@ -116,7 +136,7 @@ export async function listCentralInbox(params: {
   const where: Prisma.WhatsAppThreadWhereInput = {
     organizationId: params.organizationId,
     inboxStatus: { not: null },
-    ...tabWhere(params.tab, params.access),
+    ...tabWhere(params.tab, params.access, params.assigneeId),
     ...(search
       ? {
           OR: [

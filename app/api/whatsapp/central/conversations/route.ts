@@ -29,6 +29,7 @@ export async function GET(request: Request) {
   const search = url.searchParams.get("search")?.slice(0, 80) ?? undefined;
   const selectedId = url.searchParams.get("selected");
   const withUsers = url.searchParams.get("withUsers") === "1";
+  const assigneeId = url.searchParams.get("assignee") ?? undefined;
 
   if (!centralLeadsEnabled()) return NextResponse.json({ enabled: false, items: [] });
 
@@ -37,7 +38,7 @@ export async function GET(request: Request) {
       const access = await getCentralAccess(organizationId, userId, session!.user.role);
       const visibleIds = centralAssigneeIds(access);
       const [items, counts, selected, instance, assignableUsers] = await Promise.all([
-        listCentralInbox({ organizationId, access, tab, search }),
+        listCentralInbox({ organizationId, access, tab, search, assigneeId }),
         countCentralInbox(organizationId, access),
         selectedId ? getCentralInboxItem(organizationId, access, selectedId) : Promise.resolve(null),
         prisma.whatsAppInstance.findFirst({
