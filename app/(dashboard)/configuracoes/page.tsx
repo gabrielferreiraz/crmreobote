@@ -266,7 +266,7 @@ export default async function ConfiguracoesPage() {
               {
                 href: "/configuracoes/uso",
                 icon: "BarChart3",
-                title: "Uso do CRM",
+                title: "Uso do Amplitude",
                 description: "Quais recursos a equipe mais usa (e quais ninguém abre) — pra saber onde vale investir.",
                 keywords: ["uso", "cliques", "recursos", "adoção", "telemetria", "mais usado", "métricas"],
               },

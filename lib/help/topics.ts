@@ -31,7 +31,7 @@ export const HELP_TOPICS: HelpTopic[] = [
 
   {
     id: "conhecer-o-crm",
-    title: "Tour: conhecer o CRM em 1 minuto",
+    title: "Tour: conhecer o Amplitude em 1 minuto",
     summary: "Um passeio guiado pelas partes principais da tela, apontando cada uma ao vivo.",
     category: "primeiros-passos",
     icon: "Compass",
@@ -41,7 +41,7 @@ export const HELP_TOPICS: HelpTopic[] = [
   {
     id: "conectar-whatsapp",
     title: "Conectar seu WhatsApp",
-    summary: "Sem número conectado, o CRM não envia nem recebe mensagem nenhuma por você.",
+    summary: "Sem número conectado, o Amplitude não envia nem recebe mensagem nenhuma por você.",
     category: "primeiros-passos",
     icon: "MessageCircle",
     keywords: ["whatsapp", "conectar", "qr code", "qrcode", "número", "celular", "instância", "meta", "oficial", "desconectado"],
@@ -67,14 +67,14 @@ export const HELP_TOPICS: HelpTopic[] = [
     steps: [
       "Abra Configurações → Perfil e preferências.",
       "Envie sua foto — ela aparece nos negócios, na agenda do time e no cartão digital.",
-      "Ative as notificações push pra ser avisado de mensagem nova e tarefa do dia, mesmo com o CRM fechado.",
+      "Ative as notificações push pra ser avisado de mensagem nova e tarefa do dia, mesmo com o Amplitude fechado.",
     ],
     links: [{ label: "Abrir meu perfil", href: "/configuracoes/perfil" }],
   },
   {
     id: "cartao-digital",
     title: "Seu cartão de visita digital",
-    summary: "Link e QR Code com sua foto, contato e WhatsApp — e o CRM conta quantas pessoas abriram.",
+    summary: "Link e QR Code com sua foto, contato e WhatsApp — e o Amplitude conta quantas pessoas abriram.",
     category: "primeiros-passos",
     icon: "CreditCard",
     keywords: ["cartão", "cartao", "visita", "qr code", "qrcode", "link", "compartilhar", "vcard", "contato", "apresentar"],
@@ -89,13 +89,13 @@ export const HELP_TOPICS: HelpTopic[] = [
   {
     id: "google-agenda",
     title: "Ligar a Google Agenda",
-    summary: "Seus compromissos do Google aparecem junto das tarefas do CRM, numa agenda só.",
+    summary: "Seus compromissos do Google aparecem junto das tarefas do Amplitude, numa agenda só.",
     category: "primeiros-passos",
     icon: "CalendarDays",
     keywords: ["google", "agenda", "calendário", "calendar", "sincronizar", "evento", "reunião", "videochamada", "meet"],
     steps: [
       "Abra Configurações → Perfil e preferências e conecte a conta Google.",
-      "Volte pra Agenda: os eventos do Google passam a aparecer lado a lado com as tarefas do CRM.",
+      "Volte pra Agenda: os eventos do Google passam a aparecer lado a lado com as tarefas do Amplitude.",
     ],
     links: [
       { label: "Conectar Google", href: "/configuracoes/perfil" },
@@ -113,7 +113,7 @@ export const HELP_TOPICS: HelpTopic[] = [
     icon: "Search",
     keywords: ["buscar", "busca", "procurar", "achar", "encontrar", "atalho", "ctrl k", "cmd k", "pesquisa", "telefone"],
     steps: [
-      "Aperte Ctrl+K (no Mac, ⌘+K) em qualquer tela do CRM.",
+      "Aperte Ctrl+K (no Mac, ⌘+K) em qualquer tela do Amplitude.",
       "Digite parte do nome do cliente, do negócio ou o número do WhatsApp.",
       "Clique no resultado pra abrir direto — sem passar pela lista.",
     ],
@@ -125,7 +125,7 @@ export const HELP_TOPICS: HelpTopic[] = [
   {
     id: "desfazer",
     title: "Desfazer o que você apagou sem querer",
-    summary: "Ctrl+Z funciona no CRM inteiro — e existe um histórico das últimas ações pra desfazer depois.",
+    summary: "Ctrl+Z funciona no Amplitude inteiro — e existe um histórico das últimas ações pra desfazer depois.",
     category: "produtividade",
     icon: "Undo2",
     keywords: ["desfazer", "undo", "ctrl z", "apaguei", "errei", "excluí", "sem querer", "recuperar", "restaurar", "voltar"],
@@ -149,7 +149,7 @@ export const HELP_TOPICS: HelpTopic[] = [
     salesOnly: true,
     keywords: ["simulador", "simulação", "simular", "cota", "parcela", "prazo", "consórcio", "crédito", "calculadora"],
     steps: [
-      "Clique no ícone de calculadora no topo do CRM para abrir o Simulador.",
+      "Clique no ícone de calculadora no topo do Amplitude para abrir o Simulador.",
       "O login é automático via integração direta (SSO).",
       "Monte a proposta personalizada para o cliente e apresente em tempo real.",
     ],
@@ -164,7 +164,7 @@ export const HELP_TOPICS: HelpTopic[] = [
     salesOnly: true,
     keywords: ["treinamento", "academy", "aula", "curso", "vídeo", "aprender", "tutorial", "capacitação", "vendas"],
     steps: [
-      "Clique no ícone de capelo no topo do CRM para acessar o Reobote Academy.",
+      "Clique no ícone de capelo no topo do Amplitude para acessar o Reobote Academy.",
       "Você será direcionado automaticamente sem precisar digitar senha.",
       "Assista às aulas do seu módulo e acompanhe seu progresso de aprendizado.",
     ],
@@ -204,7 +204,7 @@ export const HELP_TOPICS: HelpTopic[] = [
   {
     id: "atalhos",
     title: "Atalhos de teclado",
-    summary: "Os atalhos que existem hoje no CRM, todos conferidos.",
+    summary: "Os atalhos que existem hoje no Amplitude, todos conferidos.",
     category: "produtividade",
     icon: "Keyboard",
     keywords: ["atalho", "teclado", "tecla", "shortcut", "ctrl", "comando", "rápido"],
@@ -236,7 +236,7 @@ export const HELP_TOPICS: HelpTopic[] = [
     steps: [
       "Abra Clientes e use o botão de novo contato.",
       "Preencha nome e WhatsApp — com o número certo, a conversa já fica ligada ao cadastro.",
-      "Se o número já existir na base, o CRM avisa em vez de criar um cliente duplicado.",
+      "Se o número já existir na base, o Amplitude avisa em vez de criar um cliente duplicado.",
     ],
     links: [{ label: "Abrir Clientes", href: "/clientes" }],
   },
@@ -250,7 +250,7 @@ export const HELP_TOPICS: HelpTopic[] = [
     steps: [
       "Em Clientes, use a opção de importar planilha.",
       "Confira qual coluna da planilha é cada campo — dá pra trocar ali. Endereço (CEP, rua, número, bairro, cidade e UF) também entra.",
-      "Na revisão, veja quem já existe no CRM: dá pra atribuir ou pedir esses contatos pra quem a linha iria.",
+      "Na revisão, veja quem já existe no Amplitude: dá pra atribuir ou pedir esses contatos pra quem a linha iria.",
       "Confirme a importação. Contato repetido é identificado pelo telefone e não entra duas vezes.",
     ],
     note: {
@@ -337,8 +337,8 @@ export const HELP_TOPICS: HelpTopic[] = [
     steps: [
       "Abra o negócio e marque como ganho.",
       "Informe a data do fechamento — o relatório e o ranking usam essa data, não a de hoje.",
-      "Escolha a administradora: o CRM abre o cadastro do cliente (documento com foto, CPF, endereço, renda, e a cota vendida: grupo, prazo e forma de pagamento; a cota e o dígito quem preenche é o administrativo). Ele salva sozinho, dá para fechar e voltar depois, e o botão só libera com tudo preenchido.",
-      "Se faltar valor ou cargo do cliente, o CRM pede na hora: esses campos são o que faz o relatório fechar certo.",
+      "Escolha a administradora: o Amplitude abre o cadastro do cliente (documento com foto, CPF, endereço, renda, e a cota vendida: grupo, prazo e forma de pagamento; a cota e o dígito quem preenche é o administrativo). Ele salva sozinho, dá para fechar e voltar depois, e o botão só libera com tudo preenchido.",
+      "Se faltar valor ou cargo do cliente, o Amplitude pede na hora: esses campos são o que faz o relatório fechar certo.",
       "Depois do ganho, se o administrativo precisar de mais algum documento, aparece na venda o cartão “Pedido do administrativo” (e você recebe um aviso no celular): envie o arquivo ali mesmo.",
     ],
     note: {
@@ -376,7 +376,7 @@ export const HELP_TOPICS: HelpTopic[] = [
     steps: [
       "Abra o negócio e escolha a aba do que aconteceu: nota, ligação, WhatsApp, videochamada ou visita.",
       "Escreva (ou dite pelo microfone) o que foi conversado.",
-      "Preenchendo um prazo, o CRM já cria a tarefa do próximo passo na sua agenda — não deixe em branco.",
+      "Preenchendo um prazo, o Amplitude já cria a tarefa do próximo passo na sua agenda — não deixe em branco.",
     ],
     note: {
       kind: "tip",
@@ -394,7 +394,7 @@ export const HELP_TOPICS: HelpTopic[] = [
     steps: [
       "Abra o negócio e use o card de Propostas.",
       "Preencha os valores e gere o documento.",
-      "Salve em PDF (ou imprima) e marque como enviada — o CRM acompanha se o cliente aceitou ou recusou.",
+      "Salve em PDF (ou imprima) e marque como enviada — o Amplitude acompanha se o cliente aceitou ou recusou.",
       "Precisou mudar depois de enviar? Faça uma nova revisão: o histórico das anteriores fica guardado.",
     ],
     note: {
@@ -407,7 +407,7 @@ export const HELP_TOPICS: HelpTopic[] = [
 
   {
     id: "conversas",
-    title: "Conversar pelo CRM",
+    title: "Conversar pelo Amplitude",
     summary: "Todas as conversas num lugar só, ligadas ao cliente e ao negócio dele.",
     category: "whatsapp",
     icon: "MessageCircle",
@@ -462,7 +462,7 @@ export const HELP_TOPICS: HelpTopic[] = [
     steps: [
       "Abra WhatsApp → Campanhas e crie uma nova.",
       "Monte o público (filtro de clientes) e escolha o script que vai ser enviado.",
-      "Inicie a campanha: o CRM envia no ritmo configurado e você acompanha a fila e quem já recebeu.",
+      "Inicie a campanha: o Amplitude envia no ritmo configurado e você acompanha a fila e quem já recebeu.",
       "Dá pra pausar e retomar a qualquer momento, e reordenar quem vai primeiro na fila.",
     ],
     note: {
@@ -474,7 +474,7 @@ export const HELP_TOPICS: HelpTopic[] = [
   {
     id: "mensagem-agendada",
     title: "Deixar uma mensagem pra sair sozinha",
-    summary: "Escreve agora, o CRM envia na hora marcada — follow-up que não depende da sua memória.",
+    summary: "Escreve agora, o Amplitude envia na hora marcada — follow-up que não depende da sua memória.",
     category: "whatsapp",
     icon: "Clock",
     keywords: ["agendar", "agendada", "programar", "depois", "follow up", "lembrete", "automático", "hora", "sair sozinha"],
@@ -510,7 +510,7 @@ export const HELP_TOPICS: HelpTopic[] = [
     icon: "UserCheck",
     keywords: ["reunião", "visita", "resultado", "compareceu", "no show", "faltou", "remarcar", "videochamada", "concluir"],
     steps: [
-      "Ao concluir uma visita ou videochamada, o CRM pergunta o que aconteceu.",
+      "Ao concluir uma visita ou videochamada, o Amplitude pergunta o que aconteceu.",
       "Escolha Realizada, Não compareceu ou Remarcou.",
       "Esse resultado é o que alimenta o relatório de reuniões — sem ele, a reunião não conta.",
     ],
@@ -591,7 +591,7 @@ export const HELP_TOPICS: HelpTopic[] = [
   },
   {
     id: "automacoes",
-    title: "Automações: o CRM trabalhando sozinho",
+    title: "Automações: o Amplitude trabalhando sozinho",
     summary: "Regras do tipo “quando isso acontecer, faça aquilo” — sem ninguém lembrar de fazer.",
     category: "admin",
     icon: "Zap",
@@ -637,21 +637,21 @@ export const HELP_TOPICS: HelpTopic[] = [
   {
     id: "uso-do-crm",
     title: "Saber o que o time realmente usa",
-    summary: "Quais recursos a equipe usa, quais ninguém abriu e quem ainda não entrou no CRM.",
+    summary: "Quais recursos a equipe usa, quais ninguém abriu e quem ainda não entrou no Amplitude.",
     category: "admin",
     icon: "BarChart3",
     roles: ["OWNER"],
     keywords: ["uso", "adoção", "time", "cliques", "recursos", "treinamento", "quem usa", "métricas", "ninguém usa"],
     steps: [
-      "Abra Configurações → Uso do CRM.",
+      "Abra Configurações → Uso do Amplitude.",
       "Veja o que é mais usado e, principalmente, o que ninguém abriu — é onde falta treinar.",
       "A lista por pessoa mostra quem já adotou e quem ainda não começou.",
     ],
-    links: [{ label: "Ver uso do CRM", href: "/configuracoes/uso" }],
+    links: [{ label: "Ver uso do Amplitude", href: "/configuracoes/uso" }],
   },
   {
     id: "api-webhooks",
-    title: "Conectar outro sistema ao CRM",
+    title: "Conectar outro sistema ao Amplitude",
     summary: "Chaves de API pra receber leads de fora e webhooks pra avisar outro sistema.",
     category: "admin",
     icon: "Plug",
@@ -688,7 +688,7 @@ export const HELP_TOPICS: HelpTopic[] = [
     ],
     note: {
       kind: "tip",
-      text: "Ao marcar um negócio como ganho, o CRM já mostra quanto aquela venda vai te render — antes de você confirmar.",
+      text: "Ao marcar um negócio como ganho, o Amplitude já mostra quanto aquela venda vai te render — antes de você confirmar.",
     },
     links: [{ label: "Ver minha comissão", href: "/comissoes/minha" }],
   },

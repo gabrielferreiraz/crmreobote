@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, StickyNote, CircleDot, CheckCircle2, XCircle, Clock, Loader2, Pencil, Check, X, ThumbsUp, ThumbsDown, Trash2, User, Phone, MessageSquare, Mic, ChevronRight, Briefcase, CalendarCheck, UserCheck, Mail, ExternalLink, FileText, ListTodo, Plus, MoreHorizontal } from "lucide-react";
+import { ArrowLeft, StickyNote, CircleDot, CheckCircle2, XCircle, Clock, Loader2, Pencil, Check, X, ThumbsUp, ThumbsDown, Trash2, User, Phone, MessageSquare, Mic, ChevronLeft, ChevronRight, Briefcase, CalendarCheck, UserCheck, Mail, ExternalLink, FileText, ListTodo, Plus, MoreHorizontal } from "lucide-react";
 import { formatCurrency, daysSince } from "@/lib/format";
 import { isStale } from "@/lib/stale";
 import { normalizePhoneNumber, toDialNumber } from "@/lib/phone-normalize";
@@ -588,6 +588,8 @@ function ActivityItem({
 
 export function DealDetail({
   deal,
+  prevDealId,
+  nextDealId,
   members,
   lossReasons,
   customFields,
@@ -607,6 +609,9 @@ export function DealDetail({
   defaultProposalDescription,
 }: {
   deal: Deal;
+  /** Vizinhos na mesma etapa do Kanban (ver lib/deals/neighbors.ts); null = ponta da fila. */
+  prevDealId: string | null;
+  nextDealId: string | null;
   members: MemberOption[];
   lossReasons: LossReasonOption[];
   customFields: CustomFieldDefinitionInput[];
@@ -637,6 +642,8 @@ export function DealDetail({
   defaultProposalDescription: string;
 }) {
   const router = useRouter();
+  /** `replace`: folhear negócios não enche o histórico do "voltar". */
+  const goToDeal = (id: string) => router.replace(`/negocios/${id}`);
   const pushUndoToast = useUndoToast();
   const searchParams = useSearchParams();
   useMobileEditorCentering();
@@ -1303,7 +1310,37 @@ export function DealDetail({
   return (
     <div className="deal-detail flex w-full min-w-0 max-w-full items-start gap-4 overflow-x-clip lg:overflow-visible">
       {showConfetti && <ConfettiBurst onDone={() => setShowConfetti(false)} />}
-      <div className="min-w-0 flex-1 space-y-0 lg:space-y-6">
+      {/* Com vizinhos, a coluna abre uma margem de cada lado pras setas: elas ficam
+          dentro dela sem cobrir o conteúdo. */}
+      <div
+        className={`relative min-w-0 flex-1 space-y-0 lg:space-y-6 ${prevDealId || nextDealId ? "lg:px-12" : ""}`}
+      >
+        {prevDealId && (
+          <div className="pointer-events-none absolute inset-y-0 left-0 hidden lg:block">
+            <button
+              type="button"
+              onClick={() => goToDeal(prevDealId)}
+              className="pointer-events-auto sticky top-[45vh] flex h-10 w-9 items-center justify-center rounded-md border border-neutral-200 bg-white text-neutral-500 shadow-sm transition-colors hover:border-brand hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-400"
+              aria-label="Negócio anterior"
+              title="Negócio anterior"
+            >
+              <ChevronLeft className="h-5 w-5" strokeWidth={2} />
+            </button>
+          </div>
+        )}
+        {nextDealId && (
+          <div className="pointer-events-none absolute inset-y-0 right-0 hidden lg:block">
+            <button
+              type="button"
+              onClick={() => goToDeal(nextDealId)}
+              className="pointer-events-auto sticky top-[45vh] flex h-10 w-9 items-center justify-center rounded-md border border-neutral-200 bg-white text-neutral-500 shadow-sm transition-colors hover:border-brand hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-400"
+              aria-label="Próximo negócio"
+              title="Próximo negócio"
+            >
+              <ChevronRight className="h-5 w-5" strokeWidth={2} />
+            </button>
+          </div>
+        )}
       <div className="hidden items-center justify-between gap-2 lg:flex">
         <Link
           href="/pipeline"

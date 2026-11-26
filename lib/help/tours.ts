@@ -23,10 +23,10 @@ import type { HelpTour } from "./types";
 export const HELP_TOURS: HelpTour[] = [
   {
     id: "conhecer-o-crm",
-    title: "Conhecer o CRM",
+    title: "Conhecer o Amplitude",
     steps: [
       {
-        title: "Bem-vindo ao CRM",
+        title: "Bem-vindo ao Amplitude",
         body: "São 6 paradas rápidas pelas partes que você vai usar todo dia. Dá pra sair quando quiser — e refazer depois, por aqui mesmo.",
       },
       {

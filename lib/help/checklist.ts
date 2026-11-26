@@ -2,7 +2,7 @@ import type { HelpLink } from "./types";
 
 /**
  * "Primeiros passos" — o que precisa estar pronto pra pessoa conseguir
- * trabalhar de verdade no CRM.
+ * trabalhar de verdade no Amplitude.
  *
  * Cada item é verificado NO BANCO (ver app/api/help/overview/route.ts), nunca
  * marcado à mão: checklist que a pessoa marca sozinha vira teatro, e ninguém
@@ -29,7 +29,7 @@ export const CHECKLIST_ITEMS: ChecklistItem[] = [
   {
     id: "whatsapp",
     title: "Conectar seu WhatsApp",
-    why: "Sem isso, o CRM não envia nem recebe mensagem por você.",
+    why: "Sem isso, o Amplitude não envia nem recebe mensagem por você.",
     action: { label: "Conectar", href: "/configuracoes/perfil#whatsapp" },
     topicId: "conectar-whatsapp",
   },

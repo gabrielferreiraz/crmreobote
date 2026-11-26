@@ -3,7 +3,7 @@ import type { FeatureKey } from "@/lib/feature-usage/features";
 /**
  * "Você sabia?" — a parte da ajuda que não espera a pergunta.
  *
- * O CRM já mede, por pessoa, quais ações cada um usa (FeatureUsageDaily, ver
+ * O Amplitude já mede, por pessoa, quais ações cada um usa (FeatureUsageDaily, ver
  * lib/feature-usage/). Isso responde de graça a pergunta mais difícil de
  * treinamento: o que ESTA pessoa ainda não descobriu. Quem nunca abriu a
  * busca rápida recebe a dica da busca rápida; quem já usa tudo isso recebe

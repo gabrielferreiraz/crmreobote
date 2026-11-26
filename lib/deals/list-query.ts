@@ -19,6 +19,9 @@ export type EnrichedDeal = {
   stage: { id: string; name: string; color: string | null };
   contact: { id: string; name: string; source: string | null; jobTitle: string | null };
   owner: { id: string; name: string; photoUrl: string | null };
+  /** Co-responsáveis do negócio dividido (ver DealParticipant), na ordem em
+   * que entraram; vazio = negócio de uma pessoa só. */
+  coOwners: { id: string; name: string }[];
   nextActivity: string | null;
   taskTypes: string[];
   /** Prazo da mesma tarefa pendente mais próxima que já vira `nextActivity`
@@ -40,6 +43,8 @@ export type DealsFilterParams = {
   q?: string;
   /** Já resolvido pelo chamador (ver deals-list.tsx) — a interseção entre "responsável X" e "status ativo/inativo" quando os dois filtros estão ativos ao mesmo tempo é calculada ANTES de chegar aqui, então este parâmetro é sempre um simples "está numa dessas ids" ou nada. */
   ownerIds?: string[];
+  /** Só negócios divididos entre co-responsáveis (ver DealParticipant). */
+  splitOnly?: boolean;
   stageId?: string;
   lossReasonId?: string;
   jobTitle?: string;
@@ -91,6 +96,7 @@ export function buildDealsWhere(params: DealsFilterParams): Prisma.DealWhereInpu
     status,
     q,
     ownerIds,
+    splitOnly,
     stageId,
     lossReasonId,
     jobTitle,
@@ -141,9 +147,15 @@ export function buildDealsWhere(params: DealsFilterParams): Prisma.DealWhereInpu
   const andConditions: Prisma.DealWhereInput[] = [];
 
   const scopeFilter = dealScopeWhere(scope);
-  const ownerFilter = ownerIds && ownerIds.length > 0 ? { ownerId: { in: ownerIds } } : null;
+  // Filtrar por uma pessoa traz também os negócios divididos em que ela é
+  // co-responsável, não só os em que é a principal.
+  const ownerFilter: Prisma.DealWhereInput | null =
+    ownerIds && ownerIds.length > 0
+      ? { OR: [{ ownerId: { in: ownerIds } }, { participants: { some: { userId: { in: ownerIds } } } }] }
+      : null;
   if (Object.keys(scopeFilter).length > 0) andConditions.push(scopeFilter);
   if (ownerFilter) andConditions.push(ownerFilter);
+  if (splitOnly) andConditions.push({ participants: { some: {} } });
 
   if (q) {
     andConditions.push({
@@ -332,6 +344,7 @@ const DEAL_LIST_SELECT = {
   lostReason: true,
   contact: { select: { id: true, name: true, source: true, jobTitle: true } },
   owner: { select: { id: true, name: true, image: true } },
+  participants: { orderBy: { createdAt: "asc" }, select: { userId: true, user: { select: { name: true } } } },
   stage: { select: { id: true, name: true, color: true } },
   lossReason: { select: { id: true, label: true } },
 } satisfies Prisma.DealSelect;
@@ -518,6 +531,7 @@ export async function fetchDealsList(
       name: deal.owner.name,
       photoUrl: deal.owner.image ? (avatarMap.get(deal.owner.image) ?? null) : null,
     },
+    coOwners: deal.participants.map((p) => ({ id: p.userId, name: p.user.name ?? "?" })),
     nextActivity: nextTaskByDeal.get(deal.id) ?? null,
     nextTaskDueAt: nextTaskDueAtByDeal.get(deal.id) ?? null,
     taskTypes: taskTypesByDeal.get(deal.id) ?? [],
