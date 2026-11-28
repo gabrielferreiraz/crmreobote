@@ -209,7 +209,7 @@ export function actionTone(action: string): AuditTone {
 /** Módulo da ação: é o que o filtro "Área do sistema" usa. Ação nova sem regra cai em "Outros". */
 export const AUDIT_CATEGORIES = [
   { id: "acesso", label: "Acesso e login", prefixes: ["LOGIN_"] },
-  { id: "equipe", label: "Equipe e permissões", prefixes: ["MEMBER_", "ACADEMY_"] },
+  { id: "equipe", label: "Equipe e permissões", prefixes: ["MEMBER_", "ACADEMY_", "PORTFOLIO_"] },
   { id: "cadastro", label: "Cadastro e cota", prefixes: ["DEAL_REGISTRATION_", "DEAL_DOCUMENT_", "DEAL_QUOTA_", "DEAL_DATA_"] },
   { id: "negocios", label: "Negócios", prefixes: ["DEAL_", "DEALS_", "CONTACT_", "CONTACTS_"] },
   { id: "comissoes", label: "Comissões", prefixes: ["COMMISSION_"] },

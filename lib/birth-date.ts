@@ -16,6 +16,8 @@
  * exibição/digitação na tela é DD/MM/AAAA.
  */
 
+import { getBrazilParts } from "@/lib/timezone";
+
 /** Máscara "ao vivo" DD/MM/AAAA enquanto a pessoa digita — só dígitos, no máximo 8 (2+2+4). */
 export function formatBirthDateMask(raw: string): string {
   const digits = raw.replace(/\D/g, "").slice(0, 8);
@@ -31,7 +33,10 @@ export function formatBirthDateMask(raw: string): string {
  */
 function calendarDateProblem(day: number, month: number, year: number): "nonexistent" | "year" | "future" | null {
   if (month < 1 || month > 12) return "nonexistent";
-  const currentYear = new Date().getFullYear();
+  // "Hoje" no calendário de Campo Grande: o servidor roda em UTC e, das 20h à
+  // meia-noite de MS, já estaria no dia seguinte (aceitaria nascido "amanhã").
+  const today = getBrazilParts(new Date());
+  const currentYear = today.year;
   // Faixa generosa (não um "maior de 18" ou algo assim, essa tela não tem
   // essa regra de negócio) — só descarta erro de digitação óbvio como
   // "02/02/0002" ou um ano ainda não chegado.
@@ -44,8 +49,7 @@ function calendarDateProblem(day: number, month: number, year: number): "nonexis
   // Comparação em UTC (não local) pra nunca depender do fuso de quem está
   // com o navegador aberto — mesma cautela de lib/timezone.ts.
   const candidateUTC = Date.UTC(year, month - 1, day);
-  const today = new Date();
-  const todayUTC = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
+  const todayUTC = Date.UTC(today.year, today.month, today.day);
   return candidateUTC <= todayUTC ? null : "future";
 }
 

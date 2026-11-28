@@ -53,7 +53,7 @@ export async function PATCH(
     return NextResponse.json({ error: "role inválido" }, { status: 400 });
   }
   if (area !== undefined && !isValidArea(area)) {
-    return NextResponse.json({ error: "area inválida" }, { status: 400 });
+    return NextResponse.json({ error: "Área inválida" }, { status: 400 });
   }
 
   if (teamId !== undefined && teamId !== null && typeof teamId !== "string") {

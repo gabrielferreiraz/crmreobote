@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 export async function POST() {
   const access = await requireSession();
   if (!access.session || !access.organizationId || !access.userId) {
-    return NextResponse.json({ error: "Nao autorizado" }, { status: 401 });
+    return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
   }
 
   await runWithTenant(access.organizationId, () =>

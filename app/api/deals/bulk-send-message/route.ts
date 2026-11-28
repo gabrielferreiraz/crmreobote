@@ -8,6 +8,7 @@ import { normalizePhoneNumber } from "@/lib/phone-normalize";
 import { resolvePreferredInstancesByOwner } from "@/lib/whatsapp/send";
 import { validateRmktAndDelay, type RmktWaveInput } from "@/lib/campaigns/validate-rmkt";
 import type { Prisma } from "@/app/generated/prisma/client";
+import { readJsonObjectOrError } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +25,8 @@ const MAX_DEALS_PER_SEND = 2000;
 const ALLOWED_ROLES = ["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"] as const;
 
 export async function POST(req: Request) {
-  const body = await req.json();
+  const body = await readJsonObjectOrError(req);
+  if (body instanceof NextResponse) return body;
   const { dealIds, scriptIds, rmktEnabled, rmktWaves, noReplyDays, markLostOnNoReply, delayMinSec, delayMaxSec, dailyCap, allowedWeekdays, windowStartHour, windowEndHour } =
     body as {
       dealIds?: string[];

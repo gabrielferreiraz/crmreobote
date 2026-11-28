@@ -3,6 +3,7 @@ import { requireRole } from "@/lib/require-role";
 import { runWithTenant } from "@/lib/tenant-context";
 import { logAudit } from "@/lib/audit-log";
 import { enableLista50Campaign, disableLista50Campaign, getLista50Config, parseLista50StartDate } from "@/lib/lista-50";
+import { readJson } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +26,7 @@ const emVoo = new Set<string>();
 export async function POST(req: Request) {
   let body: unknown;
   try {
-    body = await req.json();
+    body = await readJson(req);
   } catch {
     return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
   }

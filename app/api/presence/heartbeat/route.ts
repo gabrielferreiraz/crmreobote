@@ -4,6 +4,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { recordHeartbeat } from "@/lib/user-activity";
 import { recordFeatureUsage } from "@/lib/feature-usage/record";
 import { sendBirthdayPushOncePerDay } from "@/lib/birthdays";
+import { readJson } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +29,7 @@ export async function POST(req: Request) {
   // principal desta rota, a telemetria é o acessório.
   let features: Record<string, unknown> | null = null;
   try {
-    const body = (await req.json()) as { features?: Record<string, unknown> } | null;
+    const body = (await readJson(req, 64 * 1024)) as { features?: Record<string, unknown> } | null;
     if (body?.features && typeof body.features === "object") features = body.features;
   } catch {
     // sem corpo (o caso comum) — segue só com a presença

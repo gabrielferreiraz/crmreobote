@@ -4,6 +4,7 @@ import { requireSession } from "@/lib/require-session";
 import { runWithTenant, setTenantOnTx } from "@/lib/tenant-context";
 import { notifyLeadRequestCreated, notifyLeadReleased } from "@/lib/lead-requests/notify";
 import { evaluateLeadClaim } from "@/lib/lead-claim";
+import { readJsonObjectOrError } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
@@ -50,9 +51,11 @@ export async function GET() {
  *    (push); só ele decide (ver PATCH /api/lead-requests/[id]).
  */
 export async function POST(req: Request) {
-  const { contactId, targetUserId } = (await req.json()) as { contactId?: string; targetUserId?: string };
   const { organizationId, userId, session } = await requireSession();
   if (!organizationId || !userId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+  const parsedBody = await readJsonObjectOrError(req);
+  if (parsedBody instanceof NextResponse) return parsedBody;
+  const { contactId, targetUserId } = parsedBody as { contactId?: string; targetUserId?: string };
   if (!contactId) return NextResponse.json({ error: "contactId é obrigatório" }, { status: 400 });
   const requesterName = session?.user.name ?? session?.user.email ?? "Alguém";
 

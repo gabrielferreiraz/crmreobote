@@ -16,6 +16,7 @@ import { recordUndoableAction } from "@/lib/undo/record";
 import type { DeleteSnapshotPayload, FieldUpdatePayload } from "@/lib/undo/types";
 import { enqueueWebhookEvent } from "@/lib/webhooks/enqueue";
 import { isCoOwnerOfContact } from "@/lib/deals/split";
+import { readJsonObjectOrError } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
@@ -55,7 +56,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const body = await req.json();
+  const body = await readJsonObjectOrError(req);
+  if (body instanceof NextResponse) return body;
   const {
     name,
     email,

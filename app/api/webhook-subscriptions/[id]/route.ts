@@ -3,12 +3,14 @@ import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/require-role";
 import { runWithTenant } from "@/lib/tenant-context";
 import { VALID_WEBHOOK_EVENTS } from "@/lib/webhooks/enqueue";
+import { readJsonObjectOrError } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const body = await req.json();
+  const body = await readJsonObjectOrError(req);
+  if (body instanceof NextResponse) return body;
   const { active, events } = body as { active?: boolean; events?: string[] };
 
   const access = await requireRole(["OWNER", "MANAGER"]);

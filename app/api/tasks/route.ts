@@ -10,8 +10,11 @@ import { hasCalendarWriteScope } from "@/lib/google-calendar-oauth";
 import { parseBrazilDateTime } from "@/lib/timezone";
 import type { $Enums } from "@/app/generated/prisma/client";
 import { enqueueWebhookEvent, buildTaskWebhookPayload } from "@/lib/webhooks/enqueue";
+import { readJsonObjectOrError } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
+
+const MAX_TASKS_LIST = 500;
 
 const VALID_TYPES: $Enums.TaskType[] = [
   "CALL",
@@ -47,6 +50,10 @@ export async function GET(req: Request) {
         ...(status === "done" ? { completedAt: { not: null } } : {}),
       },
       orderBy: [{ dueAt: "asc" }, { createdAt: "desc" }],
+      // Nenhuma tela lista por aqui (a Agenda lê direto no servidor). Sem teto,
+      // "scope=all&status=done" do dono devolvia o histórico inteiro de tarefas
+      // com negócio e cliente completos de cada uma.
+      take: MAX_TASKS_LIST,
       include: { deal: true, contact: true, owner: { select: USER_PUBLIC_SELECT } },
     });
 
@@ -55,7 +62,8 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const body = await req.json();
+  const body = await readJsonObjectOrError(req);
+  if (body instanceof NextResponse) return body;
   const { type, title, description, dueAt, dealId, contactId, ownerId, activityId } = body as {
     type?: string;
     title?: string;

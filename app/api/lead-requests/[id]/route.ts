@@ -3,6 +3,7 @@ import { prisma, prismaRaw } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
 import { runWithTenant, setTenantOnTx } from "@/lib/tenant-context";
 import { notifyLeadRequestResolved } from "@/lib/lead-requests/notify";
+import { readJsonObjectOrError } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,9 @@ export const dynamic = "force-dynamic";
  */
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const { action } = (await req.json()) as { action?: "approve" | "decline" };
+  const parsedBody = await readJsonObjectOrError(req);
+  if (parsedBody instanceof NextResponse) return parsedBody;
+  const { action } = parsedBody as { action?: "approve" | "decline" };
   const { organizationId, userId } = await requireSession();
   if (!organizationId || !userId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
   if (action !== "approve" && action !== "decline") {

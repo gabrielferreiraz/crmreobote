@@ -7,6 +7,7 @@ import { resolveConnectedInstance } from "@/lib/whatsapp/send";
 import { normalizePhoneNumber } from "@/lib/phone-normalize";
 import { validateRmktAndDelay, type RmktWaveInput } from "@/lib/campaigns/validate-rmkt";
 import type { Prisma } from "@/app/generated/prisma/client";
+import { readJsonObjectOrError } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,8 @@ const DEFAULT_DELAY_MAX_SEC = 1220;
 const MAX_CONTACTS_PER_SEND = 2000;
 
 export async function POST(req: Request) {
-  const body = await req.json();
+  const body = await readJsonObjectOrError(req);
+  if (body instanceof NextResponse) return body;
   const {
     contactIds,
     scriptIds,

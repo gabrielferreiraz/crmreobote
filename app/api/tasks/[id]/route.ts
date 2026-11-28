@@ -12,6 +12,7 @@ import { recordUndoableAction } from "@/lib/undo/record";
 import { validateTaskLinks } from "@/lib/task-link-guard";
 import type { DeleteSnapshotPayload, FieldUpdatePayload } from "@/lib/undo/types";
 import { enqueueWebhookEvent, buildTaskWebhookPayload } from "@/lib/webhooks/enqueue";
+import { readJsonObjectOrError } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +20,8 @@ const VALID_MEETING_OUTCOMES = ["ATTENDED", "NO_SHOW", "RESCHEDULED"] as const;
 
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const body = await req.json();
+  const body = await readJsonObjectOrError(req);
+  if (body instanceof NextResponse) return body;
   const { title, description, dueAt, completed, meetingOutcome, dealId, contactId } = body as {
     title?: string;
     description?: string;

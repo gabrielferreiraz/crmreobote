@@ -2,12 +2,14 @@ import { NextResponse } from "next/server";
 import { prisma, prismaRaw } from "@/lib/prisma";
 import { requireRole } from "@/lib/require-role";
 import { runWithTenant, setTenantOnTx } from "@/lib/tenant-context";
+import { readJsonObjectOrError } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const body = await req.json();
+  const body = await readJsonObjectOrError(req);
+  if (body instanceof NextResponse) return body;
   const { name, isDefault } = body as { name?: string; isDefault?: boolean };
 
   const access = await requireRole(["OWNER"]);

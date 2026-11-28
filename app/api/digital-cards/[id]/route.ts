@@ -9,6 +9,7 @@ import { isCardTheme } from "@/lib/digital-cards/themes";
 import { isValidPhoneInput } from "@/lib/phone-normalize";
 import type { $Enums } from "@/app/generated/prisma/client";
 import { isValidEmail } from "@/lib/email-format";
+import { readJsonObjectOrError } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +34,8 @@ type LinkInput = { type: string; label: string; url: string; order?: number; act
  */
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const body = await req.json();
+  const body = await readJsonObjectOrError(req);
+  if (body instanceof NextResponse) return body;
 
   const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });

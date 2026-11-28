@@ -7,6 +7,7 @@ import { recordUserChange } from "@/lib/user-activity";
 import { recordUndoableAction } from "@/lib/undo/record";
 import type { DeleteSnapshotPayload, FieldUpdatePayload } from "@/lib/undo/types";
 import { isCoOwnerOfDeal } from "@/lib/deals/split";
+import { readJsonObjectOrError } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
@@ -60,7 +61,8 @@ async function hasPermission(args: {
 
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const body = await req.json();
+  const body = await readJsonObjectOrError(req);
+  if (body instanceof NextResponse) return body;
   const { activityBody, meetingOutcome } = body as {
     activityBody?: string;
     meetingOutcome?: "ATTENDED" | "NO_SHOW" | "RESCHEDULED" | "PENDING";

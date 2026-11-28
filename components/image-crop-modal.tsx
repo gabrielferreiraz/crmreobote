@@ -60,7 +60,7 @@ async function getCroppedImage(
   const sourceCanvas = document.createElement("canvas");
   const sourceContext = sourceCanvas.getContext("2d");
 
-  if (!sourceContext) throw new Error("Nao foi possivel preparar a imagem.");
+  if (!sourceContext) throw new Error("Não foi possível preparar a imagem.");
 
   sourceCanvas.width = Math.ceil(bounds.width);
   sourceCanvas.height = Math.ceil(bounds.height);
@@ -71,7 +71,7 @@ async function getCroppedImage(
 
   const outputCanvas = document.createElement("canvas");
   const outputContext = outputCanvas.getContext("2d");
-  if (!outputContext) throw new Error("Nao foi possivel finalizar a imagem.");
+  if (!outputContext) throw new Error("Não foi possível finalizar a imagem.");
 
   outputCanvas.width = output.width ?? Math.round(pixelCrop.width);
   outputCanvas.height = output.height ?? Math.round(pixelCrop.height);
@@ -152,7 +152,7 @@ export function ImageCropModal({
       onCropComplete(blob);
     } catch (cause) {
       console.error("Erro ao ajustar a imagem:", cause);
-      setError("Nao foi possivel ajustar esta imagem. Tente outro arquivo.");
+      setError("Não foi possível ajustar esta imagem. Tente outro arquivo.");
     } finally {
       setProcessing(false);
     }

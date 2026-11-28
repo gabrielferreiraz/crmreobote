@@ -5,11 +5,25 @@
  * é relativo a hoje.
  */
 
-function toISODate(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
+import { getBrazilParts } from "@/lib/timezone";
+
+/** Dia civil (`Date.UTC(ano, mês, dia)`) → "YYYY-MM-DD", lido em UTC. */
+function utcKey(d: Date): string {
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
+}
+
+/**
+ * "Hoje" no calendário de Campo Grande, nunca no fuso da máquina. O
+ * servidor roda em UTC: com getters locais, das 20h à meia-noite de MS ele já
+ * estava no dia seguinte, e no último dia do mês o "Este mês" padrão dos
+ * Relatórios (ver lib/reports/commercial-data.ts) abria o mês seguinte vazio.
+ */
+function brazilToday(): { year: number; month: number; day: number } {
+  const { year, month, day } = getBrazilParts(new Date());
+  return { year, month, day };
 }
 
 const DATE_KEY_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
@@ -46,17 +60,23 @@ export type QuickRange = { key: string; label: string; range: () => { from: stri
 
 /** Primeiro/último dia do mês que é `monthsAgo` meses antes de hoje (0 = mês atual). */
 function monthRange(monthsAgo: number): { from: string; to: string } {
-  const now = new Date();
+  const { year, month } = brazilToday();
   return {
-    from: toISODate(new Date(now.getFullYear(), now.getMonth() - monthsAgo, 1)),
-    to: toISODate(new Date(now.getFullYear(), now.getMonth() - monthsAgo + 1, 0)),
+    from: utcKey(new Date(Date.UTC(year, month - monthsAgo, 1))),
+    to: utcKey(new Date(Date.UTC(year, month - monthsAgo + 1, 0))),
   };
 }
 
 /** 1º de janeiro a 31 de dezembro do ano corrente. */
 function yearRange(): { from: string; to: string } {
-  const now = new Date();
-  return { from: toISODate(new Date(now.getFullYear(), 0, 1)), to: toISODate(new Date(now.getFullYear(), 11, 31)) };
+  const { year } = brazilToday();
+  return { from: `${year}-01-01`, to: `${year}-12-31` };
+}
+
+function todayRange(): { from: string; to: string } {
+  const { year, month, day } = brazilToday();
+  const key = utcKey(new Date(Date.UTC(year, month, day)));
+  return { from: key, to: key };
 }
 
 /** Usado em Relatórios — janela mais larga, útil pra comparar meses recentes. */
@@ -106,7 +126,7 @@ export function singleMonthLabel(from: string, to: string): string | null {
  * fora desses atalhos. */
 export function buildListQuickRanges(): QuickRange[] {
   return [
-    { key: "today", label: "Hoje", range: () => ({ from: toISODate(new Date()), to: toISODate(new Date()) }) },
+    { key: "today", label: "Hoje", range: todayRange },
     { key: "this-month", label: "Este mês", range: () => monthRange(0) },
     { key: "last-month", label: "Mês passado", range: () => monthRange(1) },
     { key: "this-year", label: "Este ano", range: yearRange },

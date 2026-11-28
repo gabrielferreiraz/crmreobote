@@ -8,6 +8,7 @@ import { recordUserChange } from "@/lib/user-activity";
 import { getBrazilParts, brazilDateTimeStringToUTC, brazilDateKey } from "@/lib/timezone";
 import { recordUndoableAction } from "@/lib/undo/record";
 import type { TaskBulkMovePayload } from "@/lib/undo/types";
+import { readJsonObjectOrError } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +35,8 @@ const MAX_TASKS_PER_MOVE = 200;
  * negócio, pedido explícito.
  */
 export async function PATCH(req: Request) {
-  const body = await req.json();
+  const body = await readJsonObjectOrError(req);
+  if (body instanceof NextResponse) return body;
   const { taskIds, newDate } = body as { taskIds?: string[]; newDate?: string };
 
   if (!Array.isArray(taskIds) || taskIds.length === 0) {

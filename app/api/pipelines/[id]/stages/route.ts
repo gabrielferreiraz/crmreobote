@@ -3,12 +3,14 @@ import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/require-role";
 import { runWithTenant } from "@/lib/tenant-context";
 import { sanitizeRequiredFields } from "@/lib/deal-required-fields";
+import { readJsonObjectOrError } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const body = await req.json();
+  const body = await readJsonObjectOrError(req);
+  if (body instanceof NextResponse) return body;
   const { name, color, requiredFields } = body as { name?: string; color?: string; requiredFields?: unknown };
 
   const access = await requireRole(["OWNER", "MANAGER"]);

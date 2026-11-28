@@ -287,7 +287,7 @@ export function ProcessKanbanBoard({
       setProcessesByStage((prev) => ({ ...prev, [stageId]: [...(prev[stageId] ?? []), ...more] }));
       setCountByStage((prev) => ({ ...prev, [stageId]: total }));
     } catch {
-      setMoveError("Nao foi possivel carregar mais processos. Tente novamente.");
+      setMoveError("Não foi possível carregar mais processos. Tente novamente.");
     } finally {
       setLoadingMoreStages((prev) => {
         const next = new Set(prev);

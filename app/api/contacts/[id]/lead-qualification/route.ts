@@ -5,12 +5,14 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { notifyMetaLeadQualification } from "@/lib/meta-ads/conversions";
 import { recordUserChange } from "@/lib/user-activity";
 import { findWritableContactId } from "@/lib/contact-write-guard";
+import { readJsonObjectOrError } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const body = await req.json();
+  const body = await readJsonObjectOrError(req);
+  if (body instanceof NextResponse) return body;
   const { qualification } = body as { qualification: "QUALIFIED" | "UNQUALIFIED" | null };
 
   const { organizationId, userId } = await requireSession();

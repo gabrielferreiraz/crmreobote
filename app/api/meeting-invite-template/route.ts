@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
 import { runWithTenant } from "@/lib/tenant-context";
 import { sanitizeCell } from "@/lib/csv-sanitize";
+import { readJsonObjectOrError } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +29,8 @@ export async function PUT(req: Request) {
   const { organizationId, userId } = await requireSession();
   if (!organizationId || !userId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
-  const body = await req.json();
+  const body = await readJsonObjectOrError(req);
+  if (body instanceof NextResponse) return body;
   const { template } = body as { template?: string };
   if (typeof template !== "string" || !template.trim()) {
     return NextResponse.json({ error: "Texto do convite não pode ficar vazio" }, { status: 400 });

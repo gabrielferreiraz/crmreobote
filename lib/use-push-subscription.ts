@@ -109,7 +109,7 @@ export function PushSubscriptionProvider({ children }: { children: ReactNode }) 
       }
       setStatus("subscribed");
     } catch {
-      setError("Nao foi possivel ativar as notificacoes.");
+      setError("Não foi possível ativar as notificações.");
     } finally {
       setLoading(false);
     }
@@ -135,7 +135,7 @@ export function PushSubscriptionProvider({ children }: { children: ReactNode }) 
       }
       setStatus("unsubscribed");
     } catch {
-      setError("Nao foi possivel desativar as notificacoes.");
+      setError("Não foi possível desativar as notificações.");
     } finally {
       setLoading(false);
     }

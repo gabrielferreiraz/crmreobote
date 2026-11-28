@@ -5,6 +5,7 @@ import { dealScopeWhere } from "@/lib/deals/split";
 import { getSharedScope } from "@/lib/share-groups";
 import { runWithTenant } from "@/lib/tenant-context";
 import { resolvePreferredInstancesByOwner } from "@/lib/whatsapp/send";
+import { readJsonObjectOrError } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +30,8 @@ const MAX_DEALS_PER_SEND = 2000; // mesmo teto de POST /api/deals/bulk-send-mess
  * errada bem aqui, o único caso em que o remetente varia por destinatário.
  */
 export async function POST(req: Request) {
-  const body = await req.json();
+  const body = await readJsonObjectOrError(req);
+  if (body instanceof NextResponse) return body;
   const { dealIds } = body as { dealIds?: string[] };
 
   const access = await requireRole([...ALLOWED_ROLES]);

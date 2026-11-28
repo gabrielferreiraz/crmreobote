@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const { organizationId, userId } = await requireSession();
   if (!organizationId || !userId) {
-    return NextResponse.json({ error: "Nao autenticado" }, { status: 401 });
+    return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
   }
 
   const membership = await getCurrentMembership();

@@ -57,7 +57,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "role inválido" }, { status: 400 });
   }
   if (area !== undefined && !isValidArea(area)) {
-    return NextResponse.json({ error: "area inválida" }, { status: 400 });
+    return NextResponse.json({ error: "Área inválida" }, { status: 400 });
   }
   if (name !== undefined && typeof name !== "string") {
     return NextResponse.json({ error: "Nome inválido" }, { status: 400 });

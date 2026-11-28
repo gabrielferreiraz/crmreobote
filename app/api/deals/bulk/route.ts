@@ -16,6 +16,7 @@ import { canWaiveRegistration } from "@/lib/deal-registration/rules";
 import { evaluateWonGate, markRegistrationWon, notifyAdministrativeQuotaRegistration } from "@/lib/deal-registration/service";
 import { logAudit, logAuditMany, type AuditAction } from "@/lib/audit-log";
 import type { AuditChange } from "@/lib/audit-diff";
+import { readJsonObjectOrError } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
@@ -152,7 +153,9 @@ function plural(count: number, singular: string, pluralWord: string) {
 }
 
 export async function POST(req: Request) {
-  const body = (await req.json()) as Body;
+  const parsedBody = await readJsonObjectOrError(req, 2 * 1024 * 1024);
+  if (parsedBody instanceof NextResponse) return parsedBody;
+  const body = parsedBody as Body;
   const { dealIds, action } = body;
 
   if (!Array.isArray(dealIds) || dealIds.length === 0) {
@@ -548,9 +551,17 @@ async function bulkStatus({ body, scopedWhere, organizationId, userId }: Ctx) {
   if (status === "WON") {
     after(() =>
       runWithTenant(organizationId, async () => {
+        // Sem administradora ativa não existe cadastro de Ganho: sai antes do laço
+        // (antes refazia esta mesma contagem uma vez por negócio).
+        const hasAdministrator = await prisma.consortiumAdministrator
+          .count({ where: { organizationId, active: true } })
+          .catch((err) => {
+            console.error("[deal-registration] falha ao checar administradoras no Ganho em massa", err);
+            return 0;
+          });
+        if (!hasAdministrator) return;
         for (const dealId of changedIds) {
           try {
-            if (!(await prisma.consortiumAdministrator.count({ where: { organizationId, active: true } }))) return;
             await markRegistrationWon({ organizationId, dealId, userId, waivedReason });
             if (waivedReason) {
               await logAudit({

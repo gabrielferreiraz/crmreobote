@@ -5,6 +5,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { generateWebhookSecret } from "@/lib/webhooks/sign";
 import { VALID_WEBHOOK_EVENTS } from "@/lib/webhooks/enqueue";
 import { isUrlSafeToFetch } from "@/lib/webhooks/url-safety";
+import { readJsonObjectOrError } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +33,8 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const body = await req.json();
+  const body = await readJsonObjectOrError(req);
+  if (body instanceof NextResponse) return body;
   const { url, events } = body as { url?: string; events?: string[] };
 
   const access = await requireRole(["OWNER", "MANAGER"]);

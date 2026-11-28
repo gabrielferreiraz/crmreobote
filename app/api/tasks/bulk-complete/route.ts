@@ -7,6 +7,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { recordUserChange } from "@/lib/user-activity";
 import { recordUndoableAction } from "@/lib/undo/record";
 import type { BulkUpdatePayload } from "@/lib/undo/types";
+import { readJsonObjectOrError } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +28,8 @@ const MAX_TASKS_PER_COMPLETE = 200;
  * e entram no `skipped`.
  */
 export async function PATCH(req: Request) {
-  const body = await req.json();
+  const body = await readJsonObjectOrError(req);
+  if (body instanceof NextResponse) return body;
   const { taskIds } = body as { taskIds?: string[] };
 
   if (!Array.isArray(taskIds) || taskIds.length === 0) {

@@ -11,12 +11,14 @@ import { recordUserChange } from "@/lib/user-activity";
 import { recordUndoableAction } from "@/lib/undo/record";
 import type { FieldUpdatePayload } from "@/lib/undo/types";
 import { enqueueWebhookEvent, buildDealWebhookPayload } from "@/lib/webhooks/enqueue";
+import { readJsonObjectOrError } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const body = await req.json();
+  const body = await readJsonObjectOrError(req);
+  if (body instanceof NextResponse) return body;
   const { stageId, value, grossValue, pipelineId, contactSource, contactJobTitle, creditType, expectedCloseAt } = body as {
     stageId?: string;
     value?: number | null;

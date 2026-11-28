@@ -5,12 +5,14 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { VALID_TRIGGERS, VALID_ACTIONS, validateTriggerConfig, validateActionConfig, validateActionTriggerCompatibility, resolveTargetConfig } from "@/lib/automations/validation";
 import { actionEntriesToJson, parseAutomationActionsInput, resolveAutomationActions } from "@/lib/automations/actions";
 import type { $Enums, Prisma } from "@/app/generated/prisma/client";
+import { readJsonObjectOrError } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const body = await req.json();
+  const body = await readJsonObjectOrError(req);
+  if (body instanceof NextResponse) return body;
   const { name, enabled, trigger, triggerConfig, action, actionConfig, actions, targetType, targetUserIds, targetTeamId } = body as {
     name?: string;
     enabled?: boolean;

@@ -9,6 +9,7 @@ import { rateLimit, getClientIp } from "@/lib/rate-limit";
 import { setTenantOnTx } from "@/lib/tenant-context";
 import { isValidEmail } from "@/lib/email-format";
 import { isPublicSignupEnabled } from "@/lib/signup";
+import { readJsonObjectOrError } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +29,8 @@ export async function POST(req: Request) {
     );
   }
 
-  const body = await req.json();
+  const body = await readJsonObjectOrError(req);
+  if (body instanceof NextResponse) return body;
   const { name, email, password, organizationName } = body as {
     name?: string;
     email?: string;

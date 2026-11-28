@@ -3,6 +3,7 @@ import { prisma, prismaRaw } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
 import { requireRole } from "@/lib/require-role";
 import { runWithTenant, setTenantOnTx } from "@/lib/tenant-context";
+import { readJsonObjectOrError } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +23,8 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const body = await req.json();
+  const body = await readJsonObjectOrError(req);
+  if (body instanceof NextResponse) return body;
   const { name } = body as { name?: string };
 
   const access = await requireRole(["OWNER"]);

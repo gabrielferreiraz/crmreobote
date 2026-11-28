@@ -4,6 +4,7 @@ import { requireSession } from "@/lib/require-session";
 import { runWithTenant } from "@/lib/tenant-context";
 import { recordCardEvent } from "@/lib/digital-cards/events";
 import type { $Enums } from "@/app/generated/prisma/client";
+import { readJsonObjectOrError } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +20,8 @@ const VALID_RESPONSES = new Set(["ACCESSED", "REFUSED", "SELF_VIEW"]);
  */
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string; presentationId: string }> }) {
   const { id, presentationId } = await params;
-  const body = await req.json();
+  const body = await readJsonObjectOrError(req);
+  if (body instanceof NextResponse) return body;
   const { response } = body as { response?: string };
 
   const { organizationId, userId } = await requireSession();

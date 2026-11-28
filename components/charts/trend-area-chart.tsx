@@ -697,7 +697,9 @@ function dayKey(d: DailyPoint): string {
 function getTodayBrazilKey(): string {
   try {
     const parts = new Intl.DateTimeFormat("en-CA", {
-      timeZone: "America/Sao_Paulo",
+      // Mesmo fuso dos dias que o servidor manda (lib/timezone.ts) — com
+      // Sao_Paulo (UTC-3) o "hoje" virava 1h antes da meia-noite de MS.
+      timeZone: "America/Campo_Grande",
       year: "numeric",
       month: "2-digit",
       day: "2-digit",

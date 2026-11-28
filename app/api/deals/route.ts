@@ -12,6 +12,7 @@ import { validateCustomFieldValues } from "@/lib/custom-fields";
 import { recordUserChange } from "@/lib/user-activity";
 import { publishDealsEvent } from "@/lib/deals/live-events";
 import { enqueueWebhookEvent, buildDealWebhookPayload } from "@/lib/webhooks/enqueue";
+import { readJson } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
@@ -136,7 +137,7 @@ async function ownerFromContact(organizationId: string, responsavelId: string | 
 export async function POST(req: Request) {
   let body: unknown;
   try {
-    body = await req.json();
+    body = await readJson(req);
   } catch {
     return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
   }

@@ -3770,6 +3770,7 @@ model CronRun {
   detail     String?
 
   @@index([name, startedAt])
+  @@index([startedAt])
 }
 
 model WebhookSubscription {

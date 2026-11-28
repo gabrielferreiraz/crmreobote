@@ -70,7 +70,7 @@ export function planServopaFailure(params: {
     retryAt: null,
     errorCode: exhausted ? "RETRY_LIMIT_REACHED" : params.code,
     error: exhausted
-      ? `A atualizacao parou apos ${SERVOPA_MAX_ATTEMPTS} tentativas. Ultima falha: ${params.message}`
+      ? `A atualização parou após ${SERVOPA_MAX_ATTEMPTS} tentativas. Última falha: ${params.message}`
       : params.message,
     exhausted,
   };

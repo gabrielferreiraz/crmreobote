@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/require-role";
 import { runWithTenant } from "@/lib/tenant-context";
 import { submitLista50Leads, Lista50CampaignInactiveError, type Lista50LeadInput } from "@/lib/lista-50";
+import { readJson } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
@@ -50,7 +51,7 @@ function isValidLead(v: unknown): v is Lista50LeadInput {
 export async function POST(req: Request) {
   let body: unknown;
   try {
-    body = await req.json();
+    body = await readJson(req);
   } catch {
     return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
   }

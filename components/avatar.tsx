@@ -21,8 +21,9 @@ export function Avatar({
   className?: string;
 }) {
   if (src) {
-    // eslint-disable-next-line @next/next/no-img-element
     return (
+      // URL assinada do R2/foto do WhatsApp: o otimizador de imagem do Next não ajuda aqui.
+      // eslint-disable-next-line @next/next/no-img-element
       <img
         src={src}
         alt={name}
